@@ -1,5 +1,6 @@
 package com.phairplay.airplay
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -108,6 +109,65 @@ class RtpInterleavedTest {
         assertEquals(0L, ptsReceived)
     }
 
+    // ─── STAP-A aggregation (Miracast/WFD senders ship SPS+PPS this way) ──────
+
+    @Test
+    fun `STAP-A packet delivers each contained NAL unit`() {
+        val sps = byteArrayOf(0x67, 0x42, 0x00, 0x1f)
+        val pps = byteArrayOf(0x68, 0xce, 0x06, 0xe2)
+        // STAP-A layout: indicator(0x78 = type 24) + [len(2B) NAL]+
+        val stapPayload = byteArrayOf(0x78) +
+            byteArrayOf(0x00, sps.size.toByte()) + sps +
+            byteArrayOf(0x00, pps.size.toByte()) + pps
+        val rtp = buildRtpFrame(timestampRtp90k = 90_000L, payload = stapPayload)
+        val stream = buildInterleavedStream(channel = 0, payload = rtp)
+
+        val received = mutableListOf<ByteArray>()
+        var ptsReceived = -1L
+        RtpInterleaved.readLoop(
+            inputStream = stream,
+            onVideoNalUnit = { nal, pts -> received.add(nal); ptsReceived = pts },
+            onStreamEnded = {}
+        )
+
+        assertEquals("STAP-A must deliver both contained NAL units", 2, received.size)
+        assertArrayEquals("First NAL should be the SPS", sps, received[0])
+        assertArrayEquals("Second NAL should be the PPS", pps, received[1])
+        assertEquals("Both NAL units share the packet timestamp", 1_000_000L, ptsReceived)
+    }
+
+    @Test
+    fun `malformed STAP-A length is dropped without crashing`() {
+        // Declares a 40-byte NAL but only 2 payload bytes follow
+        val payload = byteArrayOf(0x78, 0x00, 0x40, 0x11, 0x22)
+        val rtp = buildRtpFrame(timestampRtp90k = 0L, payload = payload)
+        val stream = buildInterleavedStream(channel = 0, payload = rtp)
+
+        var callbackCount = 0
+        RtpInterleaved.readLoop(
+            inputStream = stream,
+            onVideoNalUnit = { _, _ -> callbackCount++ },
+            onStreamEnded = {}
+        )
+
+        assertEquals("Malformed STAP-A must deliver nothing", 0, callbackCount)
+    }
+
+    // ─── VideoRtpProcessor (incremental API used by the Miracast media loop) ──
+
+    @Test
+    fun `VideoRtpProcessor depackets without owning the input stream`() {
+        val rtp = buildMinimalVideoRtpFrame(timestampRtp90k = 45_000L)
+        val received = mutableListOf<Pair<ByteArray, Long>>()
+
+        val processor = VideoRtpProcessor { nal, pts -> received.add(nal to pts) }
+        processor.processRtpFrame(rtp)
+
+        assertEquals(1, received.size)
+        assertEquals(0x65.toByte(), received[0].first[0])
+        assertEquals(500_000L, received[0].second)
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /**
@@ -116,6 +176,17 @@ class RtpInterleavedTest {
      * @param timestampRtp90k RTP timestamp in 90 kHz clock ticks.
      */
     private fun buildMinimalVideoRtpFrame(timestampRtp90k: Long): ByteArray {
+        val payload = byteArrayOf(0x65, 0x00, 0x00, 0x00)  // fake IDR NAL unit
+        return buildRtpFrame(timestampRtp90k, payload)
+    }
+
+    /**
+     * Builds an RTP frame with an explicit payload (12-byte fixed header).
+     *
+     * @param timestampRtp90k RTP timestamp in 90 kHz clock ticks.
+     * @param payload         RTP payload bytes (H.264 NAL or aggregation packet).
+     */
+    private fun buildRtpFrame(timestampRtp90k: Long, payload: ByteArray): ByteArray {
         val header = ByteArray(12)
         header[0] = 0x80.toByte()  // V=2, P=0, X=0, CC=0
         header[1] = 0x60.toByte()  // M=0, PT=96
@@ -127,7 +198,6 @@ class RtpInterleavedTest {
         header[6] = ((timestampRtp90k shr  8) and 0xFF).toByte()
         header[7] = ( timestampRtp90k         and 0xFF).toByte()
         // SSRC = 0 (bytes 8–11 already zero)
-        val payload = byteArrayOf(0x65, 0x00, 0x00, 0x00)  // fake IDR NAL unit
         return header + payload
     }
 

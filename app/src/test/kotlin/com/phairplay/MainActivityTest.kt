@@ -31,15 +31,32 @@ class MainActivityTest {
     // ─── Streaming overlay decision logic ────────────────────────────────────
 
     /**
-     * Replicates the exact decision lambda from [MainActivity.observeStreamingState]:
+     * Replicates the exact decision lambda from [MainActivity.updateOverlay]:
      * returns true if the overlay should be shown, false if it should be hidden.
+     *
+     * The overlay is shared by AirPlay mirroring and Miracast (WFD) sessions —
+     * either protocol being CONNECTED puts full-screen video on the display.
      */
-    private fun shouldShowStreaming(state: ProtocolState): Boolean =
-        state == ProtocolState.CONNECTED
+    private fun shouldShowStreaming(
+        airPlayState: ProtocolState,
+        miracastState: ProtocolState = ProtocolState.DISABLED
+    ): Boolean =
+        airPlayState == ProtocolState.CONNECTED || miracastState == ProtocolState.CONNECTED
 
     @Test
     fun `CONNECTED state shows streaming overlay`() {
         assertTrue(shouldShowStreaming(ProtocolState.CONNECTED))
+    }
+
+    @Test
+    fun `Miracast CONNECTED shows streaming overlay`() {
+        assertTrue(shouldShowStreaming(ProtocolState.DISABLED, ProtocolState.CONNECTED))
+    }
+
+    @Test
+    fun `overlay stays hidden until some protocol is CONNECTED`() {
+        assertFalse(shouldShowStreaming(ProtocolState.ADVERTISING, ProtocolState.ADVERTISING))
+        assertFalse(shouldShowStreaming(ProtocolState.ERROR, ProtocolState.DISABLED))
     }
 
     @Test

@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private var service: PhairPlayService? = null
     private var isBound = false
     private var currentAirPlayState = ProtocolState.DISABLED
+    private var currentMiracastState = ProtocolState.DISABLED
     private var currentPhotoFrame: PhotoFrame? = null
     private var currentNowPlaying: NowPlayingInfo? = null
     private var currentPin: String? = null
@@ -111,8 +112,13 @@ class MainActivity : AppCompatActivity() {
         // Start the service immediately so it's running before any sender discovers us
         ServiceController.start(this)
 
-        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS
-        requestNotificationPermission()
+        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS.
+        // Wi-Fi Direct permissions (ACCESS_FINE_LOCATION / NEARBY_WIFI_DEVICES)
+        // must be granted at runtime too — without them addLocalService() failed
+        // and the Miracast card showed a fake "Check Wi-Fi settings" error even
+        // though Wi-Fi was perfectly fine. One combined request avoids the system
+        // dropping a second requestPermissions() call made while a dialog is up.
+        requestRuntimePermissions()
     }
 
     override fun onStart() {
@@ -288,7 +294,9 @@ class MainActivity : AppCompatActivity() {
      * false for other keys so normal navigation is unaffected.
      */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
-        val overlayActive = currentNowPlaying != null || currentAirPlayState == ProtocolState.CONNECTED
+        val overlayActive = currentNowPlaying != null ||
+            currentAirPlayState == ProtocolState.CONNECTED ||
+            currentMiracastState == ProtocolState.CONNECTED
         if (overlayActive) {
             val command = when (keyCode) {
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -312,33 +320,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Requests POST_NOTIFICATIONS permission on Android 13+ (API 33+).
-     * On older versions the permission is granted automatically with the manifest declaration.
+     * Requests every runtime permission the app needs, in a single call:
+     * - POST_NOTIFICATIONS (Android 13+) for the foreground-service notification
+     * - ACCESS_FINE_LOCATION (all versions) + NEARYBY_WIFI_DEVICES (Android 13+)
+     *   for Wi-Fi Direct / Miracast
+     *
+     * All are install-declared but runtime-granted. Until this request existed
+     * the app never held the Wi-Fi Direct permissions, so Miracast service
+     * registration failed on every modern device and the UI blamed the user's
+     * Wi-Fi settings.
      */
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                    PERMISSION_REQUEST_NOTIFICATIONS
-                )
-            }
+    private fun requestRuntimePermissions() {
+        val missing = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            missing += android.Manifest.permission.POST_NOTIFICATIONS
+        }
+        if (ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            missing += android.Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this, PERMISSION_NEARBY_WIFI_DEVICES
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            missing += PERMISSION_NEARBY_WIFI_DEVICES
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                missing.toTypedArray(),
+                PERMISSION_REQUEST_RUNTIME
+            )
         }
     }
 
     companion object {
-        private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
+        private const val PERMISSION_REQUEST_RUNTIME = 1001
+        private const val PERMISSION_NEARBY_WIFI_DEVICES = "android.permission.NEARBY_WIFI_DEVICES"
     }
 
     // ─── Streaming overlay ────────────────────────────────────────────────────
 
     /**
-     * Observes [PhairPlayService.airPlayState] and [PhairPlayService.photoFrame]
-     * and shows the appropriate full-screen overlay.
+     * Observes [PhairPlayService.airPlayState], [PhairPlayService.miracastState],
+     * [PhairPlayService.photoFrame] and shows the appropriate full-screen overlay.
      *
      * Called once after the service is bound. The coroutine is automatically cancelled
      * by [lifecycleScope] when the Activity stops.
@@ -348,6 +380,12 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             svc.airPlayState.collectLatest { state ->
                 currentAirPlayState = state
+                updateOverlay()
+            }
+        }
+        lifecycleScope.launch {
+            svc.miracastState.collectLatest { state ->
+                currentMiracastState = state
                 updateOverlay()
             }
         }
@@ -381,7 +419,9 @@ class MainActivity : AppCompatActivity() {
             // Audio-only AirPlay (system audio, Music, podcasts): show the now-playing card instead
             // of the black video surface. Set whenever audio plays without video.
             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
-            currentAirPlayState == ProtocolState.CONNECTED -> showStreamingScreen()
+            // Full-screen video: AirPlay mirroring or a Miracast (WFD) session.
+            currentAirPlayState == ProtocolState.CONNECTED ||
+                currentMiracastState == ProtocolState.CONNECTED -> showStreamingScreen()
             photoFrame != null -> showPhotoScreen(photoFrame)
             else -> hideStreamingScreen()
         }

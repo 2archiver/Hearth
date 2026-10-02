@@ -9,7 +9,8 @@
 <resources>
 
     <!-- ── App-wide ────────────────────────────────────────────── -->
-    <string name="app_name">PhairPlay</string>
+    <!-- "(archiver)" tag shown in the launcher label, notification and Cast status text -->
+    <string name="app_name">PhairPlay (archiver)</string>
 
     <!-- ── Navigation ──────────────────────────────────────────── -->
     <string name="nav_home">Home</string>
@@ -36,7 +37,15 @@
     <string name="protocol_detail_waiting">Waiting for sender…</string>
     <!-- %1$s = sender display name -->
     <string name="protocol_detail_connected">Streaming from %1$s</string>
-    <string name="protocol_detail_error">Check Wi-Fi settings</string>
+    <!-- Fallback when a session is connected but the sender name is not known yet -->
+    <string name="protocol_detail_connected_fallback">Streaming</string>
+    <!-- Wi-Fi Direct does not expose a peer display name — used on the status card/notification -->
+    <string name="miracast_sender_name">Miracast Sender</string>
+    <!-- Per-protocol ERROR details — each card states the real reason instead of a
+         generic (and often fake) "Check Wi-Fi settings" hint. -->
+    <string name="protocol_detail_error_airplay">Receiver error — try Restart</string>
+    <string name="protocol_detail_error_miracast">Wi-Fi Direct unavailable or permission denied</string>
+    <string name="protocol_detail_error_cast">Cast App ID not set or Play Services unavailable</string>
 
     <!-- ── Service states (header badge) ───────────────────────── -->
     <string name="service_state_running">Running</string>

@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1] - 2026-10-02
+
+### Added
+
+**Miracast actually plays video now (blank-screen fix)**
+- `WfdVideoRenderer` — after WFD PLAY, interleaved RTP frames are depacketized (single NAL / STAP-A / FU-A) and H.264 is hardware-decoded onto the streaming Surface; previously the session negotiated and then showed a black screen
+- `VideoRtpProcessor` — incremental RTP→H.264 depacketizer shared with the AirPlay path; `RtpInterleaved` now understands STAP-A aggregation packets (SPS+PPS ships this way in Miracast)
+- Wi-Fi Direct peer discovery is started and refreshed while advertising — a registered `_wfd._tcp` local service was previously never broadcast because `discoverPeers()` was never called
+- Runtime permission requests for `ACCESS_FINE_LOCATION` / `NEARBY_WIFI_DEVICES` — the manifest declared them but the app never asked, so P2P service registration failed on every modern device
+- Miracast sessions now appear as the active connection (notification + status card show "Streaming from Miracast Sender")
+- "(archiver)" tag in the app label (`PhairPlay (archiver)`)
+
+### Changed
+
+- Version bumped to **1.1** (versionCode 2)
+- Protocol cards show honest, per-protocol error details instead of the blanket "Check Wi-Fi settings" guess:
+  - Miracast → "Wi-Fi Direct unavailable or permission denied"
+  - Cast → "Cast App ID not set or Play Services unavailable"
+  - AirPlay → "Receiver error — try Restart"
+- Cast reports ERROR (with the honest detail above) when it cannot run — on Fire TV and on Google TV builds without Play Services it previously claimed "Disabled — Enable in Settings" while the toggle was already on
+- Miracast/Cast no longer optimistically show "Advertising" before the receiver confirms registration
+
+### Fixed
+
+- Blank screen on Cast/Miracast: the Miracast receiver now renders incoming video; Google Cast still requires a Google-registered Cast App ID (docs/guides/CAST_APP_ID.md) and does its media work through Google's SDK
+- Connected status cards rendered the literal `%1$s` placeholder — they now show the real sender name
+- AirPlay path untouched — validated against iOS 27.0.1 / macOS senders per current user reports
+
+---
+
 ## [1.0.0-beta.1] - 2026-06-14
 
 ### Added

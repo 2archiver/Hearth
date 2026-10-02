@@ -56,6 +56,13 @@ object RtpInterleaved {
     private const val NAL_TYPE_FU_A = 28
 
     /**
+     * H.264 NAL unit type 24 = STAP-A (Single-Time Aggregation Packet).
+     * Carries several complete NAL units in one RTP packet — Miracast/WFD senders
+     * use it to ship SPS+PPS alongside the first packet of every keyframe (RFC 6184 §5.7.1).
+     */
+    private const val NAL_TYPE_STAP_A = 24
+
+    /**
      * H.264 video uses a 90 kHz RTP clock (standard for video, per RFC 6184).
      * Used to convert RTP timestamps to microsecond presentation timestamps.
      */
@@ -146,18 +153,20 @@ object RtpInterleaved {
     /**
      * Parses a video RTP frame and delivers H.264 NAL unit(s) via [callback].
      *
-     * Handles two H.264 RTP packetization modes (RFC 6184):
+     * Handles three H.264 RTP packetization modes (RFC 6184):
      * - **Single NAL unit** (type ≤ 23): the payload IS the NAL unit.
      * - **FU-A** (type = 28): a large NAL unit fragmented across multiple RTP packets.
      *   Fragments are accumulated in [fuaAccumulator] until the E (end) bit is set,
      *   then the reconstructed NAL unit is delivered and the accumulator is cleared.
+     * - **STAP-A** (type = 24): several complete NAL units aggregated in one packet;
+     *   each contained NAL unit is delivered individually (in packet order).
      *
      * @param rtpFrame       Full RTP frame bytes (header + payload).
      * @param fuaAccumulator Ongoing FU-A reassembly buffer from the previous call, or null.
      * @param callback       Called with (nalUnit, presentationTimeUs) for each complete NAL unit.
      * @return Updated FU-A accumulator (null = no FU-A in progress after this call).
      */
-    private fun processVideoRtpFrame(
+    internal fun processVideoRtpFrame(
         rtpFrame: ByteArray,
         fuaAccumulator: ByteArrayOutputStream?,
         callback: (ByteArray, Long) -> Unit
@@ -194,15 +203,58 @@ object RtpInterleaved {
 
         // Dispatch based on NAL unit type (low 5 bits of first payload byte)
         val nalType = rtpFrame[payloadOffset].toInt() and 0x1F
-        return if (nalType == NAL_TYPE_FU_A) {
-            handleFuaFragment(rtpFrame, payloadOffset, ptsUs, fuaAccumulator, callback)
-        } else {
-            // Single NAL unit mode — deliver directly
-            if (fuaAccumulator != null) {
-                Logger.w("RtpInterleaved: dropping incomplete FU-A (${fuaAccumulator.size()} B)")
+        return when {
+            nalType == NAL_TYPE_FU_A ->
+                handleFuaFragment(rtpFrame, payloadOffset, ptsUs, fuaAccumulator, callback)
+            nalType == NAL_TYPE_STAP_A -> {
+                if (fuaAccumulator != null) {
+                    Logger.w("RtpInterleaved: STAP-A discards incomplete FU-A (${fuaAccumulator.size()} B)")
+                }
+                handleStapA(rtpFrame, payloadOffset, ptsUs, callback)
+                null
             }
-            callback(rtpFrame.copyOfRange(payloadOffset, rtpFrame.size), ptsUs)
-            null
+            else -> {
+                // Single NAL unit mode — deliver directly
+                if (fuaAccumulator != null) {
+                    Logger.w("RtpInterleaved: dropping incomplete FU-A (${fuaAccumulator.size()} B)")
+                }
+                callback(rtpFrame.copyOfRange(payloadOffset, rtpFrame.size), ptsUs)
+                null
+            }
+        }
+    }
+
+    /**
+     * Unpacks an STAP-A aggregation packet and delivers each contained NAL unit.
+     *
+     * STAP-A packet layout (RFC 6184 §5.7.1):
+     * ```
+     * ┌ STAP indicator (1B) ─┐ ┌ size (2B) ┌ NAL bytes ┐ ┌ size ┌ NAL ┐ …
+     * │ F(1) NRI(2) type=24  │ │           │           │
+     * ```
+     *
+     * @param rtpFrame       Full RTP frame bytes.
+     * @param payloadOffset  Offset of the STAP-A indicator byte inside [rtpFrame].
+     * @param ptsUs          Presentation timestamp shared by all contained NAL units.
+     * @param callback       Called once per contained NAL unit.
+     */
+    private fun handleStapA(
+        rtpFrame: ByteArray,
+        payloadOffset: Int,
+        ptsUs: Long,
+        onVideoNalUnit: (ByteArray, Long) -> Unit
+    ) {
+        var offset = payloadOffset + 1  // skip the STAP-A indicator byte
+        while (offset + 2 <= rtpFrame.size) {
+            val nalLength = ((rtpFrame[offset].toInt() and 0xFF) shl 8) or
+                            (rtpFrame[offset + 1].toInt() and 0xFF)
+            offset += 2
+            if (nalLength <= 0 || offset + nalLength > rtpFrame.size) {
+                Logger.w("RtpInterleaved: malformed STAP-A length $nalLength — dropping packet")
+                return
+            }
+            onVideoNalUnit(rtpFrame.copyOfRange(offset, offset + nalLength), ptsUs)
+            offset += nalLength
         }
     }
 
@@ -268,4 +320,29 @@ object RtpInterleaved {
         }
     }
 
+}
+
+/**
+ * VideoRtpProcessor — stateful RTP → H.264 depacketizer for one media session.
+ *
+ * WHY: [RtpInterleaved.readLoop] owns its entire input stream, which fits AirPlay
+ * (the connection switches completely to RTP after RECORD). The Miracast WFD media
+ * loop must keep answering RTSP keep-alives on the same socket while RTP frames
+ * flow, so it reads the `$`-framing itself and feeds complete RTP payloads here.
+ *
+ * Holds the per-session FU-A reassembly state, exactly like [RtpInterleaved.readLoop].
+ *
+ * Example:
+ *   val processor = VideoRtpProcessor { nal, pts -> decoder.decodeNalUnit(nal, pts) }
+ *   processor.processRtpFrame(rtpPayload)   // one interleaved video frame at a time
+ */
+internal class VideoRtpProcessor(
+    private val onVideoNalUnit: (nalUnit: ByteArray, ptsUs: Long) -> Unit
+) {
+    private var fuaAccumulator: ByteArrayOutputStream? = null
+
+    /** Feeds one complete RTP packet (12-byte header + payload) from the video channel. */
+    fun processRtpFrame(rtpFrame: ByteArray) {
+        fuaAccumulator = RtpInterleaved.processVideoRtpFrame(rtpFrame, fuaAccumulator, onVideoNalUnit)
+    }
 }

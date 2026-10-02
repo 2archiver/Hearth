@@ -16,6 +16,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.R
+import com.phairplay.service.ActiveConnection
 import com.phairplay.service.PhairPlayService
 import com.phairplay.service.Protocol
 import com.phairplay.service.ProtocolState
@@ -69,6 +70,13 @@ class HomeFragment : Fragment() {
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
+
+    // Latest protocol states + active connection — needed to render each card's
+    // detail line (per-protocol error text, real sender name while streaming).
+    private var airPlayState = ProtocolState.DISABLED
+    private var miracastState = ProtocolState.DISABLED
+    private var castState = ProtocolState.DISABLED
+    private var activeConnection: ActiveConnection? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_home, container, false)
@@ -167,14 +175,54 @@ class HomeFragment : Fragment() {
             svc.serviceState.collectLatest { state -> updateServiceStateBadge(state) }
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            svc.airPlayState.collectLatest { state -> updateProtocolCard(cardAirPlay, state) }
+            svc.airPlayState.collectLatest { state ->
+                airPlayState = state
+                updateProtocolCard(
+                    cardAirPlay, state,
+                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY
+                )
+            }
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            svc.miracastState.collectLatest { state -> updateProtocolCard(cardMiracast, state) }
+            svc.miracastState.collectLatest { state ->
+                miracastState = state
+                updateProtocolCard(
+                    cardMiracast, state,
+                    R.string.protocol_detail_error_miracast, Protocol.MIRACAST
+                )
+            }
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            svc.castState.collectLatest { state -> updateProtocolCard(cardCast, state) }
+            svc.castState.collectLatest { state ->
+                castState = state
+                updateProtocolCard(
+                    cardCast, state,
+                    R.string.protocol_detail_error_cast, Protocol.CAST
+                )
+            }
         }
+        viewLifecycleOwner.lifecycleScope.launch {
+            svc.activeConnection.collectLatest { connection ->
+                activeConnection = connection
+                refreshProtocolCardDetails()
+            }
+        }
+    }
+
+    /** Re-renders the detail line of all three cards (used when the sender name changes). */
+    private fun refreshProtocolCardDetails() {
+        updateProtocolCard(
+            cardAirPlay, airPlayState,
+            R.string.protocol_detail_error_airplay, Protocol.AIRPLAY
+        )
+        updateProtocolCard(
+            cardMiracast, miracastState,
+            R.string.protocol_detail_error_miracast, Protocol.MIRACAST
+        )
+        updateProtocolCard(
+            cardCast, castState,
+            R.string.protocol_detail_error_cast, Protocol.CAST
+        )
     }
 
     /**
@@ -195,23 +243,52 @@ class HomeFragment : Fragment() {
     /**
      * Updates a single protocol status card with the current [ProtocolState].
      *
-     * @param card      The card root view (cardAirPlay, cardMiracast, or cardCast).
-     * @param state     The current state of this protocol.
+     * @param card           The card root view (cardAirPlay, cardMiracast, or cardCast).
+     * @param state          The current state of this protocol.
+     * @param errorDetailRes Honest, protocol-specific detail shown in the ERROR state
+     *                       (never a generic "Check Wi-Fi settings" guess).
+     * @param protocol       Which protocol this card represents — selects the sender
+     *                       name from the active connection while streaming.
      */
-    private fun updateProtocolCard(card: View, state: ProtocolState) {
+    private fun updateProtocolCard(
+        card: View,
+        state: ProtocolState,
+        errorDetailRes: Int,
+        protocol: Protocol
+    ) {
         val dot    = card.findViewById<View>(R.id.dot_protocol_status)
         val stateText = card.findViewById<TextView>(R.id.text_protocol_state)
         val detail = card.findViewById<TextView>(R.id.text_protocol_detail)
 
-        val (stateRes, colorRes, detailRes) = when (state) {
-            ProtocolState.DISABLED    -> Triple(R.string.protocol_state_disabled,    R.color.status_disabled,  R.string.protocol_detail_disabled)
-            ProtocolState.ADVERTISING -> Triple(R.string.protocol_state_advertising, R.color.status_running,   R.string.protocol_detail_waiting)
-            ProtocolState.CONNECTED   -> Triple(R.string.protocol_state_connected,   R.color.status_running,   R.string.protocol_detail_connected)
-            ProtocolState.ERROR       -> Triple(R.string.protocol_state_error,       R.color.status_stopped,   R.string.protocol_detail_error)
+        val (stateRes, colorRes) = when (state) {
+            ProtocolState.DISABLED    -> Pair(R.string.protocol_state_disabled,    R.color.status_disabled)
+            ProtocolState.ADVERTISING -> Pair(R.string.protocol_state_advertising, R.color.status_running)
+            ProtocolState.CONNECTED   -> Pair(R.string.protocol_state_connected,   R.color.status_running)
+            ProtocolState.ERROR       -> Pair(R.string.protocol_state_error,       R.color.status_stopped)
         }
 
         stateText.setText(stateRes)
-        detail.setText(detailRes)
+        detail.text = detailText(state, protocol, errorDetailRes)
         dot.background.setTint(requireContext().getColor(colorRes))
     }
+
+    /**
+     * Resolves the detail line for one card. While streaming, the connected card
+     * shows the actual sender name (the previous implementation rendered the raw
+     * "%1$s" format placeholder); ERROR cards show the real reason for that protocol.
+     */
+    private fun detailText(state: ProtocolState, protocol: Protocol, errorDetailRes: Int): String =
+        when {
+            state == ProtocolState.CONNECTED -> {
+                val connection = activeConnection
+                if (connection != null && connection.protocol == protocol) {
+                    getString(R.string.protocol_detail_connected, connection.senderName)
+                } else {
+                    getString(R.string.protocol_detail_connected_fallback)
+                }
+            }
+            state == ProtocolState.ERROR       -> getString(errorDetailRes)
+            state == ProtocolState.ADVERTISING -> getString(R.string.protocol_detail_waiting)
+            else                               -> getString(R.string.protocol_detail_disabled)
+        }
 }
