@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import com.phairplay.BuildConfig
 import com.phairplay.R
 import com.phairplay.settings.AppSettings
+import com.phairplay.settings.AppVersion
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
@@ -59,6 +60,8 @@ class SettingsFragment : Fragment() {
     private lateinit var rowStartOnBoot: View
     private lateinit var rowDebugOverlay: View
     private lateinit var rowForceHighRes: View
+    private lateinit var rowWhatsNew: LinearLayout
+    private lateinit var textWhatsNewValue: TextView
     private lateinit var textVersionValue: TextView
     private lateinit var rowReset: LinearLayout
 
@@ -97,6 +100,8 @@ class SettingsFragment : Fragment() {
         rowStartOnBoot      = view.findViewById(R.id.row_start_on_boot)
         rowDebugOverlay     = view.findViewById(R.id.row_debug_overlay)
         rowForceHighRes     = view.findViewById(R.id.row_force_high_res)
+        rowWhatsNew         = view.findViewById(R.id.row_whats_new)
+        textWhatsNewValue   = view.findViewById(R.id.text_whats_new_value)
         textVersionValue    = view.findViewById(R.id.text_version_value)
         rowReset            = view.findViewById(R.id.row_reset)
     }
@@ -122,6 +127,10 @@ class SettingsFragment : Fragment() {
         configureToggleRow(rowDebugOverlay, R.string.setting_debug_overlay,      R.string.setting_debug_overlay_subtitle)
         configureToggleRow(rowForceHighRes, R.string.setting_force_high_res,      R.string.setting_force_high_res_subtitle)
 
+        // The row names the release train ("1.3"), not the raw build string — the Version row
+        // below keeps BuildConfig.VERSION_NAME in full so a bug report can identify the build.
+        textWhatsNewValue.text =
+            getString(R.string.setting_whats_new_subtitle, AppVersion.train(BuildConfig.VERSION_NAME))
         textVersionValue.text = BuildConfig.VERSION_NAME
     }
 
@@ -184,6 +193,7 @@ class SettingsFragment : Fragment() {
      */
     private fun setupListeners() {
         rowDisplayName.setOnClickListener { showDisplayNameDialog() }
+        rowWhatsNew.setOnClickListener { ChangelogDialog.show(requireContext()) }
 
         setToggleListener(rowAirPlay)      { enabled -> save { it.copy(airPlayEnabled = enabled) } }
         setToggleListener(rowMiracast)     { enabled -> save { it.copy(miracastEnabled = enabled) } }

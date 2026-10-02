@@ -30,7 +30,7 @@ assignees: ''
 - Device model: (e.g., Google TV Streamer 4K, Chromecast with Google TV)
 - Android TV OS version: (e.g., Android TV OS 14)
 - TV output resolution: [ ] 4K  [ ] 1080p  [ ] don't know
-- PhairPlay version (Settings → Version on the TV): (e.g., 1.2.0-main.37)
+- PhairPlay version (Settings → Version on the TV): (e.g., 1.3.0-main.5 — the version train is also on the *What's new* row)
 - Where the APK came from: [ ] rolling `latest` release  [ ] a `v…` release  [ ] CI artifact  [ ] built it myself
 
 **Sender device:**

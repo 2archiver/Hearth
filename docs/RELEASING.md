@@ -27,7 +27,7 @@ work with either. The `latest` tag link is the one to bookmark: it is rebuilt on
 
 | Trigger | Mode | Release | Assets |
 |---------|------|---------|--------|
-| push / merge to `main` | rolling | tag `latest` (moved to the new commit, assets replaced in place) | `PhairPlay-googletv.apk`, `SHA256SUMS.txt` |
+| push / merge to `main` | rolling | tag `latest` (moved to the new commit, assets replaced in place), titled `PhairPlay v<base> — latest build (Google TV)` so the version is visible on the releases page | `PhairPlay-googletv.apk`, `SHA256SUMS.txt` |
 | push a `v*` tag | versioned | permanent release for that tag | `PhairPlay-<tag>-googletv.apk`, `PhairPlay-googletv.apk`, `SHA256SUMS.txt` |
 | **Actions → Release → Run workflow** | either | enter `latest`, or a tag such as `v1.2.0` (created from the selected branch if missing) | as above |
 

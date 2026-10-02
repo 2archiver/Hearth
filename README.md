@@ -1,6 +1,12 @@
 # PhairPlay
 
+[![Version](https://img.shields.io/badge/version-v1.3.0-2ea44f)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Google%20TV-4285f4)](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest)
+
 PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It lets your macOS or iOS/iPadOS device mirror its screen and audio directly to your TV — no Apple TV required.
+
+**Current version: [v1.3.0](#changelog)** — the stable link below always serves the newest 1.3 build.
 
 ---
 
@@ -16,10 +22,11 @@ That link never goes stale and never needs a tag, a release to be cut by hand, o
 
 | | |
 |---|---|
+| **Version** | **v1.3.0** — see [Changelog](#changelog) for what changed |
 | **APK** | [`PhairPlay-googletv.apk`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk) |
 | **Checksum** | [`SHA256SUMS.txt`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt) |
 | **Release page** | [releases/tag/latest](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) — version, versionCode, commit |
-| **Numbered releases** | [all releases](https://github.com/2archiver/phairplay-archiver-fork-/releases) — `v1.2.0` and friends stay available |
+| **Numbered releases** | [all releases](https://github.com/2archiver/phairplay-archiver-fork-/releases) — tagged versions (`v1.2.0`, …) stay available |
 | **Download page** | <https://2archiver.github.io/phairplay-archiver-fork-/> (optional; needs Pages → Source: *GitHub Actions*) |
 | **Runs on** | Google TV / Android TV OS 10+ — tested on Google TV 4K, Android TV OS 14 |
 
@@ -43,13 +50,13 @@ That link never goes stale and never needs a tag, a release to be cut by hand, o
 
 ---
 
-## Current Status — v1.3
+## Current Status — v1.3.0
 
 PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
 
 The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.
 
-v1.3 fixes the spoofed device name end to end: renaming now restarts the receivers, `GET /info` answers with the name you set instead of the Android device name, and a fresh install advertises **Apple TV**. It also adds the `pk` record iOS reads while browsing, and stops an abandoned connection from locking out the next sender. v1.2 makes releases automatic (rolling `latest` build on every merge to `main`, plus permanent `v*` tag releases), fixes the Gradle wrapper so CI can actually build the APK, and lets a 4K Google TV advertise a 4K mirror instead of a hardcoded 1080p/1440p. v1.1 added real Miracast video playback and replaced the old fake "Check Wi-Fi settings" errors with honest, per-protocol status details. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
+**v1.3 fixes the spoofed device name end to end** — renaming re-advertises immediately, `GET /info` answers with the name you set instead of the Android device name, and a fresh install advertises **Apple TV** — and stops an abandoned connection from locking out the next sender. The in-app copy is on the TV at **Settings → About → What's new**; jump to the [Changelog](#changelog) for the full 1.3 notes and earlier releases. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
 
 ### Tested with
 
@@ -101,7 +108,7 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 - **Cloud/remote streaming** — local network only
 - **Miracast audio playback** — v1.1 renders Miracast video; WFD audio is negotiated but not played yet
 - **Google Cast media playback without an App ID** — Google requires a registered Cast App ID; the control plane is ready and media flows through Google's SDK once an ID is provisioned
-- **Appearing in another app's own cast button** — that button is Google Cast, which routes to the TV's built-in Chromecast receiver, never to PhairPlay. Use iOS **Screen Mirroring** (Control Centre) instead; see [Troubleshooting → Casting from an iPhone app](docs/guides/TROUBLESHOOTING.md#casting-from-an-iphone-app-rumble-youtube-)
+- **Appearing under "Google Devices" in another app's cast picker** — that entry is Google Cast, which routes to the TV's built-in Chromecast receiver (or to PhairPlay once a Cast App ID is registered), never to the AirPlay receiver. Apps that offer both — the Rumble iOS app lists **Apple Devices** *and* **Google Devices** — reach PhairPlay through **Apple Devices**; apps that only offer Google Cast (YouTube on iOS, for example) need iOS **Screen Mirroring** (Control Centre). See [Troubleshooting → Casting from an iPhone app](docs/guides/TROUBLESHOOTING.md#casting-from-an-iphone-app-rumble-youtube-)
 
 ---
 
@@ -174,7 +181,7 @@ https://github.com/2archiver/phairplay-archiver-fork-/releases/download/v1.2.0/P
    ```
    The version comes from `phairplay.versionName` in `gradle.properties`; the versionCode is
    derived from the clock so every local build installs over the previous one. Override either
-   with `-Pphairplay.versionName=1.2.0 -Pphairplay.versionCode=10200`.
+   with `-Pphairplay.versionName=1.3.0 -Pphairplay.versionCode=10200`.
 
    To run the same local checks used by CI before testing on a TV:
    ```bash
@@ -220,7 +227,7 @@ If Android refuses the update with `INSTALL_FAILED_VERSION_DOWNGRADE` or a signa
 
 1. Launch PhairPlay on your TV. You will see the Waiting Screen with your TV's name.
 2. **iPhone/iPad:** open Control Centre → **Screen Mirroring** → select your TV. **Mac:** click the **AirPlay** icon in the menu bar (or **System Settings → Displays → AirPlay Display**).
-3. Select your TV from the list (it should appear as your TV's name).
+3. Select your TV from the list — it appears under the name from **Settings → Device Name** (`Apple TV` by default).
 4. Your screen appears on the TV. Portrait phone streams are aspect-fitted, not stretched.
 5. On a 4K Google TV, turn on **Settings → Higher resolution (up to 4K)** for a sharper mirror; turn it off again if your TV struggles to decode it.
 6. To stop: turn off Screen Mirroring/AirPlay on the sender, or quit PhairPlay on the TV.
@@ -243,6 +250,41 @@ If Android refuses the update with `INSTALL_FAILED_VERSION_DOWNGRADE` or a signa
 For real-device failures, run `tools/collect-device-logs.sh` before restarting the app. It captures package state, memory, CPU, and filtered PhairPlay logs into `device-test-logs/`.
 
 ---
+
+## Changelog
+
+The short version — what changed for people using the app — lives here. The full, developer-level history (every fix, every internal change) is in [CHANGELOG.md](CHANGELOG.md), and the same summary is on the TV under **Settings → About → What's new**.
+
+### v1.3.0 — 2 October 2026
+
+**Fixed — the device name, end to end**
+
+- **Renaming actually renames.** Saving a new name (and *Reset to default*) now restarts the receivers, so the mDNS advert broadcasts the new name within a second instead of keeping the old one until a manual Restart.
+- **`GET /info` answers with your name.** It used to reply with the Android device name — and `GET /info` is the value an iPhone displays after finding a device by browsing, which is why the sender's picker ignored a rename.
+- **The Home screen agrees with Settings**, and shows the name that was really registered when mDNS resolves a collision (`Apple TV (2)`) instead of the requested one.
+- **A fresh install advertises `Apple TV`** (matching the `AppleTV5,3` model PhairPlay already reports), and so does *Reset to default*.
+- **A sender that disappears mid-handshake no longer locks out the next one.** Control connections time out after two minutes of silence until a session starts; a live stream is never dropped for being quiet.
+
+**Improved**
+
+- The AirPlay advertisement matches a real Apple TV more closely: `protovers=1.1` and `manufacturer=Apple` were added to the `_airplay._tcp` TXT record.
+- Advertised names are cleaned in one place (`MdnsNames`): characters that corrupt a Bonjour record are stripped, whitespace is collapsed, and the 63-byte DNS-SD limit is applied on a UTF-8 boundary.
+
+**New**
+
+- **What's new in Settings** — the changelog on the TV, at *Settings → About → What's new*.
+- **[Troubleshooting guide](docs/guides/TROUBLESHOOTING.md)** for a name that doesn't show up on the sender, and for casting from an iPhone app.
+
+### Earlier releases
+
+| Version | Date | Highlights |
+|---|---|---|
+| **v1.3.0** | 2026-10-02 | Device name fixed end to end, `Apple TV` default, abandoned connections no longer lock the receiver |
+| v1.2.0 | 2026-10-02 | Automatic releases (rolling `latest` + numbered tags), 4K mirroring on a 4K Google TV, Gradle wrapper fixed |
+| v1.1 | 2026-10-02 | Miracast video playback, honest per-protocol status and error details |
+| v1.0.0-beta.1 | 2026-06-14 | First published build — the complete AirPlay 2 receiver |
+
+Every build, including checksums and older versions: [all releases](https://github.com/2archiver/phairplay-archiver-fork-/releases). The full notes for each version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

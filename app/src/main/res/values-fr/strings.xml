@@ -38,6 +38,8 @@
     <string name="setting_airplay_enabled">Récepteur AirPlay</string>
     <string name="setting_miracast_enabled">Récepteur Miracast</string>
     <string name="setting_cast_enabled">Récepteur Google Cast</string>
+    <string name="setting_whats_new">Nouveautés</string>
+    <string name="setting_whats_new_subtitle">Journal des modifications — les nouveautés de la version %1$s</string>
     <string name="setting_reset_defaults">Réinitialiser les paramètres</string>
 
 </resources>
