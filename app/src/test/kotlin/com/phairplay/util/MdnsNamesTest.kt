@@ -78,11 +78,11 @@ class MdnsNamesTest {
     fun `sanitize never splits a multi-byte character`() {
         // 32 × "é" = 64 bytes when encoded — one byte over the limit, so the last
         // character must be dropped whole rather than leaving a half-written byte.
-        val accents = "é".repeat(32)
+        val accents = "\u00e9".repeat(32)
         val result = MdnsNames.sanitize(accents)
         assertEquals(31, result.length)
         assertTrue("result must be valid UTF-8 round-trip", result.toByteArray(Charsets.UTF_8).size <= 63)
-        assertEquals("é".repeat(31), result)
+        assertEquals("\u00e9".repeat(31), result)
     }
 
     @Test

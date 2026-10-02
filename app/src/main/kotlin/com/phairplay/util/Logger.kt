@@ -49,9 +49,17 @@ object Logger {
      * Logs a warning (something unexpected happened but we can recover).
      * Emitted in both debug and release builds.
      *
-     * @param message The log message.
+     * @param message   The log message.
+     * @param throwable Optional cause. When present the stack trace is attached, which is
+     *   what makes a recovered-from failure diagnosable from a bug report. Mirrors [e].
      */
-    fun w(message: String) = Timber.w(message)
+    fun w(message: String, throwable: Throwable? = null) {
+        if (throwable != null) {
+            Timber.w(throwable, message)
+        } else {
+            Timber.w(message)
+        }
+    }
 
     /**
      * Logs an error with an exception.
