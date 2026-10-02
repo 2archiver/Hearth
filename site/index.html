@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PhairPlay for Google TV — Download</title>
-<meta name="description" content="Download the PhairPlay APK for Google TV (Android TV OS 10+, tested on Android 14). Free, open-source AirPlay receiver for your TV.">
+<meta name="description" content="Download the PhairPlay APK for Google TV (Android TV OS 10+, tested on Google TV 4K with Android TV OS 14). Free, open-source AirPlay receiver for your TV.">
 <style>
   :root {
     --bg: #0e1116; --card: #171c24; --line: #262d38; --text: #e9edf3; --muted: #9aa5b4;
@@ -57,9 +57,9 @@
 </head>
 <body>
 <main>
-  <span class="badge">Google TV · Android TV OS 10+ · tested on Android 14</span>
+  <span class="badge">Google TV · Android TV OS 10+ · tested on Google TV 4K (Android TV OS 14)</span>
   <h1>PhairPlay for Google TV</h1>
-  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your Google TV — one APK, nothing else to pick.</p>
+  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your Google TV — one APK, nothing else to pick. Rebuilt automatically on every merge to <code class="inline">main</code>, so the button below always serves the newest build.</p>
 
   <section class="download" aria-label="Download">
     <a id="dl-btn" class="btn" href="" rel="noopener">
@@ -68,8 +68,9 @@
     </a>
     <div class="meta">
       <div><span class="file">PhairPlay-googletv.apk</span></div>
-      <div id="dl-meta">Latest release</div>
+      <div id="dl-meta">Rolling build from <code class="inline">main</code></div>
       <div id="dl-sha"></div>
+      <div id="dl-note">Mirrors from macOS 12+ and iOS 16+ (tested: iPhone 14, iOS 27.0.1).</div>
     </div>
   </section>
 
@@ -80,8 +81,8 @@
     <ol>
       <li>Install <b>Downloader</b> (by AFTVnews) from the Google Play Store on your TV.</li>
       <li>Settings → Apps → Security &amp; restrictions → <b>Install unknown apps</b> → turn on <b>Downloader</b>.</li>
-      <li>Open Downloader and enter this address, then press <b>Go</b>:
-        <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk</pre>
+      <li>Open Downloader and enter this address, then press <b>Go</b> (it always points at the newest build):
+        <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk</pre>
       </li>
       <li>When the download finishes choose <b>Install</b>, then <b>Open</b>.</li>
     </ol>
@@ -119,7 +120,9 @@ adb install -r PhairPlay-googletv.apk</pre>
 <script>
 (function () {
   var REPO = "2archiver/phairplay-archiver-fork-";
-  var STABLE = "https://github.com/" + REPO + "/releases/latest/download/PhairPlay-googletv.apk";
+  // The rolling release rebuilt on every merge to main. This URL is tag-based, so it keeps
+  // working even when the GitHub API is unreachable or rate-limited from the browser.
+  var STABLE = "https://github.com/" + REPO + "/releases/download/latest/PhairPlay-googletv.apk";
   var $ = function (id) { return document.getElementById(id); };
 
   // Works even if the API call fails: the stable "latest" link always resolves.
@@ -140,20 +143,23 @@ adb install -r PhairPlay-googletv.apk</pre>
     .then(function (rels) {
       rels = rels.filter(function (r) { return !r.draft && apk(r); });
       if (!rels.length) {
-        $("dl-meta").textContent = "No release published yet — check back soon.";
+        $("dl-meta").textContent = "No release published yet — the first merge to main creates one.";
         $("releases").innerHTML = '<span class="err">No releases yet.</span>';
         return;
       }
-      var latest = rels.filter(function (r) { return !r.prerelease; })[0] || rels[0];
+      // Prefer the rolling `latest` release; fall back to the newest numbered one.
+      var rolling = rels.filter(function (r) { return r.tag_name === "latest"; })[0];
+      var latest = rolling || rels.filter(function (r) { return !r.prerelease; })[0] || rels[0];
       var a = apk(latest);
       $("dl-btn").href = a.browser_download_url;
-      $("dl-label").textContent = "Download " + latest.tag_name;
-      $("dl-meta").innerHTML = "<b>" + esc(latest.tag_name) + "</b> · " + mb(a.size) + " · " + day(latest.published_at);
+      $("dl-label").textContent = (latest === rolling) ? "Download APK" : "Download " + latest.tag_name;
+      $("dl-meta").innerHTML = "<b>" + esc(latest.name || latest.tag_name) + "</b> · " + mb(a.size) + " · " + day(latest.published_at);
       if (a.digest) $("dl-sha").innerHTML = "SHA-256: <code>" + esc(a.digest.replace(/^sha256:/, "")) + "</code>";
 
       $("releases").innerHTML = rels.map(function (r) {
         var f = apk(r);
-        var pills = (r === latest ? '<span class="pill latest">latest</span>' : "") +
+        var pills = (r.tag_name === "latest" ? '<span class="pill latest">rolling build</span>' : "") +
+                    (r === latest && r.tag_name !== "latest" ? '<span class="pill latest">latest</span>' : "") +
                     (r.prerelease ? '<span class="pill">pre-release</span>' : "");
         return '<div class="rel"><div><div class="name">' + esc(r.name || r.tag_name) + pills + '</div>' +
           '<div class="sub">' + day(r.published_at) + " · " + mb(f.size) + ' · <a href="' + r.html_url + '">release notes</a></div></div>' +
