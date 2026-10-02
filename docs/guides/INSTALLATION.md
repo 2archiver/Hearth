@@ -1,12 +1,12 @@
 # Installation Guide
 
-This guide covers every way to install PhairPlay on your Android TV or Fire TV device.
+This guide covers every way to install PhairPlay on your Google TV (Android TV OS 10+, tested on Android 14).
 
 ---
 
 ## Prerequisites
 
-- A Google TV or Fire TV device (see [supported devices](../spec/REQUIREMENTS.md))
+- A Google TV device (see [supported devices](../spec/REQUIREMENTS.md))
 - A computer (Windows, macOS, or Linux) with ADB installed — OR — a direct APK sideload method
 - Both devices on the same Wi-Fi network
 
@@ -16,19 +16,14 @@ This guide covers every way to install PhairPlay on your Android TV or Fire TV d
 
 ### Step 1: Enable ADB on your TV
 
-**Google TV (Chromecast with Google TV):**
+**Google TV (Chromecast with Google TV, Google TV Streamer, TVs with Google TV):**
 1. Settings → System → About → Android TV OS Build → click 7 times
 2. Settings → System → Developer Options → USB debugging → ON
 
-**Fire TV:**
-1. Settings → My Fire TV → About → Build → click 7 times
-2. Settings → My Fire TV → Developer Options → ADB debugging → ON
-3. Settings → My Fire TV → Developer Options → Apps from Unknown Sources → ON
 
 ### Step 2: Find your TV's IP address
 
 **Google TV:** Settings → Network & Internet → your Wi-Fi → scroll down to see IP
-**Fire TV:** Settings → My Fire TV → About → Network
 
 ### Step 3: Connect ADB
 
@@ -42,11 +37,7 @@ Confirm the connection prompt that appears on your TV.
 ### Step 4: Install
 
 ```bash
-# For Google TV:
-adb install app-googletv-release.apk
-
-# For Fire TV:
-adb install app-firetv-release.apk
+adb install -r PhairPlay-googletv.apk
 ```
 
 ### Step 5: Launch
@@ -55,33 +46,32 @@ Find **PhairPlay** in your app list and launch it.
 
 ---
 
-## Method 2: Direct Sideload via USB (Fire TV Stick only)
+## Method 2: Downloader app (no computer needed)
 
-Use the **Downloader** app (available in the Fire TV app store) to download the APK directly to your Fire TV from a URL.
+Use the **Downloader** app (free, from the Google Play Store) to fetch the APK straight onto your TV.
 
-1. Install "Downloader" from the Fire TV app store
-2. Open Downloader and enter the APK download URL
-3. Follow the prompts to install
+1. Install **Downloader** from the Google Play Store on your TV
+2. Settings → Apps → Security & restrictions → **Install unknown apps** → allow **Downloader**
+3. Open Downloader and enter:
+   `https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk`
+4. Choose **Install**, then **Open**
 
 ---
 
 ## Method 3: Build from Source
 
 ```bash
-git clone https://github.com/mazer666/PhairPlay.git
-cd PhairPlay
+git clone https://github.com/2archiver/phairplay-archiver-fork-.git
+cd phairplay-archiver-fork-
 
 # Build for Google TV
 ./gradlew assembleGoogletvRelease
 
 # Build for Google TV with a registered Cast App ID
 ./gradlew assembleGoogletvRelease -Pphairplay.castAppId=<APP_ID>
-
-# Build for Fire TV
-./gradlew assembleFiretvRelease
 ```
 
-APKs are in `app/build/outputs/apk/`.
+The APK is in `app/build/outputs/apk/`.
 
 Google Cast requires a registered Cast App ID for real testing. See
 [Google Cast App ID](CAST_APP_ID.md) before testing Cast on Google TV.

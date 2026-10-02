@@ -11,12 +11,11 @@ This document explains how to run tests, what is tested, and how to perform manu
 Unit tests run on your development machine. They mock Android APIs and test the logic in isolation.
 
 ```bash
-# Run all unit tests for both flavors
+# Run all unit tests
 ./gradlew test
 
-# Run unit tests for a specific flavor
+# Run unit tests for the Google TV flavor
 ./gradlew testGoogletvDebugUnitTest
-./gradlew testFiretvDebugUnitTest
 
 # Run a single test class
 ./gradlew test --tests "com.phairplay.airplay.RtspHandlerTest"
@@ -49,8 +48,7 @@ adb devices
 
 ```bash
 ./gradlew :test-runner:test
-./gradlew :app:lintGoogletvDebug :app:lintFiretvDebug \
-  :app:assembleGoogletvDebug :app:assembleFiretvDebug
+./gradlew :app:lintGoogletvDebug :app:assembleGoogletvDebug
 ```
 
 GitHub Actions runs the same checks on `main`:
@@ -91,7 +89,7 @@ Android framework behavior.
 
 ## Manual Test Scenarios
 
-For acceptance testing before a release, perform all scenarios below on both **Google TV** and **Fire TV**.
+For acceptance testing before a release, perform all scenarios below on **Google TV** (Android 14 is the primary target).
 
 ### Before You Start
 
@@ -111,11 +109,7 @@ Install the correct debug APK:
 # Google TV with Cast enabled for real testing
 ./gradlew assembleGoogletvDebug -Pphairplay.castAppId=<APP_ID>
 
-# Google TV
 adb install -r app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
-
-# Fire TV
-adb install -r app/build/outputs/apk/firetv/debug/app-firetv-debug.apk
 ```
 
 To get the Cast App ID, register the receiver in the Google Cast SDK Developer
@@ -127,8 +121,6 @@ After a failed run, collect diagnostics before restarting the app:
 ```bash
 tools/collect-device-logs.sh
 
-# Optional: force a package if both flavors are installed
-PHAIRPLAY_PACKAGE=com.phairplay.firetv tools/collect-device-logs.sh
 ```
 
 The script writes ADB device details, package info, memory stats, process CPU, and filtered logcat output under `device-test-logs/`.

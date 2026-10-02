@@ -28,8 +28,7 @@ assignees: ''
 
 **TV Device:**
 - Device model: (e.g., Chromecast with Google TV 4K)
-- Platform: [ ] Google TV  [ ] Fire TV
-- Android/Fire OS version: (e.g., Android 12 / Fire OS 7.3.2)
+- Android TV OS version: (e.g., Android 14)
 - PhairPlay version: (e.g., 1.0.0)
 
 **Mac (AirPlay sender):**

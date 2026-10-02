@@ -46,6 +46,3 @@ Cast as an error at runtime instead of pretending Cast is ready for testing.
 With a valid ID, the Google TV flavor starts the official Cast Connect SDK.
 Media load/playback handling still requires hardware validation with matching
 Cast sender apps and DRM-free test media.
-
-Fire TV builds do not use Google Cast because Fire TV does not include Google
-Play Services.

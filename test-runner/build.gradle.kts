@@ -29,7 +29,6 @@ sourceSets {
             // Production sources + test sources in one compilation unit
             srcDirs(
                 "../app/src/main/kotlin",
-                "../app/src/firetv/kotlin",
                 "../app/src/test/kotlin",
                 "src/stubs"               // stub files shadow Android-heavy excluded files
             )

@@ -124,8 +124,7 @@ fun `RECORD triggers onStreamingStarted callback`() {
 
 Changes that affect platform-specific behavior must be implemented in the appropriate flavor directory:
 - `app/src/main/`: Shared code
-- `app/src/googletv/`: Google TV specific (API 29+ only)
-- `app/src/firetv/`: Fire TV specific (API 25+, no Google APIs)
+- `app/src/googletv/`: Google TV specific (API 29+; the only shipped flavor — Fire TV is not supported)
 
 If you use an API that requires API level 26+, wrap it in a version check:
 ```kotlin
@@ -166,7 +165,7 @@ Examples:
 ```
 feat: add NTP timing synchronization for A/V sync
 fix: prevent crash when RTSP ANNOUNCE has empty SDP body
-docs: add Fire TV sideloading instructions to README
+docs: add Downloader sideloading instructions to README
 test: add unit tests for AES-128-CTR decryption
 ```
 

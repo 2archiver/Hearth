@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhairPlay for Google TV — Download</title>
+<meta name="description" content="Download the PhairPlay APK for Google TV (Android TV OS 10+, tested on Android 14). Free, open-source AirPlay receiver for your TV.">
+<style>
+  :root {
+    --bg: #0e1116; --card: #171c24; --line: #262d38; --text: #e9edf3; --muted: #9aa5b4;
+    --accent: #5aa9ff; --accent-2: #3b82f6; --ok: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px;
+    background: #1d2a3d; color: var(--accent); border: 1px solid #2b4263; }
+  h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.1; margin: 14px 0 10px; }
+  .lead { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 620px; }
+
+  .download { background: linear-gradient(160deg, #1a2433, var(--card)); border: 1px solid var(--line);
+    border-radius: 18px; padding: 28px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 12px; background: var(--accent-2); color: #fff;
+    text-decoration: none; font-weight: 700; font-size: 20px; padding: 16px 28px; border-radius: 12px;
+    outline-offset: 3px; transition: transform .1s, background .1s; }
+  .btn:hover, .btn:focus-visible { background: #2563eb; transform: scale(1.03); outline: 3px solid #fff; }
+  .btn svg { width: 24px; height: 24px; fill: currentColor; }
+  .meta { color: var(--muted); font-size: 14px; }
+  .meta b { color: var(--text); }
+  .meta code { word-break: break-all; font-size: 12px; }
+  .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ok); font-size: 14px; }
+
+  h2 { font-size: 24px; margin: 48px 0 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #0a0d12; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    overflow-x: auto; font-size: 14px; margin: 10px 0; }
+  code.inline { background: #0a0d12; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 14px; }
+
+  .rel { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;
+    padding: 14px 0; border-top: 1px solid var(--line); }
+  .rel:first-child { border-top: 0; }
+  .rel .name { font-weight: 600; }
+  .rel .sub { color: var(--muted); font-size: 13px; }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: #3a2d12; color: #fbbf24; margin-left: 6px; }
+  .pill.latest { background: #12351f; color: var(--ok); }
+  .dl { text-decoration: none; border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+  .dl:hover, .dl:focus-visible { border-color: var(--accent); }
+  .err { color: var(--muted); }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">Google TV · Android TV OS 10+ · tested on Android 14</span>
+  <h1>PhairPlay for Google TV</h1>
+  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your Google TV — one APK, nothing else to pick.</p>
+
+  <section class="download" aria-label="Download">
+    <a id="dl-btn" class="btn" href="" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
+      <span id="dl-label">Download APK</span>
+    </a>
+    <div class="meta">
+      <div><span class="file">PhairPlay-googletv.apk</span></div>
+      <div id="dl-meta">Latest release</div>
+      <div id="dl-sha"></div>
+    </div>
+  </section>
+
+  <h2>Install on your Google TV</h2>
+
+  <div class="card">
+    <h3>Option 1 — On the TV with “Downloader” (no computer)</h3>
+    <ol>
+      <li>Install <b>Downloader</b> (by AFTVnews) from the Google Play Store on your TV.</li>
+      <li>Settings → Apps → Security &amp; restrictions → <b>Install unknown apps</b> → turn on <b>Downloader</b>.</li>
+      <li>Open Downloader and enter this address, then press <b>Go</b>:
+        <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk</pre>
+      </li>
+      <li>When the download finishes choose <b>Install</b>, then <b>Open</b>.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Option 2 — From a computer with ADB</h3>
+    <ol>
+      <li>On the TV: Settings → System → About → click <b>Android TV OS build</b> 7 times, then Settings → System → Developer options → turn on <b>USB debugging</b> (Android 14 also has <b>Wireless debugging</b>).</li>
+      <li>Find the TV’s IP under Settings → Network &amp; Internet.</li>
+    </ol>
+<pre>adb connect &lt;TV-IP&gt;:5555
+adb install -r PhairPlay-googletv.apk</pre>
+  </div>
+
+  <div class="card">
+    <h3>Then</h3>
+    <ul>
+      <li>Open <b>PhairPlay</b> from your apps row and allow the permission prompts (notifications, nearby devices).</li>
+      <li>On your Mac / iPhone, open AirPlay and pick your TV. Both must be on the same Wi-Fi.</li>
+      <li>Trouble? See the <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/guides/TROUBLESHOOTING.md">troubleshooting guide</a>.</li>
+    </ul>
+  </div>
+
+  <h2>All releases</h2>
+  <div class="card" id="releases"><span class="err">Loading releases…</span></div>
+
+  <footer>
+    <a href="https://github.com/2archiver/phairplay-archiver-fork-">Source on GitHub</a> ·
+    <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases">Release notes</a> ·
+    Apache-2.0 · No ads, no analytics.
+  </footer>
+</main>
+
+<script>
+(function () {
+  var REPO = "2archiver/phairplay-archiver-fork-";
+  var STABLE = "https://github.com/" + REPO + "/releases/latest/download/PhairPlay-googletv.apk";
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Works even if the API call fails: the stable "latest" link always resolves.
+  $("dl-btn").href = STABLE;
+  $("dl-url").textContent = STABLE;
+
+  function mb(n) { return (n / 1048576).toFixed(1) + " MB"; }
+  function day(s) { return new Date(s).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+  function apk(rel) {
+    var a = (rel.assets || []).filter(function (x) { return /\.apk$/i.test(x.name); });
+    // Prefer the fixed-name asset, fall back to any APK.
+    return a.filter(function (x) { return x.name === "PhairPlay-googletv.apk"; })[0] || a[0];
+  }
+
+  fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=20", { headers: { Accept: "application/vnd.github+json" } })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (rels) {
+      rels = rels.filter(function (r) { return !r.draft && apk(r); });
+      if (!rels.length) {
+        $("dl-meta").textContent = "No release published yet — check back soon.";
+        $("releases").innerHTML = '<span class="err">No releases yet.</span>';
+        return;
+      }
+      var latest = rels.filter(function (r) { return !r.prerelease; })[0] || rels[0];
+      var a = apk(latest);
+      $("dl-btn").href = a.browser_download_url;
+      $("dl-label").textContent = "Download " + latest.tag_name;
+      $("dl-meta").innerHTML = "<b>" + esc(latest.tag_name) + "</b> · " + mb(a.size) + " · " + day(latest.published_at);
+      if (a.digest) $("dl-sha").innerHTML = "SHA-256: <code>" + esc(a.digest.replace(/^sha256:/, "")) + "</code>";
+
+      $("releases").innerHTML = rels.map(function (r) {
+        var f = apk(r);
+        var pills = (r === latest ? '<span class="pill latest">latest</span>' : "") +
+                    (r.prerelease ? '<span class="pill">pre-release</span>' : "");
+        return '<div class="rel"><div><div class="name">' + esc(r.name || r.tag_name) + pills + '</div>' +
+          '<div class="sub">' + day(r.published_at) + " · " + mb(f.size) + ' · <a href="' + r.html_url + '">release notes</a></div></div>' +
+          '<a class="dl" href="' + f.browser_download_url + '">Download APK</a></div>';
+      }).join("");
+    })
+    .catch(function () {
+      $("dl-meta").innerHTML = 'Latest release (details unavailable right now)';
+      $("releases").innerHTML = '<span class="err">Couldn’t load the list. See <a href="https://github.com/' + REPO + '/releases">all releases on GitHub</a>.</span>';
+    });
+})();
+</script>
+</body>
+</html>

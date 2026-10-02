@@ -12,13 +12,7 @@ if ! command -v adb >/dev/null 2>&1; then
 fi
 
 if [[ -z "$PACKAGE" ]]; then
-  if adb shell pm path com.phairplay.googletv >/dev/null 2>&1; then
-    PACKAGE="com.phairplay.googletv"
-  elif adb shell pm path com.phairplay.firetv >/dev/null 2>&1; then
-    PACKAGE="com.phairplay.firetv"
-  else
-    PACKAGE="com.phairplay.googletv"
-  fi
+  PACKAGE="com.phairplay.googletv"
 fi
 
 PID="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"

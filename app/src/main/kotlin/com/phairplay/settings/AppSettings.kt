@@ -44,7 +44,6 @@ data class AppSettings(
 
     /**
      * Whether the Google Cast receiver is enabled.
-     * On Fire TV (no Google Play Services), this is ignored.
      * When false: Cast SDK is not initialized.
      */
     val castEnabled: Boolean = true,
