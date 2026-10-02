@@ -114,7 +114,8 @@ class RtpInterleavedTest {
     @Test
     fun `STAP-A packet delivers each contained NAL unit`() {
         val sps = byteArrayOf(0x67, 0x42, 0x00, 0x1f)
-        val pps = byteArrayOf(0x68, 0xce, 0x06, 0xe2)
+        // 0xce / 0xe2 are above Byte.MAX_VALUE, so Kotlin needs the explicit conversion.
+        val pps = byteArrayOf(0x68, 0xce.toByte(), 0x06, 0xe2.toByte())
         // STAP-A layout: indicator(0x78 = type 24) + [len(2B) NAL]+
         val stapPayload = byteArrayOf(0x78) +
             byteArrayOf(0x00, sps.size.toByte()) + sps +
