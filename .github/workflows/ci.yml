@@ -55,54 +55,43 @@ jobs:
           set -euo pipefail
           ./gradlew :test-runner:test --stacktrace 2>&1 | tee build.log
 
-      - name: Publish failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          {
-            echo "## JVM tests failed — last 150 lines"
-            echo '```'
-            tail -n 150 build.log 2>/dev/null || echo "(no build log)"
-            echo '```'
-            echo ""
-            echo "### Failed tests"
-            echo '```'
-            grep -h -B2 "<failure" test-runner/build/test-results/test/*.xml 2>/dev/null | head -40 || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # Runner logs live on a blob host that is awkward to reach and they expire; job summaries
-      # are not readable through the REST API. So on failure, post the tail of the build log back
-      # to the pull request (or to the commit, for pushes) where anyone — or any bot — can read it.
-      - name: Report the failure where it can be read
+      - name: Report the failure (job summary + comment)
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -uo pipefail
-          body=$(mktemp)
+          report=$(mktemp)
           {
             echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
             echo ""
-            echo "<details><summary>Last 120 lines of the build output</summary>"
+            echo "Errors:"
+            echo '```'
+            grep -E "^e: |error:|FAILURE: |What went wrong|> Task .* FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: " build.log 2>/dev/null | head -60 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
             echo ""
             echo '```'
-            tail -n 120 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
             echo '```'
             echo ""
             echo "</details>"
             echo ""
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > "$body"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            number=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
-            gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
-              || echo "::warning::could not comment on PR #$number"
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
           else
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -f body="$(cat "$body")" > /dev/null \
+              -f body="$(cat "$report")" > /dev/null \
               || echo "::warning::could not comment on the commit"
           fi
 
@@ -157,49 +146,43 @@ jobs:
           set -euo pipefail
           ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
 
-      - name: Publish failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          {
-            echo "## Android build failed — last 150 lines"
-            echo '```'
-            tail -n 150 build.log 2>/dev/null || echo "(no build log)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # Runner logs live on a blob host that is awkward to reach and they expire; job summaries
-      # are not readable through the REST API. So on failure, post the tail of the build log back
-      # to the pull request (or to the commit, for pushes) where anyone — or any bot — can read it.
-      - name: Report the failure where it can be read
+      - name: Report the failure (job summary + comment)
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -uo pipefail
-          body=$(mktemp)
+          report=$(mktemp)
           {
             echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
             echo ""
-            echo "<details><summary>Last 120 lines of the build output</summary>"
+            echo "Errors:"
+            echo '```'
+            grep -E "^e: |error:|FAILURE: |What went wrong|> Task .* FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: " build.log 2>/dev/null | head -60 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
             echo ""
             echo '```'
-            tail -n 120 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
             echo '```'
             echo ""
             echo "</details>"
             echo ""
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > "$body"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            number=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
-            gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
-              || echo "::warning::could not comment on PR #$number"
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
           else
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -f body="$(cat "$body")" > /dev/null \
+              -f body="$(cat "$report")" > /dev/null \
               || echo "::warning::could not comment on the commit"
           fi
 
