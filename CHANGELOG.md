@@ -9,15 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet — changes collect here until the next version is cut.
+
+---
+
+## [1.2] - 2026-10-02
+
 ### Added
 
-- **Releases page** — `site/index.html` (GitHub Pages) with a one-click **Download APK** button, Downloader/ADB install steps and a list of all releases; deployed by `.github/workflows/pages.yml`
-- **Release workflow** — `.github/workflows/release.yml`: push a `v*` tag and CI builds the Google TV APK and publishes a GitHub Release containing `PhairPlay-googletv.apk` (fixed name → `releases/latest/download/PhairPlay-googletv.apk` always works), a versioned copy and `SHA256SUMS.txt`; version name/code are derived from the tag. See `docs/RELEASING.md`
+**A merge to `main` now publishes an APK — no tag, no manual release, no Pages setup**
+- **Rolling `latest` release** — `.github/workflows/release.yml` runs on every push/merge to `main`, moves the `latest` tag to that commit and replaces the assets in place, so this link always serves the newest build: `https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk` (with `SHA256SUMS.txt` beside it)
+- **Versioned releases unchanged** — pushing `v1.2.0` still creates a permanent release with `PhairPlay-v1.2.0-googletv.apk`, `PhairPlay-googletv.apk` and `SHA256SUMS.txt`; `-beta.N` tags stay pre-releases. Manual runs (**Actions → Release → Run workflow**) can publish either
+- **Concurrency guard** — release runs are serialized per ref so two builds cannot fight over the `latest` tag and its assets
+
+**4K mirroring on a 4K Google TV**
+- `MirrorResolution` — pure policy for the size advertised in `GET /info` `displays`: 1080p by default, and when Settings → *Higher resolution* is on, the largest of 1080p/1440p/4K that both the panel and the hardware H.264 decoder support (`MirrorResolutionTest` pins every rule)
+- `DisplayCaps` — device probes behind it: real panel size (`WindowMetrics` on Android 11+, `getRealMetrics` on Android 10) and the H.264 decode ceiling from `MediaCodecList`. Both are defensive — any failure falls back to 1080p instead of breaking mirroring
+- Advertised size is logged on receiver start (`AirPlay mirror advertised at 4K (3840x2160) — panel …, H.264 ceiling …`)
+
+**Releases page and docs**
+- **Releases page** — `site/index.html` (GitHub Pages) with a one-click **Download APK** button, Downloader/ADB install steps and a list of all releases; deployed by `.github/workflows/pages.yml`. Its button now points at the rolling `latest` APK, which keeps working even if the GitHub API call in the browser fails
+- **README starts with "Download the APK"** — the stable link, checksum, release page, and what to do if no APK exists yet; plus a tested-with matrix (Google TV 4K / Android TV OS 14, iPhone 14 / iOS 27.0.1, macOS 12+)
+- **`docs/RELEASING.md`** — a "Where is the APK?" table covering every location, how both release modes work, the version-numbering scheme and the signing setup
+- **`docs/guides/INSTALLATION.md`** — stable download link, `adb install -r`, and what to do on a signature mismatch or downgrade
+- **`docs/guides/TROUBLESHOOTING.md`** — new sections for soft mirroring on a 4K TV, failed APK updates (signature/downgrade/404), iOS 27 picker and Bonjour-cache quirks, and a black screen caused by an over-ambitious mirror resolution; the "Still stuck?" link pointed at an unrelated repository and now points at this one
+- **`gradlew.bat`** — Windows contributors could not build at all (only the POSIX script was committed)
+
+**CI you can actually debug**
+- Failing `CI`, `Lint` and `Release` runs write the last 150 lines of Gradle output (plus failed test names and lint findings) into the job summary — runner logs are awkward to reach from the API and expire after 90 days
+- **`tools/check-workflows.py`** — offline sanity check for workflow files: scans for TABs and stray quotes, lists every `${{ }}` expression, and pipes each `run: |` block through `bash -n`. Useful when there is no JDK around to run the build
+
+### Fixed
+
+- **The committed Gradle wrapper was not a Gradle wrapper** — `gradle/wrapper/gradle-wrapper.jar` was a hand-assembled jar: none of its wrapper classes matched Gradle 8.7's, `org.gradle.wrapper.SystemPropertiesHandler` was missing entirely, it carried 107 unrelated Gradle-internal classes, and it had a second wrapper jar nested inside it. `gradlew` was a different Gradle generation too. Every Gradle job — JVM tests, lint, debug APK, and any release — died with exit code 1 before doing real work, so CI could never produce an APK. Replaced with the genuine Gradle 8.7 wrapper (`gradlew`, `gradlew.bat`, `gradle-wrapper.jar`) matching the `gradle-8.7-bin.zip` that `gradle-wrapper.properties` already requested
+- **The Miracast receiver never compiled** — `MiracastReceiver.stopPeerDiscovery()` called `WifiP2pManager.cancelDiscoverPeers()`, which does not exist (that name belongs to NsdManager/Bluetooth); the Wi-Fi Direct API is `stopPeerDiscovery(Channel, ActionListener)`. One unresolved reference was enough to fail `:app:compileGoogletvDebugKotlin` *and* `:test-runner:compileKotlin`, so lint, the debug APK and every release were impossible
+- **`RtpInterleavedTest` used `0xce` / `0xe2` as `Byte` literals** — both are above `Byte.MAX_VALUE`, so Kotlin rejects them without an explicit `.toByte()`; the byte values are unchanged
+- **Lint aborted the build on `ChromeOsAbiSupport`** — the check wants an x86/x86_64 binary for ChromeOS, but PhairPlay ships for Google TV only where every device is ARM. With `warningsAsErrors` on, that advisory alone stopped `lintGoogletvDebug` and the debug APK build; it is now disabled with the reasoning recorded next to it
+- **CI never installed CMake** — the native FairPlay/ALAC build needs `cmake;3.22.1`, which is not on the runner image (it ships 3.31.5 and 4.1.2); `ndk;28.2.13676358` is now named explicitly as well instead of relying on AGP auto-download
+- **The `Releases page` workflow failed on every run** — `actions/configure-pages` 404s until Pages exists. It now passes `enablement: true`, so a run from `main` switches Pages to the "GitHub Actions" source by itself, and pull-request runs skip instead of going red
+- **`GET /info` always advertised 1080p (or a hardcoded 1440p)** regardless of the TV — see `MirrorResolution` above
 
 ### Changed
 
-- **Google TV only** — the APK is now optimized for Google TV (Android TV OS 10+, targeting Android 14): `minSdk 29` for the whole app, native libraries built for ARM only (`armeabi-v7a`, `arm64-v8a`) for a smaller APK
-- Release builds without a keystore are signed with the debug key instead of being left unsigned (an unsigned APK cannot be installed)
+- Version **1.1 → 1.2.0**, now held in one place (`phairplay.versionName` in `gradle.properties`)
+- **versionCode is derived from the clock** (minutes since 2024-01-01 UTC) instead of the version number, so it increases with *every* build on both release paths and a new APK always installs over the old one. A version-derived code cannot do that: rolling builds from `main` would collide with, or be outranked by, the numbered release of the same version. Rolling builds are published as `<base>-main.<run number>`
+- **Settings → "Higher resolution (up to 4K)"** replaces "Higher resolution (1440p)"; still opt-in and still capped by the hardware
+- **Google TV only** — the APK is optimized for Google TV (Android TV OS 10+, developed and tested on Google TV 4K with Android TV OS 14): `minSdk 29` for the whole app, native libraries built for ARM only (`armeabi-v7a`, `arm64-v8a`) for a smaller APK
+- Release builds without a keystore are signed with the debug key instead of being left unsigned (an unsigned APK cannot be installed). The workflow now warns loudly when the signing secrets are missing, because a debug key differs on every runner and forces an uninstall before the next update
 
 ### Removed
 

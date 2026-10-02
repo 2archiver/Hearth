@@ -75,10 +75,14 @@ data class AppSettings(
 
     // ─── Video ─────────────────────────────────────────────────────────────
     /**
-     * When true, advertise a higher mirroring resolution (1440p) in the AirPlay `/info`
-     * `displays` record so macOS renders/encodes the mirror at 2560×1440 instead of 1920×1080.
-     * The TV surface is 1080p, so frames are downscaled (sharper text via supersampling) at
-     * the cost of more decode work — heavier on low-end SoCs.
+     * When true, advertise a higher mirroring resolution than 1080p in the AirPlay `/info`
+     * `displays` record — up to 4K on a 4K Google TV, 1440p where that is the ceiling — so the
+     * sender renders and encodes a sharper image. Frames are then downscaled to the app surface
+     * (supersampling: sharper text) at the cost of more decode work, which is why this stays
+     * opt-in for low-end SoCs.
+     *
+     * The size actually advertised is always capped by what this TV can show and decode —
+     * see [advertisedMirrorResolution].
      */
     val forceHighResolution: Boolean = false,
 
@@ -91,9 +95,32 @@ data class AppSettings(
     val mirrorAudioEnabled: Boolean = true
 ) {
 
-    /** Advertised mirroring display size: 2560×1440 when [forceHighResolution], else 1920×1080. */
-    val mirrorWidth: Int get() = if (forceHighResolution) 2560 else 1920
-    val mirrorHeight: Int get() = if (forceHighResolution) 1440 else 1080
+    /**
+     * The mirroring resolution to advertise to AirPlay senders for this TV.
+     *
+     * With [forceHighResolution] off (the default) the answer is always 1080p. With it on the
+     * answer is the largest of 1080p / 1440p / 4K that both the panel and the hardware H.264
+     * decoder support — so a 4K Google TV gets a 4K mirror and a 1080p TV never gets one it
+     * could not decode. Policy lives in [MirrorResolution]; device facts come from
+     * `com.phairplay.util.DisplayCaps`.
+     *
+     * @param panelWidth   real panel width, e.g. 3840 on a 4K Google TV
+     * @param panelHeight  real panel height, e.g. 2160
+     * @param decodeWidth  largest width the H.264 decoder reports supporting
+     * @param decodeHeight largest height it reports supporting
+     */
+    fun advertisedMirrorResolution(
+        panelWidth: Int,
+        panelHeight: Int,
+        decodeWidth: Int,
+        decodeHeight: Int
+    ): MirrorResolution = MirrorResolution.pick(
+        preferHighResolution = forceHighResolution,
+        panelWidth = panelWidth,
+        panelHeight = panelHeight,
+        decodeWidth = decodeWidth,
+        decodeHeight = decodeHeight
+    )
 
     /**
      * Returns the validated, trimmed display name.

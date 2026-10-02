@@ -1,33 +1,46 @@
-# Release workflow — builds the Google TV APK and publishes a GitHub Release.
+# Release workflow — builds the Google TV APK and publishes GitHub Releases.
 #
-# Trigger: push a tag like v1.2.0 (or v1.2.0-beta.1 for a pre-release),
-# or run it manually from the Actions tab and enter the tag.
+# Two modes, one job:
+#   push/merge to main → rebuilds the ROLLING release tagged `latest`
+#                        assets: PhairPlay-googletv.apk + SHA256SUMS.txt
+#   push of a v* tag   → permanent VERSIONED release (v1.2.0, v1.2.1, …)
+#                        assets: PhairPlay-<tag>-googletv.apk + PhairPlay-googletv.apk + SHA256SUMS.txt
+#   workflow_dispatch  → either: leave the tag as "latest", or enter v1.2.0
 #
-# Every release contains exactly these files:
-#   PhairPlay-<tag>-googletv.apk   versioned APK
-#   PhairPlay-googletv.apk         same APK under a fixed name, so this link always works:
-#       https://github.com/<owner>/<repo>/releases/latest/download/PhairPlay-googletv.apk
-#   SHA256SUMS.txt                 checksums
+# Merging to main is therefore enough to publish an APK — no tag and no Pages setup needed.
+# This link always serves the newest build:
+#   https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-googletv.apk
 #
-# Signing (recommended — lets new versions update old ones): add these repository secrets
+# versionCode = minutes since 2024-01-01 UTC, so it grows with every build and a new APK
+# installs straight over the old one. That only holds while the signing key stays the same,
+# so add the signing secrets below — otherwise the debug key differs on every runner and the
+# TV asks you to uninstall first.
+#
+# Signing secrets (Settings → Secrets and variables → Actions):
 #   KEYSTORE_BASE64   base64 of your .jks   (base64 -w0 phairplay-release.jks)
 #   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
-# Without them the APK is signed with a throw-away debug key: it installs fine, but a later
-# release signed with a different key must be uninstalled first.
 
 name: Release
 
 on:
   push:
+    branches: [ "main" ]
     tags: [ "v*" ]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. v1.2.0 (created from the selected branch if missing)"
-        required: true
+        description: 'What to publish: "latest" (rolling build from main) or a version tag such as v1.2.0'
+        required: false
+        default: 'latest'
 
 permissions:
   contents: write
+  pull-requests: write
+
+# Release builds must not overlap: two runs would fight over the `latest` tag and its assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -35,24 +48,77 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      # Event payloads reach the shell through env, never by interpolation into a script.
+      INPUT_TAG: ${{ github.event.inputs.tag }}
+      REPO: ${{ github.repository }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate tag and derive version
-        id: ver
+      # ── What are we publishing? ────────────────────────────────────────────
+      - name: Derive release mode, version and versionCode
+        id: meta
+        shell: bash
         run: |
-          if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)(\.([0-9]+))?(-.+)?$ ]]; then
-            echo "Tag must look like v1.2.0 (got: $TAG)" >&2; exit 1
-          fi
-          major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}; patch=${BASH_REMATCH[4]:-0}
-          echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
-          # 1.2.3 -> 10203: always increases with the version, so updates install over older builds
-          echo "code=$(( major * 10000 + minor * 100 + patch ))" >> "$GITHUB_OUTPUT"
-          [[ "$TAG" == *-* ]] && echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT" || echo "prerelease=" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
 
+          # Single source of truth for the base version, bumped per release train.
+          base=$(sed -n 's/^phairplay\.versionName=//p' gradle.properties | tr -d ' \r')
+          if [[ -z "$base" ]]; then
+            echo "::error::phairplay.versionName is missing from gradle.properties"
+            exit 1
+          fi
+
+          # Minutes since 2024-01-01T00:00:00Z (1704067200 / 60 = 28401120). Strictly increases
+          # with every build — main builds and tag builds alike — so a new APK always updates the
+          # installed one instead of being rejected as a downgrade. Fits in Int32 for ~4000 years.
+          code=$(( $(date -u +%s) / 60 - 28401120 ))
+
+          tag_in="${INPUT_TAG:-}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            mode=tagged; tag="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "$tag_in" && "$tag_in" != "latest" ]]; then
+            mode=tagged; tag="$tag_in"          # manual run for a specific version
+          else
+            mode=rolling; tag=latest            # merge/push to main
+          fi
+
+          if [[ "$mode" == tagged ]]; then
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Tag must look like v1.2.0 (got: $tag)"
+              exit 1
+            fi
+            version="${tag#v}"
+            prerelease=""
+            [[ "$tag" == *-* ]] && prerelease="--prerelease"   # v1.2.0-beta.1
+          else
+            # Rolling build: base version + workflow run number, so the version shown in the
+            # app's Settings screen grows with every merge to main too.
+            version="${base}-main.${GITHUB_RUN_NUMBER}"
+            prerelease=""
+          fi
+
+          {
+            echo "mode=$mode"
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "code=$code"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Mode | \`$mode\` |"
+            echo "| Release tag | \`$tag\` |"
+            echo "| versionName | \`$version\` |"
+            echo "| versionCode | \`$code\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Toolchain ──────────────────────────────────────────────────────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -63,10 +129,12 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
+      # NDK 28.2.13676358 is preinstalled on ubuntu-latest; cmake;3.22.1 is not, and AGP needs
+      # it for the native FairPlay/ALAC build. Naming both keeps the build off auto-download.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-35 build-tools;35.0.0'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
@@ -77,52 +145,219 @@ jobs:
           SECRET_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SECRET_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
         run: |
           if [[ -n "$KEYSTORE_BASE64" ]]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-            echo "KEYSTORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=$SECRET_KEY_ALIAS" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
-            echo "Signing with the release keystore."
+            {
+              echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
+              echo "KEYSTORE_PASSWORD=$SECRET_STORE_PASSWORD"
+              echo "KEY_ALIAS=$SECRET_KEY_ALIAS"
+              echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the release keystore — updates install over previous builds."
+            echo "Signing: release keystore" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::No KEYSTORE_BASE64 secret — signing with the debug key. Add signing secrets for update-safe releases."
+            echo "::warning::No KEYSTORE_BASE64 secret — signing with a throw-away debug key. Add the signing secrets (docs/RELEASING.md) so a new APK updates the old one without uninstalling."
+            echo "Signing: **debug key** (add \`KEYSTORE_BASE64\` for update-safe releases)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # ── Build ──────────────────────────────────────────────────────────────
       - name: Build release APK
-        run: >
-          ./gradlew :app:assembleGoogletvRelease --stacktrace
-          -Pphairplay.versionName=${{ steps.ver.outputs.name }}
-          -Pphairplay.versionCode=${{ steps.ver.outputs.code }}
-
-      - name: Collect release files
+        env:
+          BUILD_VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_CODE: ${{ steps.meta.outputs.code }}
+        shell: bash
         run: |
+          set -euo pipefail
+          ./gradlew :app:assembleGoogletvRelease --stacktrace \
+            -Pphairplay.versionName="$BUILD_VERSION" \
+            -Pphairplay.versionCode="$BUILD_CODE" 2>&1 | tee build.log
+
+      - name: Collect release assets
+        id: assets
+        env:
+          MODE: ${{ steps.meta.outputs.mode }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p dist
           src=$(ls app/build/outputs/apk/googletv/release/*.apk | head -1)
-          cp "$src" "dist/PhairPlay-${TAG}-googletv.apk"
-          cp "$src" "dist/PhairPlay-googletv.apk"
+          cp "$src" dist/PhairPlay-googletv.apk
+          if [[ "$MODE" == tagged ]]; then
+            cp "$src" "dist/PhairPlay-${TAG}-googletv.apk"
+          fi
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "sha256=$(sha256sum dist/PhairPlay-googletv.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "size_mb=$(du -m dist/PhairPlay-googletv.apk | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "APK: \`$(basename "$src")\` → \`dist/PhairPlay-googletv.apk\` ($(du -h dist/PhairPlay-googletv.apk | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish GitHub Release
+      # ── Publish: rolling `latest` release (every merge to main) ─────────────
+      - name: Point the `latest` tag at this commit
+        if: steps.meta.outputs.mode == 'rolling'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Force-move the tag: the rolling release follows main, and moving the tag moves the
+          # release with it, so the download URL keeps working while the assets are replaced.
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+
+      - name: Publish rolling release
+        if: steps.meta.outputs.mode == 'rolling'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CODE: ${{ steps.meta.outputs.code }}
+          APK_SHA256: ${{ steps.assets.outputs.sha256 }}
+          APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
+        shell: bash
         run: |
-          notes="## PhairPlay ${TAG} for Google TV
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:7}"
+          title="PhairPlay latest (Google TV)"
+          notes=$(cat <<EOF
+          **Always the newest build from \`main\`.** Rebuilt on every merge, so this release never goes stale.
+
+          | | |
+          |---|---|
+          | Download | \`PhairPlay-googletv.apk\` (below) |
+          | Direct link | https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk |
+          | Version | ${VERSION} · versionCode ${CODE} |
+          | Size / SHA-256 | ${APK_SIZE_MB} MB · \`${APK_SHA256}\` |
+          | Commit | [${short_sha}](https://github.com/${REPO}/commit/${GITHUB_SHA}) |
+          | Runs on | Google TV / Android TV OS 10+ (tested: Google TV 4K, Android TV OS 14) |
+          | Mirrors from | macOS 12+, iPhone/iPad iOS 16+ (tested: iPhone 14, iOS 27.0.1) |
+
+          Install: on the TV open **Downloader** and paste the direct link, or
+          \`adb install -r PhairPlay-googletv.apk\` —
+          [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
+
+          Updating over an existing install works when the signing key matches. If the TV
+          refuses the update, uninstall PhairPlay once and install this APK.
+
+          Numbered releases (\`v1.2.0\`, …) stay available under
+          [All releases](https://github.com/${REPO}/releases).
+          EOF
+          )
+
+          if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload latest dist/* --repo "$REPO" --clobber
+            gh release edit latest --repo "$REPO" --title "$title" --notes "$notes" --latest
+            echo "Updated the rolling \`latest\` release."
+          else
+            gh release create latest dist/* --repo "$REPO" \
+              --title "$title" --notes "$notes" --target "$GITHUB_SHA" --latest
+            echo "Created the rolling \`latest\` release."
+          fi
+          {
+            echo ""
+            echo "Rolling release: https://github.com/${REPO}/releases/tag/latest"
+            echo ""
+            echo "APK: https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Publish: permanent versioned release (v* tag) ───────────────────────
+      - name: Publish versioned release
+        if: steps.meta.outputs.mode == 'tagged'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CODE: ${{ steps.meta.outputs.code }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          APK_SHA256: ${{ steps.assets.outputs.sha256 }}
+          APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="PhairPlay ${TAG} (Google TV)"
+          notes=$(cat <<EOF
+          ## PhairPlay ${TAG} for Google TV
 
           **Download \`PhairPlay-googletv.apk\` below** — that is the only file you need.
 
-          Built for Google TV / Android TV OS 10+ (tested target: Android 14). See the
-          [install guide](https://github.com/${{ github.repository }}/blob/main/docs/guides/INSTALLATION.md)
-          for Downloader and ADB steps.
+          | | |
+          |---|---|
+          | Version | ${VERSION} · versionCode ${CODE} |
+          | Size / SHA-256 | ${APK_SIZE_MB} MB · \`${APK_SHA256}\` |
+          | Runs on | Google TV / Android TV OS 10+ (tested: Google TV 4K, Android TV OS 14) |
+          | Mirrors from | macOS 12+, iPhone/iPad iOS 16+ (tested: iPhone 14, iOS 27.0.1) |
 
-          ---
-          "
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
+          Install: on the TV open **Downloader** and paste the link below, or
+          \`adb install -r PhairPlay-googletv.apk\` —
+          [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
+
+          https://github.com/${REPO}/releases/download/${TAG}/PhairPlay-googletv.apk
+
+          Prefer the newest build from \`main\` instead? See the rolling
+          [\`latest\` release](https://github.com/${REPO}/releases/tag/latest).
+          EOF
+          )
+
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --title "$title" --notes "$notes"
           else
-            gh release create "$TAG" dist/* \
-              --title "PhairPlay $TAG (Google TV)" \
-              --notes "$notes" --generate-notes \
-              --target "${{ github.sha }}" \
-              ${{ steps.ver.outputs.prerelease }}
+            # gh creates the tag at --target when it does not exist yet (manual runs).
+            # A stable release is also marked "Latest"; pre-releases are not.
+            gh release create "$TAG" dist/* --repo "$REPO" \
+              --title "$title" --notes "$notes" --generate-notes \
+              --target "$GITHUB_SHA" $PRERELEASE \
+              $([[ -z "$PRERELEASE" ]] && echo --latest || true)
+          fi
+          {
+            echo ""
+            echo "Release: https://github.com/${REPO}/releases/tag/${TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Diagnostics ────────────────────────────────────────────────────────
+      # Runner logs live on a blob host that is awkward to reach and they expire, and job
+      # summaries are not readable through the REST API — so a failure reports itself: the
+      # compiler errors and the Gradle failure block go to the job summary AND back to the
+      # pull request (or the commit, for pushes to main and tags).
+      - name: Report the failure (job summary + comment)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          report=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "Errors:"
+            echo '```'
+            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
+            # failing unit test names itself; head keeps a wall of warnings from pushing the
+            # real error out of the report.
+            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
+            echo ""
+            echo '```'
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$report")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
           fi

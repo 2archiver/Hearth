@@ -1,5 +1,8 @@
 # Lint Workflow — runs Android Lint on every push and pull request.
 # Helps maintain code quality and catch potential bugs early.
+#
+# A failing run publishes the tail of the Gradle output (and the lint report, if one was
+# produced) to the job summary so the cause is readable without downloading runner logs.
 
 name: Lint
 
@@ -8,6 +11,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
 
 jobs:
   android-lint:
@@ -34,11 +42,12 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
-      # Set up Android SDK with required components
+      # Set up Android SDK with required components. NDK 28.2.13676358 is preinstalled on
+      # ubuntu-latest; cmake;3.22.1 is not and AGP needs it for the native FairPlay/ALAC build.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-35 build-tools;35.0.0'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
 
       # Write local.properties (AGP requires sdk.dir to locate the Android SDK)
       - name: Write local.properties
@@ -48,7 +57,53 @@ jobs:
       # The lint configuration in app/build.gradle.kts controls what is reported.
       # See: https://developer.android.com/studio/write/lint
       - name: Run Android Lint
-        run: ./gradlew ${{ matrix.lint_task }} --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew ${{ matrix.lint_task }} --stacktrace 2>&1 | tee build.log
+
+      - name: Report the failure (job summary + comment)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          report=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "Errors:"
+            echo '```'
+            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
+            # failing unit test names itself; head keeps a wall of warnings from pushing the
+            # real error out of the report.
+            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
+            echo ""
+            echo '```'
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$report")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       # Upload the lint report so it's easy to review in GitHub
       - name: Upload Lint report
@@ -58,3 +113,4 @@ jobs:
           name: lint-report-${{ matrix.flavor }}
           path: app/build/reports/lint-results-*.html
           retention-days: 30
+          if-no-files-found: ignore

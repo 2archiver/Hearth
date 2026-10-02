@@ -305,7 +305,9 @@ class MiracastReceiver(
         val activeChannel = channel ?: return
         if (!hasWifiP2pPermission()) return
         try {
-            manager.cancelDiscoverPeers(
+            // WifiP2pManager's API is stopPeerDiscovery(Channel, ActionListener) — there is no
+            // cancelDiscoverPeers (that name belongs to NsdManager/Bluetooth discovery).
+            manager.stopPeerDiscovery(
                 activeChannel,
                 object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {

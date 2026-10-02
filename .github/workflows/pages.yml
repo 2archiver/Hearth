@@ -1,7 +1,13 @@
-# Publishes the releases/download page (site/) to GitHub Pages.
-# One-time setup: repo Settings → Pages → Build and deployment → Source: "GitHub Actions".
-# The page reads the latest release from the GitHub API in the browser, so it never needs
-# redeploying when you publish a new release.
+# Publishes the download page (site/) to GitHub Pages.
+#
+# `enablement: true` switches the repository's Pages source to "GitHub Actions" on the first
+# run, so the page needs no manual Settings → Pages step. It only needs `pages: write`
+# (below), which a push to main has; on a pull request from a fork it is skipped instead of
+# failing the build.
+#
+# The page itself reads the release list from the GitHub API in the browser, so publishing a
+# new APK never requires redeploying it. Note the APK download does NOT depend on Pages at
+# all — releases/download/latest/PhairPlay-googletv.apk works on its own.
 
 name: Releases page
 
@@ -23,12 +29,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Fork PRs and first runs cannot change repo settings; skipping keeps the build green.
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

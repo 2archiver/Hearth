@@ -1,3 +1,12 @@
+# CI — runs on every push and pull request against main.
+#
+#   jvm-tests      protocol/logic unit tests, no Android SDK needed
+#   android-build  Android Lint + debug APK (the artifact you can sideload straight from a PR)
+#
+# Failing runs publish the tail of the Gradle output to the job summary AND comment it back on
+# the pull request (or the commit, for pushes), because runner logs sit on a blob host that is
+# awkward to reach and expire after 90 days.
+
 name: CI
 
 on:
@@ -5,6 +14,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
 
 jobs:
   jvm-tests:
@@ -25,8 +39,64 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
+      # :test-runner is a plain JVM module, but it lives in the same build as :app, so Gradle
+      # configures the Android module too and wants to know where the SDK is.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
+
+      - name: Write local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
       - name: Run JVM protocol test suite
-        run: ./gradlew :test-runner:test --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :test-runner:test --stacktrace 2>&1 | tee build.log
+
+      - name: Report the failure (job summary + comment)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          report=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "Errors:"
+            echo '```'
+            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
+            # failing unit test names itself; head keeps a wall of warnings from pushing the
+            # real error out of the report.
+            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
+            echo ""
+            echo '```'
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$report")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       - name: Upload JVM test report
         uses: actions/upload-artifact@v4
@@ -63,16 +133,64 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
+      # NDK 28.2.13676358 is preinstalled on ubuntu-latest; cmake;3.22.1 is not and AGP needs
+      # it for the native FairPlay/ALAC build. Naming both avoids an auto-download mid-build.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-35 build-tools;35.0.0'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Lint and build debug APKs
-        run: ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
+
+      - name: Report the failure (job summary + comment)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          report=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "Errors:"
+            echo '```'
+            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
+            # failing unit test names itself; head keeps a wall of warnings from pushing the
+            # real error out of the report.
+            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            echo '```'
+            echo ""
+            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
+            echo ""
+            echo '```'
+            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
+            echo "--- tail ---"
+            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
+              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
+              || echo "::warning::could not comment on the pull request"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$report")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       - name: Upload build reports
         uses: actions/upload-artifact@v4
