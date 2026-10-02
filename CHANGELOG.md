@@ -67,9 +67,23 @@ TV shows up but I can't connect any more". Control connections now time out afte
 of silence **before** a session exists; once a stream is up (or a PIN is on screen waiting to
 be typed in) the timeout is cleared, so a live session is never dropped for being quiet.
 
+**The note about casting from Rumble was wrong**
+
+Rumble on iOS does not have a one-option Google Cast button: its cast picker offers **Apple
+Devices** (AirPlay) *and* **Google Devices** (Google Cast). Only the Google Devices entry
+bypasses PhairPlay — Apple Devices lists the receiver, so Rumble casts straight to it.
+`docs/guides/TROUBLESHOOTING.md` (and the README's "does not do" list) now say which entry to
+pick, instead of claiming the app's cast button is Google Cast only and that screen mirroring is
+the only route.
+
 ### Changed
 
 - Version **1.2.0 → 1.3.0** (`phairplay.versionName` in `gradle.properties`)
+- Rolling release titles now carry the version — `PhairPlay v1.3.0 — latest build (Google TV)`
+  instead of `PhairPlay latest (Google TV)` — so the version is readable straight off the
+  releases page, the repo sidebar and the API, not just from the download table
+- The README states the current version up front (badge + download table + "Current Status —
+  v1.3.0") and repeats the short changelog below the install instructions
 
 ### Added
 
@@ -77,6 +91,12 @@ be typed in) the timeout is cleared, so a live session is never dropped for bein
   (`MdnsNamesTest` pins the default, the character stripping and the byte limit)
 - `docs/guides/TROUBLESHOOTING.md` — "The name I set doesn't show up on my iPhone" and "Casting
   from an iPhone app (Rumble, YouTube, …)" — what works, what can't, and why
+- **In-app changelog** — `ChangelogDialog` + `res/values/changelog.xml`, opened from
+  **Settings → About → What's new**: the user-facing 1.3 notes on the TV, one-line summaries of
+  earlier releases, and a pointer to this file. `AppVersion` (`AppVersionTest`) reduces the raw
+  build string (`1.3.0-main.4-googletv`) to the release train the row shows.
+- **README changelog** — a "Changelog" section with the v1.3.0 highlights, an earlier-releases
+  table and a version badge, so the GitHub front page states the version itself
 
 ---
 

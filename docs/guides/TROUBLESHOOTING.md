@@ -66,20 +66,38 @@ If the name still looks wrong:
 
 ## Casting from an iPhone app (Rumble, YouTube, …)
 
-**Use Screen Mirroring for anything that must reach PhairPlay.**
+**It depends on what the app's own cast button offers.** Some apps offer AirPlay directly, some
+only offer Google Cast, and some offer both. Check the list before falling back to Screen
+Mirroring.
+
+### Rumble — it offers both: "Apple Devices" and "Google Devices"
+
+Rumble's cast button on iOS opens a picker with **two** destinations. Pick the right one:
+
+| Rumble offers | It means | Does PhairPlay appear? |
+|---|---|---|
+| **Apple Devices** | AirPlay | **Yes** — PhairPlay is listed under the name it advertises (**Apple TV** by default). Choose this one. |
+| **Google Devices** | Google Cast | Only with a registered Cast App ID — otherwise your video goes to the TV's built-in Chromecast receiver, which never hands it to PhairPlay. |
+
+So in Rumble: cast → **Apple Devices** → pick PhairPlay. Where the sender exposes transport
+control, the TV remote can play/pause/skip through the DACP reverse remote.
+
+> Earlier versions of this guide said Rumble's cast button was Google Cast only. That was
+> wrong — Rumble shows both **Apple Devices** and **Google Devices**.
+
+### Apps that only offer Google Cast (YouTube on iOS, …)
+
+If the picker has **no** Apple/AirPlay entry, use iOS Screen Mirroring for anything that must
+reach PhairPlay:
 
 1. On the iPhone, open **Control Centre → Screen Mirroring**.
 2. Pick the name PhairPlay advertises (**Apple TV** by default).
 3. Open the app and play — the whole phone screen is mirrored, including video.
 
-This is the only route that reaches PhairPlay, and it is what apps like Rumble mean by
-"screen mirroring" in their own support notes.
+### Why a "Google Devices" / Chromecast list never shows PhairPlay
 
-### Why that app's own cast button doesn't list PhairPlay
-
-If an app has its own cast icon (the rectangle-with-wi-fi-arc symbol), it is almost always
-**Google Cast**, not AirPlay. PhairPlay cannot appear in that list, and this is not a bug that
-can be fixed in this app:
+A Google Cast device list is not an AirPlay device list, so an AirPlay receiver cannot appear in
+it. This is not a bug that can be fixed in this app:
 
 - **Google Cast needs a Google-registered Cast App ID.** Google issues the ID, and a receiver
   only shows up in a Cast sender's device list once its App ID is registered and published.
@@ -90,8 +108,9 @@ can be fixed in this app:
   TCP port 8009, and on a Google TV that port is already owned by the built-in Chromecast
   receiver that ships with the device. An app cannot bind it.
 
-So: an in-app cast button sends your video to the TV's **own** built-in receiver, which plays it
-but never hands it to PhairPlay. Screen Mirroring is the route that does.
+An app that offers **Apple Devices** (AirPlay) reaches PhairPlay without any of that — which is
+why picking the AirPlay entry in Rumble works, and why Screen Mirroring is the fallback when an
+app has no AirPlay entry at all.
 
 ### If Screen Mirroring connects but the video is black
 

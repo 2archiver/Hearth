@@ -101,6 +101,9 @@
     <string name="setting_debug_overlay_subtitle">Show live FPS, queue and drop stats while streaming</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
     <string name="setting_force_high_res_subtitle">Sharper mirroring on a 4K Google TV; needs more decode power. Off = 1080p</string>
+    <string name="setting_whats_new">What\'s new</string>
+    <!-- %1$s = release train, e.g. 1.3 (see AppVersion.train) -->
+    <string name="setting_whats_new_subtitle">Changelog — everything new in version %1$s</string>
     <string name="setting_version">Version</string>
     <string name="setting_reset_defaults">Reset to defaults</string>
 

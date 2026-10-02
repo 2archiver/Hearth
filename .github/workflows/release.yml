@@ -2,6 +2,7 @@
 #
 # Two modes, one job:
 #   push/merge to main → rebuilds the ROLLING release tagged `latest`
+#                        title: "PhairPlay v<base> — latest build (Google TV)"
 #                        assets: PhairPlay-googletv.apk + SHA256SUMS.txt
 #   push of a v* tag   → permanent VERSIONED release (v1.2.0, v1.2.1, …)
 #                        assets: PhairPlay-<tag>-googletv.apk + PhairPlay-googletv.apk + SHA256SUMS.txt
@@ -218,15 +219,19 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA:0:7}"
-          title="PhairPlay latest (Google TV)"
+          # Version first: the releases page, the repository sidebar and the GitHub API all show
+          # this title, so "which version is in `latest`?" must be answerable at a glance. The
+          # rolling build number stays in the table below.
+          base_version="${VERSION%%-main.*}"
+          title="PhairPlay v${base_version} — latest build (Google TV)"
           notes=$(cat <<EOF
-          **Always the newest build from \`main\`.** Rebuilt on every merge, so this release never goes stale.
+          **PhairPlay v${base_version} — always the newest build from \`main\`.** Rebuilt on every merge, so this release never goes stale.
 
           | | |
           |---|---|
           | Download | \`PhairPlay-googletv.apk\` (below) |
           | Direct link | https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk |
-          | Version | ${VERSION} · versionCode ${CODE} |
+          | Version | **${base_version}** (rolling build \`${VERSION}\`) · versionCode ${CODE} |
           | Size / SHA-256 | ${APK_SIZE_MB} MB · \`${APK_SHA256}\` |
           | Commit | [${short_sha}](https://github.com/${REPO}/commit/${GITHUB_SHA}) |
           | Runs on | Google TV / Android TV OS 10+ (tested: Google TV 4K, Android TV OS 14) |

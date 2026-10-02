@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    changelog.xml — the in-app "What's new" changelog (Settings → About → What's new).
+
+    This is the SHORT, user-facing version of the repository's CHANGELOG.md: one block per
+    release, keeping only what someone using the receiver would notice. The developer-level
+    history — every fix, every internal change — stays in CHANGELOG.md, and the dialog points
+    there for the details.
+
+    KEEPING IT IN SYNC: when a version is cut,
+      1. bump the version in gradle.properties,
+      2. put its entries in the arrays below and update changelog_release_version /
+         changelog_release_date,
+      3. move the previous release's one-liner into changelog_earlier.
+
+    The release train shown on the Settings row comes from the installed build
+    (see AppVersion.train), so the row and this file must describe the same version.
+-->
+<resources>
+
+    <!-- ── Dialog chrome ─────────────────────────────────────────── -->
+    <string name="changelog_title">What\'s new</string>
+    <string name="changelog_close">Close</string>
+    <!-- %1$s = version, %2$s = release date -->
+    <string name="changelog_version_header">Version %1$s · %2$s</string>
+    <string name="changelog_section_fixed">Fixed</string>
+    <string name="changelog_section_improved">Improved</string>
+    <string name="changelog_section_new">New</string>
+    <string name="changelog_earlier_title">Earlier versions</string>
+    <string name="changelog_full_history">The full history is in CHANGELOG.md in the repository.</string>
+
+    <!-- ── Release 1.3 — the version described below ─────────────── -->
+    <string name="changelog_release_version">1.3.0</string>
+    <string name="changelog_release_date">2 October 2026</string>
+
+    <string-array name="changelog_1_3_fixed">
+        <item>Renaming the receiver now updates the name senders see straight away — the mDNS advert, the Home screen and GET /info all agree.</item>
+        <item>A fresh install advertises Apple TV. If that name is already taken on the network, the Home screen shows the name that was really registered, such as Apple TV (2).</item>
+        <item>A sender that disappears mid-handshake no longer blocks the next device — no Restart needed.</item>
+    </string-array>
+
+    <string-array name="changelog_1_3_improved">
+        <item>The AirPlay advert matches a real Apple TV more closely (protovers=1.1, manufacturer=Apple).</item>
+        <item>The advertised name is cleaned in one place, so stray characters can no longer corrupt the Bonjour record.</item>
+    </string-array>
+
+    <string-array name="changelog_1_3_new">
+        <item>This changelog, under Settings → About → What\'s new.</item>
+        <item>A troubleshooting guide for the device name, and for casting from an iPhone app: Rumble offers both Apple Devices (AirPlay) and Google Devices (Cast).</item>
+    </string-array>
+
+    <!-- ── Everything before 1.3 ─────────────────────────────────── -->
+    <string-array name="changelog_earlier">
+        <item>1.2.0 — releases publish themselves (a rolling latest build on every merge, plus numbered v* releases), and a 4K Google TV can mirror in 4K.</item>
+        <item>1.1 — Miracast really plays video, and error messages say what actually went wrong.</item>
+        <item>1.0.0-beta.1 — the first published build: the complete AirPlay 2 receiver (mirroring, FairPlay, HomeKit pairing, audio, photos).</item>
+    </string-array>
+
+</resources>

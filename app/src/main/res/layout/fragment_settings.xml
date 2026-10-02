@@ -8,7 +8,7 @@
     3. AirPlay — PIN authentication
     4. Service — start on boot
     5. Developer — debug overlay
-    6. About — version info, reset
+    6. About — changelog, version info, reset
 -->
 <ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -149,6 +149,45 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp" />
+
+        <!-- What's new — opens the in-app changelog (ChangelogDialog) -->
+        <LinearLayout
+            android:id="@+id/row_whats_new"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/focus_ring_selector"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/setting_whats_new"
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp" />
+
+                <TextView
+                    android:id="@+id/text_whats_new_value"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_chevron_right"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/row_version"
