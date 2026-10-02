@@ -26,13 +26,17 @@ assignees: ''
 
 ## Device Information
 
-**TV Device:**
-- Device model: (e.g., Chromecast with Google TV 4K)
-- Android TV OS version: (e.g., Android 14)
-- PhairPlay version: (e.g., 1.0.0)
+**TV Device (receiver):**
+- Device model: (e.g., Google TV Streamer 4K, Chromecast with Google TV)
+- Android TV OS version: (e.g., Android TV OS 14)
+- TV output resolution: [ ] 4K  [ ] 1080p  [ ] don't know
+- PhairPlay version (Settings → Version on the TV): (e.g., 1.2.0-main.37)
+- Where the APK came from: [ ] rolling `latest` release  [ ] a `v…` release  [ ] CI artifact  [ ] built it myself
 
-**Mac (AirPlay sender):**
-- macOS version: (e.g., macOS 14.4 Sonoma)
+**Sender device:**
+- Type: [ ] iPhone  [ ] iPad  [ ] Mac  [ ] Windows (Miracast)  [ ] Android (Miracast/Cast)
+- Model and OS version: (e.g., iPhone 14, iOS 27.0.1 · MacBook Pro, macOS 15.3)
+- What you were doing: [ ] screen mirroring  [ ] photos  [ ] audio only  [ ] video URL playback
 
 **Network:**
 - Connection type: [ ] Wi-Fi 2.4 GHz  [ ] Wi-Fi 5 GHz  [ ] Ethernet

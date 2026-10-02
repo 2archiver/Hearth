@@ -76,7 +76,7 @@
                 android:importantForAccessibility="no" />
         </LinearLayout>
 
-        <!-- Force higher mirroring resolution (1440p) -->
+        <!-- Force higher mirroring resolution (up to 4K on a 4K Google TV) -->
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_force_high_res" />
 

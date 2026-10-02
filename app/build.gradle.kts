@@ -1,6 +1,7 @@
 // App module build configuration for PhairPlay.
 //
-// PhairPlay ships for Google TV only (Android TV OS 10+; developed against Android 14).
+// PhairPlay ships for Google TV only (Android TV OS 10+; developed and tested against
+// Google TV 4K running Android TV OS 14).
 // The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...),
 // the applicationId, and the Cast SDK source set stay stable.
 //
@@ -13,6 +14,20 @@ plugins {
 
 fun String.escapedForBuildConfig(): String =
     replace("\\", "\\\\").replace("\"", "\\\"")
+
+/**
+ * versionCode fallback: minutes since 2024-01-01T00:00:00Z (epoch seconds 1704067200 / 60).
+ *
+ * WHY: Android only installs an APK over an existing one when its versionCode is higher, so a
+ * code that grows with every build means "download the newest APK and install it" just works —
+ * no uninstall first (provided the signing key matches, see docs/RELEASING.md). A clock-derived
+ * code also stays monotonic across BOTH release paths (rolling `latest` builds from main and
+ * permanent `v*` tag releases), which a version-derived code cannot.
+ *
+ * Range: ~1.45M today, inside Int32 until roughly the year 6053. CI passes an explicit
+ * -Pphairplay.versionCode computed the same way, so published builds report a stable code.
+ */
+fun monotonicVersionCode(): Int = ((System.currentTimeMillis() / 60_000L) - 28_401_120L).toInt()
 
 val castAppId: String =
     (providers.gradleProperty("phairplay.castAppId").orNull
@@ -28,10 +43,14 @@ android {
         // applicationId is overridden per flavor below
         minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
-        // CI release builds derive these from the git tag (see .github/workflows/release.yml)
-        // so every published APK has a higher versionCode and can update the previous one.
-        versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull() ?: 2
-        versionName = providers.gradleProperty("phairplay.versionName").orNull ?: "1.1"
+        // Version source of truth: phairplay.versionName in gradle.properties (bumped per
+        // release train). CI overrides both per build — see .github/workflows/release.yml:
+        //   merge to main → "<base>-main.<run>" in the rolling `latest` release
+        //   v1.2.0 tag    → "1.2.0" in a permanent versioned release
+        // The versionCode fallback increases with every build so a new APK updates the old one.
+        versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
+            ?: monotonicVersionCode()
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.2.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")

@@ -2,6 +2,33 @@
 
 PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It lets your macOS or iOS/iPadOS device mirror its screen and audio directly to your TV — no Apple TV required.
 
+---
+
+## ⬇ Download the APK
+
+**`PhairPlay-googletv.apk`** — one file, rebuilt automatically on every merge to `main`:
+
+```
+https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
+```
+
+That link never goes stale and never needs a tag, a release to be cut by hand, or GitHub Pages to be switched on.
+
+| | |
+|---|---|
+| **APK** | [`PhairPlay-googletv.apk`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk) |
+| **Checksum** | [`SHA256SUMS.txt`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt) |
+| **Release page** | [releases/tag/latest](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) — version, versionCode, commit |
+| **Numbered releases** | [all releases](https://github.com/2archiver/phairplay-archiver-fork-/releases) — `v1.2.0` and friends stay available |
+| **Download page** | <https://2archiver.github.io/phairplay-archiver-fork-/> (optional; needs Pages → Source: *GitHub Actions*) |
+| **Runs on** | Google TV / Android TV OS 10+ — tested on Google TV 4K, Android TV OS 14 |
+
+**Install it on the TV:** open the *Downloader* app, paste the link above, then **Install** — or from a computer, `adb install -r PhairPlay-googletv.apk`. Full steps: [docs/guides/INSTALLATION.md](docs/guides/INSTALLATION.md).
+
+**Updating:** install the new APK straight over the old one. The versionCode increases with every build, so Android treats it as an update — as long as both APKs are signed with the same key. Builds published without the maintainer's signing secrets use a throw-away debug key that differs per run; if the TV then refuses the update, uninstall PhairPlay once and install the new APK. See [docs/RELEASING.md](docs/RELEASING.md).
+
+**No APK there yet?** The release is published by GitHub Actions on the first push to `main` after the workflow lands. Until then, run **Actions → CI** on the repository and download the `debug-apk-googletv` artifact — CI builds that APK on every push and pull request.
+
 ```
  macOS (Monterey+)            Google TV
  iOS / iPadOS (16+)           ┌──────────────────────┐
@@ -16,18 +43,30 @@ PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It l
 
 ---
 
-## Current Status — v1.1
+## Current Status — v1.2
 
-PhairPlay's AirPlay 2 receiver is fully implemented and available as a beta release. **[⬇ Download the Google TV APK](https://2archiver.github.io/phairplay-archiver-fork-/)** — or grab it straight from the [Releases page](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest) (`PhairPlay-googletv.apk`).
+PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
 
-The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders (including iOS 27.0.1) is the current focus.
+The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.
 
-v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen) and replaces the old fake "Check Wi-Fi settings" card errors with honest, per-protocol status details. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
+v1.2 makes releases automatic (rolling `latest` build on every merge to `main`, plus permanent `v*` tag releases), fixes the Gradle wrapper so CI can actually build the APK, and lets a 4K Google TV advertise a 4K mirror instead of a hardcoded 1080p/1440p. v1.1 added real Miracast video playback and replaced the old fake "Check Wi-Fi settings" errors with honest, per-protocol status details. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
+
+### Tested with
+
+| Role | Device | Notes |
+|------|--------|-------|
+| Receiver | **Google TV 4K**, Android TV OS 14 (API 34) | Primary target; 4K mirror advertisement supported |
+| Receiver | Chromecast with Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips Google TV | ARM only (`armeabi-v7a`, `arm64-v8a`) |
+| Sender | **iPhone 14**, iOS 27.0.1 | Screen mirroring + photos; portrait streams are aspect-fitted, not stretched |
+| Sender | macOS 12+ | Mirroring, system audio, DACP reverse remote |
+
+Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bug_report.md) — the device matrix above is what we want to grow.
 
 ## Features
 
 ### AirPlay 2 (fully implemented)
 - Screen mirroring from macOS 12+ and iOS/iPadOS 16+ — H.264 hardware decode
+- Mirror resolution matched to the TV: 1080p by default, **up to 4K on a 4K Google TV** when you opt in, always capped by what the panel shows and the H.264 decoder reports it can decode
 - FairPlay session decryption (fp-setup v2/v3 + legacy rsaaeskey) via native libplayfair
 - HomeKit-style pairing (Ed25519/X25519) and legacy SRP PIN pairing
 - Mirroring audio: AAC-ELD, AAC-LC, ALAC — with independent A/V start/stop
@@ -41,12 +80,17 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 
 ### App & Platform
 - Google TV app shell with foreground service and status UI
-- Mirror audio toggle and PIN-auth toggle in Settings
-- Built for Google TV (Android TV OS 10+, tested on Android 14); ARM-only APK for a smaller download
+- Mirror audio toggle, PIN-auth toggle and resolution toggle in Settings
+- Built for Google TV (Android TV OS 10+, tested on Google TV 4K with Android TV OS 14); ARM-only APK for a smaller download
 - Miracast Wi-Fi Direct / WFD advertisement, RTSP control-plane, and H.264 video playback (hardware decode)
 - Google TV Cast Connect SDK lifecycle (full testing requires Cast app ID)
 - Zero ads, zero analytics, zero internet required
 - Open source — Apache 2.0 license
+
+### Releases
+- Rolling [`latest`](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) release rebuilt on every merge to `main`
+- Permanent versioned releases from `v*` tags
+- `SHA256SUMS.txt` with every release; versionCode grows with every build so updates install in place
 
 ## What PhairPlay Does NOT Do
 
@@ -62,9 +106,13 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 ## Requirements
 
 **On your TV:**
-- Google TV / Android TV OS 10+ (Android 14 recommended)
-- Connected to the same Wi-Fi network as your Mac
+- Google TV / Android TV OS 10+ (Android TV OS 14 on a Google TV 4K is the tested target)
+- Connected to the same Wi-Fi network as your sender
 - Sideloading enabled (Downloader app) or ADB debugging enabled
+
+**On your iPhone / iPad:**
+- iOS / iPadOS 16 or later (tested with iPhone 14 on iOS 27.0.1)
+- Same Wi-Fi network as the TV; both on the same subnet
 
 **On your Mac:**
 - macOS 12 (Monterey) or later
@@ -73,23 +121,27 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 **Network:**
 - Both devices on the same subnet (common home router setup works)
 - Multicast/mDNS must not be blocked (most home routers are fine)
-- 5 GHz Wi-Fi or Ethernet strongly recommended for best performance
+- 5 GHz Wi-Fi or Ethernet strongly recommended for best performance — 4K mirroring really wants it
 
 ---
 
 ## Installation
 
-### Option A: Download the Release APK (easiest)
+### Option A: Download the release APK (easiest)
 
-Go to the [Releases page](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest) (or the [download page](https://2archiver.github.io/phairplay-archiver-fork-/)) and download **`PhairPlay-googletv.apk`** — it is the only APK, built for Google TV (Android 10+, tested on Android 14).
+Download **`PhairPlay-googletv.apk`** from the rolling [`latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) — it is the only APK, built for Google TV (Android TV OS 10+, tested on Android TV OS 14).
 
-Direct link that always points at the newest release:
+Direct link that always points at the newest build:
 
 ```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk
+https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
 ```
 
-Install it with the *Downloader* app on the TV (enter the link above) or via ADB — see the Sideloading Guide below.
+Install it with the *Downloader* app on the TV (enter the link above) or via ADB — see the Sideloading Guide below. Prefer a numbered version? Every `v*` release also ships `PhairPlay-googletv.apk`, so this works too:
+
+```
+https://github.com/2archiver/phairplay-archiver-fork-/releases/download/v1.2.0/PhairPlay-googletv.apk
+```
 
 ### Option B: Build from Source
 
@@ -107,12 +159,20 @@ Install it with the *Downloader* app on the TV (enter the link above) or via ADB
 
 3. **Build the APK**
    ```bash
-   ./gradlew assembleGoogletvDebug
+   # Release APK — the same thing the release workflow publishes
+   ./gradlew :app:assembleGoogletvRelease
+   # → app/build/outputs/apk/googletv/release/app-googletv-release.apk
+
+   # Debug APK
+   ./gradlew :app:assembleGoogletvDebug
+   # → app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
 
    # With a registered Cast App ID:
-   ./gradlew assembleGoogletvDebug -Pphairplay.castAppId=<APP_ID>
+   ./gradlew :app:assembleGoogletvRelease -Pphairplay.castAppId=<APP_ID>
    ```
-   The APK will be in `app/build/outputs/apk/`.
+   The version comes from `phairplay.versionName` in `gradle.properties`; the versionCode is
+   derived from the clock so every local build installs over the previous one. Override either
+   with `-Pphairplay.versionName=1.2.0 -Pphairplay.versionCode=10200`.
 
    To run the same local checks used by CI before testing on a TV:
    ```bash
@@ -125,7 +185,7 @@ Install it with the *Downloader* app on the TV (enter the link above) or via ADB
    # Enable ADB on your TV first (see below)
    adb connect <TV-IP-ADDRESS>
 
-   adb install app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
+   adb install -r app/build/outputs/apk/googletv/release/app-googletv-release.apk
    ```
 
 ---
@@ -138,33 +198,37 @@ Install it with the *Downloader* app on the TV (enter the link above) or via ADB
 2. Go to **Settings → Apps → Security & restrictions → Install unknown apps** and allow **Downloader**.
 3. Open Downloader, enter the direct link from Option A (or the [download page](https://2archiver.github.io/phairplay-archiver-fork-/)), then choose **Install**.
 
-### Google TV with ADB (e.g., Chromecast with Google TV, Google TV Streamer, Android 14)
+### Google TV with ADB (e.g., Chromecast with Google TV, Google TV Streamer 4K, Android TV OS 14)
 
 1. Go to **Settings → System → About → Android TV OS build** and click it 7 times to enable Developer Options.
-2. Go to **Settings → System → Developer Options** and enable **USB debugging**.
+2. Go to **Settings → System → Developer Options** and enable **USB debugging** (Android TV OS 14 also offers **Wireless debugging**).
 3. Note your TV's IP address from **Settings → Network & Internet**.
 4. On your Mac/PC, run:
    ```bash
    adb connect <TV-IP>
-   adb install PhairPlay-googletv.apk
+   adb install -r PhairPlay-googletv.apk
    ```
 5. Launch PhairPlay from your app list.
+
+If Android refuses the update with `INSTALL_FAILED_VERSION_DOWNGRADE` or a signature mismatch, run `adb uninstall com.phairplay.googletv` once and install again.
 
 ---
 
 ## How to Use
 
 1. Launch PhairPlay on your TV. You will see the Waiting Screen with your TV's name.
-2. On your Mac, click the **AirPlay** icon in the menu bar (or go to **System Preferences → Displays → AirPlay Display**).
+2. **iPhone/iPad:** open Control Centre → **Screen Mirroring** → select your TV. **Mac:** click the **AirPlay** icon in the menu bar (or **System Settings → Displays → AirPlay Display**).
 3. Select your TV from the list (it should appear as your TV's name).
-4. Your Mac's screen will appear on the TV instantly.
-5. To stop: click the AirPlay icon on your Mac and select "Turn Off AirPlay Mirroring", or just quit PhairPlay on the TV.
+4. Your screen appears on the TV. Portrait phone streams are aspect-fitted, not stretched.
+5. On a 4K Google TV, turn on **Settings → Higher resolution (up to 4K)** for a sharper mirror; turn it off again if your TV struggles to decode it.
+6. To stop: turn off Screen Mirroring/AirPlay on the sender, or quit PhairPlay on the TV.
 
 ---
 
 ## Known Limitations
 
 - **Beta software** — the AirPlay 2 stack is complete but real-device validation with various macOS/iOS senders is ongoing. Please report issues.
+- **4K mirroring is opt-in and hardware-dependent.** PhairPlay only advertises 4K when the panel reports 4K *and* the H.264 decoder says it supports 3840×2160; a 4K advertisement still costs real decode work, so keep it off if frames drop.
 - **Apple Music in-app audio is not decryptable.** macOS protects it with FairPlay on every AirPlay path. Route the Mac's system audio output instead (works fine).
 - **FairPlay-protected video** (Netflix, Disney+, Apple TV+) cannot be mirrored — this is Apple's DRM, not a PhairPlay limitation.
 - **Buffered audio (AirPlay 2 type 103)** is accepted but not yet played back.
@@ -185,6 +249,7 @@ Contributions are welcome! Please read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.
 Key points:
 - Follow the coding rules in CONTRIBUTING.md (file size ≤400 lines soft / ≤550 lines hard max, class comments, test coverage)
 - All PRs require passing CI (build + tests + lint)
+- Merging to `main` publishes a new `latest` APK automatically — see [docs/RELEASING.md](docs/RELEASING.md)
 - Discuss major changes in a GitHub Issue first
 
 ## License

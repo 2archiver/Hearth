@@ -19,6 +19,7 @@ import com.phairplay.cast.CastReceiver
 import com.phairplay.miracast.MiracastReceiver
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
+import com.phairplay.util.DisplayCaps
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -244,11 +245,23 @@ class PhairPlayService : Service() {
         // this assignment happens-before the Main-thread read in onStateChanged.
         var pendingSenderName = "AirPlay Sender"
 
+        // Ask the sender for the largest mirror this TV can both show and decode: 1080p by
+        // default, up to 4K on a 4K Google TV when Settings → "Higher resolution" is on.
+        // Advertising more than the H.264 decoder supports would produce a black screen.
+        val panel = DisplayCaps.panelSize(applicationContext)
+        val decode = DisplayCaps.maxH264Size()
+        val mirror = settings.advertisedMirrorResolution(
+            panelWidth = panel.first, panelHeight = panel.second,
+            decodeWidth = decode.first, decodeHeight = decode.second
+        )
+        Logger.i("AirPlay mirror advertised at ${mirror.label} (${mirror.width}x${mirror.height}) — " +
+                 "panel ${panel.first}x${panel.second}, H.264 ceiling ${decode.first}x${decode.second}")
+
         airPlayReceiver = AirPlayReceiver(
             context = applicationContext,
             displayName = settings.effectiveDisplayName,
-            mirrorWidth = settings.mirrorWidth,
-            mirrorHeight = settings.mirrorHeight,
+            mirrorWidth = mirror.width,
+            mirrorHeight = mirror.height,
             audioEnabled = settings.mirrorAudioEnabled,
             pinAuthEnabled = settings.airPlayPinAuthEnabled,
             // Delegate to the current provider at call time — captures the field, not a fixed value.
