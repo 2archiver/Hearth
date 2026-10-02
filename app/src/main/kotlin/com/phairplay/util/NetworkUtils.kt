@@ -27,16 +27,17 @@ object NetworkUtils {
     /**
      * Returns the user-visible device name as configured in Android settings.
      *
-     * This is the name that will appear in the macOS AirPlay picker, so it's
-     * important that it matches what the user set in their TV's settings.
+     * This is used as the last-resort AirPlay name when the user has not set one in
+     * Settings, so it is important that it matches what the user set in their TV's settings.
      *
      * Sources tried in order:
      * 1. Settings.Global.DEVICE_NAME (Android 5+, most TVs)
      * 2. Settings.Secure.BLUETOOTH_NAME (Bluetooth device name, often same as device name)
-     * 3. Fallback: "PhairPlay" (if neither source is available)
+     * 3. Fallback: [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV") if neither source is available
      *
-     * SECURITY: The returned value is sanitized — mDNS service names must not contain
-     * certain special characters. We strip any character outside [A-Za-z0-9 _-].
+     * SECURITY: The returned value is sanitized by [MdnsNames.sanitize] — mDNS service
+     * names must not contain certain special characters, and a name over 63 UTF-8 bytes
+     * is silently mangled by the mDNS responder.
      *
      * @param context Android context (needed to read system settings)
      * @return The sanitized device name, never null or empty.
@@ -44,12 +45,9 @@ object NetworkUtils {
     fun getDeviceName(context: Context): String {
         val rawName = Settings.Global.getString(context.contentResolver, "device_name")
             ?: Settings.Secure.getString(context.contentResolver, "bluetooth_name")
-            ?: DEFAULT_DEVICE_NAME
+            ?: MdnsNames.DEFAULT_DISPLAY_NAME
 
-        // Sanitize: keep only safe characters for mDNS service names
-        val sanitized = rawName.replace(Regex("[^A-Za-z0-9 _\\-]"), "").trim()
-
-        return sanitized.ifEmpty { DEFAULT_DEVICE_NAME }
+        return MdnsNames.sanitize(rawName)
     }
 
     /**
@@ -123,7 +121,8 @@ object NetworkUtils {
     }
 
     // Constants
-    private const val DEFAULT_DEVICE_NAME = "PhairPlay"
+    // NOTE: the device-name fallback lives in MdnsNames.DEFAULT_DISPLAY_NAME so that every
+    // place that needs "the name we show when nothing is configured" agrees on one value.
     private const val FALLBACK_MAC_ADDRESS = "aa:bb:cc:dd:ee:ff"
     private const val PREFS_NAME = "phairplay_prefs"
     private const val PREF_KEY_DEVICE_UUID = "phairplay_device_uuid"

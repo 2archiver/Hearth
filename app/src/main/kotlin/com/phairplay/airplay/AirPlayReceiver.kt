@@ -8,6 +8,7 @@ import com.phairplay.airplay.handshake.BufferedAudioServer
 import com.phairplay.airplay.handshake.MirrorStreamServer
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
+import com.phairplay.util.MdnsNames
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,8 +51,12 @@ import java.net.Socket
  */
 class AirPlayReceiver(
     private val context: Context,
-    /** User-configured display name from Settings (blank = use system device name). */
-    private val displayName: String = "",
+    /**
+     * User-configured display name from Settings — the spoofed identity. Blank or otherwise
+     * unusable values resolve to [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV") rather than to
+     * the Android device name, so the name is always under the user's control.
+     */
+    private val displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
     /** Advertised mirroring resolution (from the "high resolution" setting). */
     private val mirrorWidth: Int = 1920,
     private val mirrorHeight: Int = 1080,
@@ -93,6 +98,13 @@ class AirPlayReceiver(
     /** Pairing PIN to show ([pin]) or hide (null) on the TV during SRP pair-setup. */
     private val onPinChanged: (pin: String?) -> Unit = {}
 ) {
+
+    /**
+     * The one name this receiver advertises, normalised once so the mDNS record and the
+     * `GET /info` reply can never drift apart (a sender that browses one name and then gets
+     * a different one from /info shows confusing — sometimes duplicate — entries).
+     */
+    private val advertisedName: String = MdnsNames.sanitize(displayName)
 
     // Persistent store of paired controllers (for PIN access control / pair-verify).
     private val pairingStore = com.phairplay.airplay.handshake.PairingStore(context)
@@ -147,7 +159,7 @@ class AirPlayReceiver(
      * Non-blocking — all network work runs in background coroutines.
      */
     fun start() {
-        Logger.i("AirPlayReceiver starting (displayName='$displayName')")
+        Logger.i("AirPlayReceiver starting (advertised as '$advertisedName')")
         scope.launch {
             try {
                 startTimingHandler()
@@ -205,13 +217,14 @@ class AirPlayReceiver(
             context = context,
             onStateChange = { state -> emitState(state) },
             onActualNameRegistered = { actualName -> onActualNameRegistered(actualName) }
-        ).also { it.start(displayName.ifBlank { null }) }
-        Logger.d("mDNS service started")
+        ).also { it.start(advertisedName) }
+        Logger.d("mDNS service started (advertising as '$advertisedName')")
     }
 
     private fun startRtspHandler() {
         rtspHandler = RtspHandler(
             context = context,
+            displayName = advertisedName,
             displayWidth = mirrorWidth,
             displayHeight = mirrorHeight,
             audioEnabled = audioEnabled,
@@ -299,7 +312,7 @@ class AirPlayReceiver(
 
         scope.launch {
             try {
-                mdnsService?.restart(displayName.ifBlank { null })
+                mdnsService?.restart(advertisedName)
             } catch (e: Exception) {
                 Logger.e("Failed to restart mDNS after streaming", e)
             }

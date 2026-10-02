@@ -23,6 +23,12 @@ import java.net.Socket
  */
 open class RtspHandler(
     private val context: android.content.Context,
+    /**
+     * The spoofed name answered in `GET /info`. Senders display this value after they have
+     * probed us, so it has to be the same name [com.phairplay.airplay.MdnsService]
+     * advertises — otherwise the picker shows one name and the session uses another.
+     */
+    private val displayName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME,
     private val displayWidth: Int = 1920,
     private val displayHeight: Int = 1080,
     private val audioEnabled: Boolean = false,
@@ -135,6 +141,16 @@ open class RtspHandler(
     @Volatile
     var onVideoNalUnit: ((nalUnit: ByteArray, ptsUs: Long) -> Unit)? = null
 
+    /**
+     * True once this connection is past "a peer opened a socket" — i.e. a stream has been
+     * set up, a legacy SDP session exists, or a PIN handshake is waiting on the user.
+     * Used to decide whether an idle control connection is a live session (leave it alone)
+     * or an abandoned one (close it — see [handleClient]).
+     */
+    private fun isSessionActive(): Boolean =
+        isMirrorSession || setupCount > 0 || activeStreamTypes.isNotEmpty() ||
+            currentSession != null || legacyPin != null
+
     /** Starts the RTSP server. */
     fun start(scope: CoroutineScope) {
         running = true
@@ -214,6 +230,16 @@ open class RtspHandler(
         val inputStream = socket.getInputStream()
         val outputStream = socket.getOutputStream()
 
+        // Idle timeout for the *handshake* only (cleared below once a session exists).
+        //
+        // WHY: this server handles one client at a time, so a sender that walks away without
+        // closing (iPhone backgrounded mid-connect, Wi-Fi dropped, app force-quit) used to
+        // park here forever — the socket looks open from our side, `read()` blocks, and every
+        // later sender is rejected with 503 until someone hits Restart. From the user's side
+        // that reads as "the TV shows up but I can't connect any more". Two minutes of silence
+        // before a session exists means the peer is gone, not thinking.
+        socket.soTimeout = HANDSHAKE_IDLE_TIMEOUT_MS
+
         // Fresh pairing + FairPlay state for each control connection.
         pairingSession = PairingSession(PairingKeys.get(context))
         fairPlay = FairPlay()
@@ -229,6 +255,11 @@ open class RtspHandler(
                 currentCSeq = request.headers["CSeq"]?.toIntOrNull() ?: 0
                 val response = routeRequest(request)
                 sendResponse(outputStream, response)
+
+                // Once a session exists the control channel may legitimately go quiet for
+                // minutes (video flows over its own data channel, or the user is reading a
+                // PIN off the screen), so stop timing the connection out.
+                if (isSessionActive()) socket.soTimeout = 0
 
                 // After RECORD on a legacy SDP session: a session WITH video switches to interleaved
                 // RTP (video arrives $-framed over this TCP socket). An audio-only session (e.g. Apple
@@ -254,6 +285,11 @@ open class RtspHandler(
                     }
                 )
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            // No session and no traffic for the handshake timeout — drop it so the next
+            // sender can connect (see the soTimeout note at the top of this method).
+            Logger.i("RTSP control connection idle for ${HANDSHAKE_IDLE_TIMEOUT_MS / 1000}s " +
+                     "with no session — closing it")
         } catch (e: Exception) {
             if (running) Logger.e("Error handling RTSP client", e)
         } finally {
@@ -424,6 +460,7 @@ open class RtspHandler(
             "deviceid" to com.phairplay.util.NetworkUtils.getMacAddress(),
             "features" to 0x1E5A7FFFF7L,
             "model" to "AppleTV5,3",
+            "name" to com.phairplay.util.MdnsNames.sanitize(displayName),
             "protovers" to "1.1",
             "srcvers" to "220.68",
         )
@@ -476,7 +513,13 @@ open class RtspHandler(
     private fun handleInfo(request: RtspRequest): RtspResponse = RtspResponse(
         statusCode = 200,
         statusMessage = "OK",
-        bodyBytes = InfoResponder.build(context, displayWidth, displayHeight, pinRequired = pinAuthEnabled),
+        bodyBytes = InfoResponder.build(
+            context = context,
+            displayName = displayName,
+            width = displayWidth,
+            height = displayHeight,
+            pinRequired = pinAuthEnabled
+        ),
         contentType = "application/x-apple-binary-plist",
         protocol = request.responseProtocol()
     )
@@ -493,10 +536,36 @@ open class RtspHandler(
             Logger.i("pair-setup OK (returned ${body.size}-byte public key)")
             RtspResponse(200, "OK", bodyBytes = body, contentType = OCTET_STREAM, protocol = request.responseProtocol())
         } catch (e: Exception) {
-            Logger.e("pair-setup failed", e)
+            // Two /pair-setup dialects exist in the wild and they are impossible to tell apart
+            // from a bare "pair-setup failed" line, so name the one we were given:
+            //   • raw 32-byte Ed25519 request — the anonymous exchange implemented here, what
+            //     macOS sends;
+            //   • HomeKit TLV8 request — opens with kTLVType_State, needs SRP-6a pair-setup
+            //     with an on-screen PIN. Not implemented. If an iOS sender insists on this
+            //     dialect, this log line is the evidence and HomeKit pair-setup is the fix.
+            if (isHomeKitTlv8PairSetup(request.bodyBytes)) {
+                Logger.e("pair-setup is the HomeKit TLV8 dialect (${request.bodyBytes.size} bytes) " +
+                         "— not implemented (only the raw 32-byte Ed25519 exchange is)", e)
+            } else {
+                Logger.e("pair-setup failed on a ${request.bodyBytes.size}-byte body", e)
+            }
             RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
     }
+
+    /**
+     * True for a HomeKit-style TLV8 `/pair-setup` body: it opens with fragment type 0x06
+     * (kTLVType_State), length 0x01, value 0x01 (`06 01 01`) — i.e. "state = M1".
+     *
+     * The dialect we support is a bare 32-byte Ed25519 public key, whose first byte is
+     * arbitrary key material and only collides with `0x06` by chance, so this is a
+     * diagnostic hint rather than a protocol guarantee — hence it only steers the log.
+     */
+    private fun isHomeKitTlv8PairSetup(body: ByteArray): Boolean =
+        body.size >= 3 &&
+            (body[0].toInt() and 0xFF) == 0x06 &&
+            (body[1].toInt() and 0xFF) == 0x01 &&
+            (body[2].toInt() and 0xFF) == 0x01
 
     /**
      * POST /pair-verify — the anonymous ECDH handshake. AirPlay uses this same raw exchange even with
@@ -995,6 +1064,13 @@ open class RtspHandler(
         private const val MAX_PAIR_ATTEMPTS = 10
         private const val BIND_MAX_ATTEMPTS = 12      // ~3s total — covers a quick stop→start restart
         private const val BIND_RETRY_MS = 250L
+        /**
+         * How long a control connection may sit completely idle *before* a session exists.
+         * Long enough for a user to read a 4-digit PIN off the TV and type it in; short
+         * enough that an abandoned socket stops locking out the next sender. See
+         * [handleClient].
+         */
+        private const val HANDSHAKE_IDLE_TIMEOUT_MS = 120_000
         private const val MAX_MESSAGE_BYTES = 65536
         private const val OCTET_STREAM = "application/octet-stream"
         private const val TIMING_PORT = 6002   // matches TimingHandler's UDP NTP port

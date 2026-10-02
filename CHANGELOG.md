@@ -13,6 +13,69 @@ Nothing yet — changes collect here until the next version is cut.
 
 ---
 
+## [1.3] - 2026-10-02
+
+### Fixed
+
+**Changing the Device Name now actually changes the name a sender sees**
+
+Three separate places disagreed about what this receiver is called, so a rename changed the
+Settings row (and nothing else) while the iPhone kept showing the old name:
+
+- **A rename only wrote to disk** — `SettingsFragment` saved the new name but never restarted
+  the receivers, so the live `_airplay._tcp` registration kept broadcasting the previous name
+  until someone happened to hit Restart. Renaming (and "Reset to default") now restarts the
+  receivers, so the new name is advertised within a second.
+- **`GET /info` answered with the Android device name** — `InfoResponder` called
+  `NetworkUtils.getDeviceName(context)` instead of using the Settings value. This is the one
+  that mattered most: a sender browses mDNS to *find* a device, then asks `GET /info` and
+  **displays the `name` it gets back**. `/server-info` had the same problem. Both now answer
+  with the spoofed name.
+- **The Home screen showed the system name** — `HomeFragment` read
+  `NetworkUtils.getDeviceName()` rather than Settings, so the app contradicted itself. It now
+  shows the Settings name, and when mDNS has to rename us to resolve a collision it shows the
+  name that was really registered ("Apple TV (2)") instead of the one that was requested.
+
+**The default spoofed name is now "Apple TV"**
+
+Blank used to mean "fall back to whatever the TV is called in Android settings", which put the
+name outside the app's control. `AppSettings`, `NetworkUtils` and `MdnsService` shared no
+default, so they drifted; all three now go through a new `MdnsNames` helper, which also owns
+the sanitising rules (strip characters that corrupt a Bonjour record, collapse whitespace, cap
+at the 63-byte DNS-SD limit on a UTF-8 boundary). A fresh install, and "Reset to default",
+advertise **Apple TV** — matching the `AppleTV5,3` model PhairPlay already reports.
+
+**iOS senders can now see the receiver's identity before they connect**
+
+- The `_airplay._tcp` TXT record was missing `pk` (the receiver's Ed25519 public key). iOS
+  reads `pk` while *browsing*, before it opens a connection, and `GET /info` — which also
+  carried `pk` — is too late for a sender that never gets that far. A device with no `pk` in
+  its TXT record can appear in the iPhone's list while refusing to connect.
+- Also added `protovers=1.1` and `manufacturer=Apple` so the advertisement matches what a real
+  Apple TV sends.
+
+**A sender that disappeared mid-handshake no longer locks out the next one**
+
+The RTSP server handles one client at a time, and an abandoned connection (iPhone backgrounded,
+Wi-Fi dropped, app force-quit) looked open from our side — `read()` blocked forever and every
+later sender was rejected with 503 until a manual Restart. From the outside that reads as "the
+TV shows up but I can't connect any more". Control connections now time out after two minutes
+of silence **before** a session exists; once a stream is up (or a PIN is on screen waiting to
+be typed in) the timeout is cleared, so a live session is never dropped for being quiet.
+
+### Changed
+
+- Version **1.2.0 → 1.3.0** (`phairplay.versionName` in `gradle.properties`)
+
+### Added
+
+- `MdnsNames` — one place that owns the advertised name and its cleaning rules
+  (`MdnsNamesTest` pins the default, the character stripping and the byte limit)
+- `docs/guides/TROUBLESHOOTING.md` — "The name I set doesn't show up on my iPhone" and "Casting
+  from an iPhone app (Rumble, YouTube, …)" — what works, what can't, and why
+
+---
+
 ## [1.2] - 2026-10-02
 
 ### Added

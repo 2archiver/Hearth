@@ -81,7 +81,8 @@
     <!-- ── Settings row labels ─────────────────────────────────── -->
     <string name="setting_display_name">Device Name</string>
     <string name="setting_display_name_system_default">Using system device name</string>
-    <string name="setting_display_name_dialog_hint">Leave blank to use system device name</string>
+    <!-- Shown as the EditText hint in the rename dialog -->
+    <string name="setting_display_name_dialog_hint">The name senders see in their AirPlay picker</string>
     <string name="setting_display_name_reset">Reset to default</string>
     <!-- %1$s = the actual mDNS-registered name (may differ from entered name on collision) -->
     <string name="setting_display_name_collision_note">Registered as: %1$s</string>

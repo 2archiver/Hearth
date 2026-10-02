@@ -86,6 +86,15 @@ class PhairPlayService : Service() {
     private val _pairingPin = MutableStateFlow<String?>(null)
     val pairingPin: StateFlow<String?> = _pairingPin.asStateFlow()
 
+    /**
+     * The name mDNS actually registered for `_airplay._tcp`, or null while nothing is
+     * registered. NsdManager renames us to "… (2)" when another device on the LAN already
+     * uses the name, and the picker shows that renamed value — surfacing it here lets the
+     * Home screen show the name a sender will really see.
+     */
+    private val _registeredName = MutableStateFlow<String?>(null)
+    val registeredName: StateFlow<String?> = _registeredName.asStateFlow()
+
     // Surface provider — supplied by MainActivity after binding (Sprint 5).
     // The lambda captures this field so it always uses the latest provider even if
     // setVideoSurfaceProvider() is called after startAirPlay().
@@ -270,6 +279,7 @@ class PhairPlayService : Service() {
             onSenderNameChanged = { name ->
                 pendingSenderName = name.ifEmpty { "AirPlay Sender" }
             },
+            onActualNameRegistered = { name -> _registeredName.value = name },
             onPhotoReceived = { bytes, imageType ->
                 _photoFrame.value = PhotoFrame(
                     bytes = bytes.copyOf(),
@@ -365,6 +375,7 @@ class PhairPlayService : Service() {
         _photoFrame.value = null
         _nowPlaying.value = null
         _pairingPin.value = null
+        _registeredName.value = null
     }
 
     // ─── Notification ────────────────────────────────────────────────────────

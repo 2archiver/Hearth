@@ -3,8 +3,10 @@ package com.phairplay.airplay
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import com.phairplay.airplay.handshake.PairingKeys
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
+import com.phairplay.util.MdnsNames
 import com.phairplay.util.NetworkUtils
 
 /**
@@ -144,11 +146,16 @@ class MdnsService(
 
     /**
      * Determines the effective name to advertise.
-     * Uses [override] if non-blank; otherwise reads from the Android system.
+     *
+     * Uses [override] (the Settings value) when it is non-blank, otherwise falls back to
+     * the Android device name. Either way the result goes through [MdnsNames.sanitize],
+     * because a name with a stray emoji or 80 characters of text either fails to register
+     * or comes back mangled in the picker.
      */
     private fun resolveDisplayName(override: String?): String {
-        val trimmed = override?.trim() ?: ""
-        return if (trimmed.isNotEmpty()) trimmed else NetworkUtils.getDeviceName(context)
+        val fromSettings = MdnsNames.sanitizeOrNull(override)
+        if (fromSettings != null) return fromSettings
+        return NetworkUtils.getDeviceName(context)
     }
 
     /**
@@ -169,10 +176,22 @@ class MdnsService(
             setAttribute("deviceid", NetworkUtils.getMacAddress())
             setAttribute("features", AIRPLAY_FEATURES)
             setAttribute("model", AIRPLAY_MODEL)
+            setAttribute("manufacturer", AIRPLAY_MANUFACTURER)
             setAttribute("srcvers", AIRPLAY_SERVER_VERSION)
+            setAttribute("protovers", AIRPLAY_PROTOCOL_VERSION)
             setAttribute("vv", "2")                             // AirPlay protocol version 2
             setAttribute("pi", NetworkUtils.getPersistentUuid(context))
             setAttribute("flags", "0x4")                        // Screen-mirroring receiver
+
+            // AirPlay 2 identity: the receiver's long-lived Ed25519 public key.
+            //
+            // iOS reads `pk` straight out of the TXT record while *browsing* — before it has
+            // ever opened a connection — and uses it to decide whether this is a device it
+            // can pair with. `GET /info` also carries `pk`, but a sender that never gets
+            // past browse will never ask for it. Without a `pk` here an iPhone/iPad can show
+            // the device in its mirror list while refusing to actually connect to it.
+            runCatching { setAttribute("pk", PairingKeys.get(context).edPublic) }
+                .onFailure { Logger.w("Could not add the pk TXT record — iOS pairing may fail", it) }
         }
 
         airPlayListener = createRegistrationListener(
@@ -207,7 +226,10 @@ class MdnsService(
         val macHex = NetworkUtils.getMacAddress().replace(":", "").uppercase()
 
         val serviceInfo = NsdServiceInfo().apply {
-            serviceName = "$macHex@$displayName"  // required RAOP format
+            // The MAC prefix eats 13 of the 63 bytes a DNS-SD name may use, so the display
+            // name has to be shortened to fit rather than truncated by the mDNS daemon
+            // (which would silently produce an unrecognisable name).
+            serviceName = MdnsNames.truncateUtf8("$macHex@$displayName", MdnsNames.MAX_NAME_BYTES)
             serviceType = SERVICE_TYPE_RAOP
             port = AIRPLAY_PORT
 
@@ -313,6 +335,12 @@ class MdnsService(
 
         /** Pretend to be an Apple TV so macOS uses the screen mirroring protocol. */
         private const val AIRPLAY_MODEL = "AppleTV5,3"
+
+        /** Kept consistent with [AIRPLAY_MODEL] — senders pair the two when they probe a device. */
+        private const val AIRPLAY_MANUFACTURER = "Apple"
+
+        /** AirPlay 2 protocol version, as advertised by a real Apple TV. */
+        private const val AIRPLAY_PROTOCOL_VERSION = "1.1"
 
         /** AirPlay server version — matches a real Apple TV for maximum compatibility. */
         private const val AIRPLAY_SERVER_VERSION = "220.68"

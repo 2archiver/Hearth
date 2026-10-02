@@ -43,13 +43,13 @@ That link never goes stale and never needs a tag, a release to be cut by hand, o
 
 ---
 
-## Current Status — v1.2
+## Current Status — v1.3
 
 PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
 
 The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.
 
-v1.2 makes releases automatic (rolling `latest` build on every merge to `main`, plus permanent `v*` tag releases), fixes the Gradle wrapper so CI can actually build the APK, and lets a 4K Google TV advertise a 4K mirror instead of a hardcoded 1080p/1440p. v1.1 added real Miracast video playback and replaced the old fake "Check Wi-Fi settings" errors with honest, per-protocol status details. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
+v1.3 fixes the spoofed device name end to end: renaming now restarts the receivers, `GET /info` answers with the name you set instead of the Android device name, and a fresh install advertises **Apple TV**. It also adds the `pk` record iOS reads while browsing, and stops an abandoned connection from locking out the next sender. v1.2 makes releases automatic (rolling `latest` build on every merge to `main`, plus permanent `v*` tag releases), fixes the Gradle wrapper so CI can actually build the APK, and lets a 4K Google TV advertise a 4K mirror instead of a hardcoded 1080p/1440p. v1.1 added real Miracast video playback and replaced the old fake "Check Wi-Fi settings" errors with honest, per-protocol status details. Google Cast control is wired up but still requires a Google-registered Cast App ID (see [docs/guides/CAST_APP_ID.md](docs/guides/CAST_APP_ID.md)).
 
 ### Tested with
 
@@ -66,6 +66,7 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 
 ### AirPlay 2 (fully implemented)
 - Screen mirroring from macOS 12+ and iOS/iPadOS 16+ — H.264 hardware decode
+- Spoofed receiver name, advertised consistently over mDNS, `GET /info` and `GET /server-info`; defaults to **Apple TV** (matching the `AppleTV5,3` model PhairPlay reports) and takes effect as soon as you save it
 - Mirror resolution matched to the TV: 1080p by default, **up to 4K on a 4K Google TV** when you opt in, always capped by what the panel shows and the H.264 decoder reports it can decode
 - FairPlay session decryption (fp-setup v2/v3 + legacy rsaaeskey) via native libplayfair
 - HomeKit-style pairing (Ed25519/X25519) and legacy SRP PIN pairing
@@ -100,6 +101,7 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 - **Cloud/remote streaming** — local network only
 - **Miracast audio playback** — v1.1 renders Miracast video; WFD audio is negotiated but not played yet
 - **Google Cast media playback without an App ID** — Google requires a registered Cast App ID; the control plane is ready and media flows through Google's SDK once an ID is provisioned
+- **Appearing in another app's own cast button** — that button is Google Cast, which routes to the TV's built-in Chromecast receiver, never to PhairPlay. Use iOS **Screen Mirroring** (Control Centre) instead; see [Troubleshooting → Casting from an iPhone app](docs/guides/TROUBLESHOOTING.md#casting-from-an-iphone-app-rumble-youtube-)
 
 ---
 

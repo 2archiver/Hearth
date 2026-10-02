@@ -1,6 +1,7 @@
 package com.phairplay.airplay.handshake
 
 import android.content.Context
+import com.phairplay.util.MdnsNames
 import com.phairplay.util.NetworkUtils
 
 /**
@@ -11,12 +12,28 @@ import com.phairplay.util.NetworkUtils
  * Values are kept consistent with what [com.phairplay.airplay.MdnsService] advertises so the
  * sender sees one coherent device.
  *
+ * `name` matters more than it looks: after browsing, a sender asks `GET /info` and then
+ * *displays* the `name` it gets back — not the mDNS service name it browsed. Returning the
+ * Android device name here (which is what this class used to do) is why an iPhone kept
+ * showing the TV's Android name no matter what was typed into Settings.
+ *
  * NOTE: the Ed25519 public key (`pk`) is added in the pairing phase once a persistent
  * identity exists; macOS still proceeds to pair-setup without it.
  */
 object InfoResponder {
 
-    fun build(context: Context, width: Int = 1920, height: Int = 1080, pinRequired: Boolean = false): ByteArray {
+    /**
+     * @param displayName The spoofed name from Settings; defaults to
+     *   [MdnsNames.DEFAULT_DISPLAY_NAME] so a caller that has no settings handy still
+     *   advertises something coherent with the mDNS record.
+     */
+    fun build(
+        context: Context,
+        displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
+        width: Int = 1920,
+        height: Int = 1080,
+        pinRequired: Boolean = false
+    ): ByteArray {
         val mac = NetworkUtils.getMacAddress()
         // When PIN access control is on, set the "pairing/PIN required" status bit so the sender runs
         // the SRP pair-setup flow. NOTE: exact flag semantics are sender-version-dependent — verify
@@ -28,7 +45,9 @@ object InfoResponder {
             "features" to AIRPLAY_FEATURES,
             "statusFlags" to statusFlags,
             "model" to MODEL,
-            "name" to NetworkUtils.getDeviceName(context),
+            // The spoofed name — must match the mDNS service name, or the picker shows one
+            // name while the sender internally uses another.
+            "name" to MdnsNames.sanitize(displayName),
             "sourceVersion" to SOURCE_VERSION,
             "pi" to NetworkUtils.getPersistentUuid(context),
             "pk" to PairingKeys.get(context).edPublic,

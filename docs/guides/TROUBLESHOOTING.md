@@ -35,6 +35,75 @@
 
 ---
 
+## The name I set in Settings doesn't show up on my iPhone
+
+The name a sender shows is the last thing it was told, and it is told the name **three** ways —
+which is why a rename used to appear to do nothing:
+
+1. **mDNS** (`_airplay._tcp`) — used while *browsing*, i.e. to build the picker list.
+2. **`GET /info`** — asked as soon as you tap the device, and the `name` in that reply is what
+   the picker then *displays*. (Fixed in v1.3: this used to answer with the Android device name
+   no matter what Settings said.)
+3. **The phone's Bonjour cache** — iOS holds on to what it last saw even after the receiver
+   changes.
+
+If the name still looks wrong:
+
+- **Rename, then let it restart.** Saving the name in Settings now restarts the receivers
+  automatically, so the new name is advertised immediately. On older builds you must press
+  **Restart** on the Home screen yourself — saving alone did nothing.
+- **Clear the phone's cache.** Toggle Wi-Fi off and on (or Airplane mode on/off) on the iPhone,
+  then open **Control Centre → Screen Mirroring** again. iOS caches the AirPlay device list for
+  a few minutes; a stale entry looks exactly like a failed rename.
+- **Check what was really registered.** The Home screen shows *Visible as: …*. If you see
+  **Apple TV (2)**, another device on your network already owns that name and Android's mDNS
+  responder renamed us to resolve the collision — pick a different name in Settings.
+- **A name can be silently shortened.** mDNS service names are capped at 63 bytes, and PhairPlay
+  drops characters that would corrupt a Bonjour record (emoji and punctuation). What you typed
+  and what gets advertised can therefore differ; the Settings row shows the cleaned value.
+
+---
+
+## Casting from an iPhone app (Rumble, YouTube, …)
+
+**Use Screen Mirroring for anything that must reach PhairPlay.**
+
+1. On the iPhone, open **Control Centre → Screen Mirroring**.
+2. Pick the name PhairPlay advertises (**Apple TV** by default).
+3. Open the app and play — the whole phone screen is mirrored, including video.
+
+This is the only route that reaches PhairPlay, and it is what apps like Rumble mean by
+"screen mirroring" in their own support notes.
+
+### Why that app's own cast button doesn't list PhairPlay
+
+If an app has its own cast icon (the rectangle-with-wi-fi-arc symbol), it is almost always
+**Google Cast**, not AirPlay. PhairPlay cannot appear in that list, and this is not a bug that
+can be fixed in this app:
+
+- **Google Cast needs a Google-registered Cast App ID.** Google issues the ID, and a receiver
+  only shows up in a Cast sender's device list once its App ID is registered and published.
+  The Cast control plane in PhairPlay is wired up and the SDK is started, but with no
+  registered App ID the Cast card reports *Cast App ID not set or Play Services unavailable*.
+  See [CAST_APP_ID.md](CAST_APP_ID.md).
+- **Emulating a Chromecast instead is not possible on a Google TV.** A Cast receiver listens on
+  TCP port 8009, and on a Google TV that port is already owned by the built-in Chromecast
+  receiver that ships with the device. An app cannot bind it.
+
+So: an in-app cast button sends your video to the TV's **own** built-in receiver, which plays it
+but never hands it to PhairPlay. Screen Mirroring is the route that does.
+
+### If Screen Mirroring connects but the video is black
+
+That is a different problem, and usually one of:
+
+- **DRM.** FairPlay/Widevine-protected streams are blocked by design (see *Connected but black
+  screen → Cause 1*).
+- **Mirroring resolution.** Turn **Settings → Higher resolution (up to 4K)** off and restart; a
+  marginal decoder can fail to configure at 4K.
+
+---
+
 ## Connected but black screen
 
 **Cause 1: FairPlay-protected content**
