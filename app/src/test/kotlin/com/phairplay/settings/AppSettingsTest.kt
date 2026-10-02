@@ -23,9 +23,16 @@ class AppSettingsTest {
 
     // ─── Default values ──────────────────────────────────────────────────────
 
+    /**
+     * The spoofed name now defaults to "Apple TV" instead of empty.
+     *
+     * Empty used to mean "fall back to the Android device name", which put the name a
+     * sender showed outside the app's control.
+     */
     @Test
-    fun `default settings have empty display name`() {
-        assertEquals("", AppSettings.DEFAULT.displayName)
+    fun `default settings advertise the Apple TV name`() {
+        assertEquals("Apple TV", AppSettings.DEFAULT.displayName)
+        assertEquals("Apple TV", AppSettings.DEFAULT.effectiveDisplayName)
     }
 
     @Test
@@ -63,10 +70,14 @@ class AppSettingsTest {
         assertEquals("Living Room TV", settings.effectiveDisplayName)
     }
 
+    /**
+     * A blank name must not silently hand the name back to the Android device name — it
+     * resolves to the default, so the app always controls what senders see.
+     */
     @Test
-    fun `effectiveDisplayName returns empty string for blank name`() {
+    fun `effectiveDisplayName falls back to the default for a blank name`() {
         val settings = AppSettings(displayName = "   ")
-        assertEquals("", settings.effectiveDisplayName)
+        assertEquals("Apple TV", settings.effectiveDisplayName)
     }
 
     @Test
@@ -78,7 +89,19 @@ class AppSettingsTest {
     @Test
     fun `effectiveDisplayName handles empty string`() {
         val settings = AppSettings(displayName = "")
-        assertEquals("", settings.effectiveDisplayName)
+        assertEquals("Apple TV", settings.effectiveDisplayName)
+    }
+
+    @Test
+    fun `effectiveDisplayName strips characters that break mDNS records`() {
+        val settings = AppSettings(displayName = "Living <Room> TV!")
+        assertEquals("Living Room TV", settings.effectiveDisplayName)
+    }
+
+    @Test
+    fun `effectiveDisplayName is never empty for a punctuation-only name`() {
+        val settings = AppSettings(displayName = "!!!")
+        assertEquals("Apple TV", settings.effectiveDisplayName)
     }
 
     // ─── anyProtocolEnabled ───────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import com.phairplay.R
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.Logger
+import com.phairplay.util.MdnsNames
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -158,9 +159,8 @@ class SettingsFragment : Fragment() {
 
     /** Populates all UI elements with values from [settings]. */
     private fun populateUI(settings: AppSettings) {
-        textDisplayNameValue.text = settings.effectiveDisplayName.ifEmpty {
-            getString(R.string.setting_display_name_system_default)
-        }
+        // effectiveDisplayName is never empty — it falls back to MdnsNames.DEFAULT_DISPLAY_NAME.
+        textDisplayNameValue.text = settings.effectiveDisplayName
         setToggle(rowAirPlay,      settings.airPlayEnabled)
         setToggle(rowMiracast,     settings.miracastEnabled)
         setToggle(rowCast,         settings.castEnabled)
@@ -238,22 +238,29 @@ class SettingsFragment : Fragment() {
      * WHY: The display name is what appears in the macOS/iOS AirPlay picker.
      * Changing it is infrequent but important for multi-TV households.
      *
+     * The save **restarts the receivers**. This used to only write to DataStore, which
+     * left the running mDNS registration broadcasting the previous name until the user
+     * happened to hit Restart — the single most confusing thing about the setting, since
+     * the UI updated immediately and the sender's picker did not.
+     *
      * TV UX notes:
-     * - The EditText is pre-filled with the current name (empty = system default)
+     * - The EditText is pre-filled with the current name
      * - Max length is enforced to [AppSettings.DISPLAY_NAME_MAX_LENGTH] (63 chars, mDNS limit)
-     * - "OK" saves the new name; "Reset to default" clears to "" (system name); "Cancel" = no-op
-     * - Name trimming is applied on save — pure-whitespace names are treated as blank
+     * - "OK" saves the new name; "Reset to default" restores
+     *   [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV"); "Cancel" = no-op
+     * - Name trimming and sanitising are applied on save (see [MdnsNames.sanitize])
      *
      * Collision detection: Android's NsdManager automatically appends " (2)", " (3)" etc. if
      * another device on the network already uses the same mDNS name. This is transparent to
-     * the user at save-time; the actual registered name is logged at registration.
+     * the user at save-time; the actual registered name is logged at registration and shown
+     * on the Home screen when it differs from the requested one.
      */
     private fun showDisplayNameDialog() {
-        val currentName = viewLifecycleOwner.lifecycleScope.run {
-            // Read directly from the displayed value (already loaded)
-            val displayed = textDisplayNameValue.text?.toString() ?: ""
-            if (displayed == getString(R.string.setting_display_name_system_default)) "" else displayed
-        }
+        // Read directly from the displayed value (already loaded). Older builds could show the
+        // "using system device name" placeholder; treat that as "no name" rather than typing it
+        // into the box.
+        val displayed = textDisplayNameValue.text?.toString() ?: ""
+        val currentName = if (displayed == getString(R.string.setting_display_name_system_default)) "" else displayed
 
         val editText = EditText(requireContext()).apply {
             setText(currentName)
@@ -269,17 +276,17 @@ class SettingsFragment : Fragment() {
             .setTitle(R.string.setting_display_name)
             .setView(editText)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                val newName = editText.text?.toString()?.trim() ?: ""
-                save { it.copy(displayName = newName) }
-                textDisplayNameValue.text = newName.ifEmpty {
-                    getString(R.string.setting_display_name_system_default)
-                }
-                Logger.i("Display name updated to: '${newName.ifEmpty { "(system default)" }}'")
+                // Sanitise here as well as on read, so the row shows the name that will
+                // actually be registered rather than what was typed.
+                val newName = MdnsNames.sanitize(editText.text?.toString())
+                saveAndRestart { it.copy(displayName = newName) }
+                textDisplayNameValue.text = newName
+                Logger.i("Display name updated to '$newName' — restarting receivers to re-advertise")
             }
             .setNeutralButton(R.string.setting_display_name_reset) { _, _ ->
-                save { it.copy(displayName = "") }
-                textDisplayNameValue.text = getString(R.string.setting_display_name_system_default)
-                Logger.i("Display name reset to system default")
+                saveAndRestart { it.copy(displayName = MdnsNames.DEFAULT_DISPLAY_NAME) }
+                textDisplayNameValue.text = MdnsNames.DEFAULT_DISPLAY_NAME
+                Logger.i("Display name reset to '${MdnsNames.DEFAULT_DISPLAY_NAME}'")
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

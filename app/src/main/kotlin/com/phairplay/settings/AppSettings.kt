@@ -1,5 +1,7 @@
 package com.phairplay.settings
 
+import com.phairplay.util.MdnsNames
+
 /**
  * AppSettings — Immutable data model for all user-configurable PhairPlay settings.
  *
@@ -23,11 +25,19 @@ data class AppSettings(
 
     // ─── Display ───────────────────────────────────────────────────────────
     /**
-     * The name shown in sender pickers (AirPlay menu on Mac, Cast picker in Chrome, etc.).
-     * If empty, the Android device name is used as a fallback.
-     * Validated: max 63 characters, must not be blank after trimming.
+     * The name shown in sender pickers (AirPlay menu on Mac, the iPhone/iPad screen-mirroring
+     * list, Cast picker in Chrome, etc.) — i.e. the **spoofed** name.
+     *
+     * It defaults to [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV") rather than to empty:
+     * a blank value used to fall back to the Android device name, which meant the name a
+     * sender showed was whatever the TV was called in Android settings and could not be
+     * controlled from inside PhairPlay.
+     *
+     * Validated via [effectiveDisplayName]: trimmed, stripped of characters that break
+     * mDNS/pickers, and capped at 63 UTF-8 bytes. Setting it back to blank restores the
+     * [MdnsNames.DEFAULT_DISPLAY_NAME].
      */
-    val displayName: String = "",
+    val displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
 
     // ─── Protocols ─────────────────────────────────────────────────────────
     /**
@@ -123,12 +133,15 @@ data class AppSettings(
     )
 
     /**
-     * Returns the validated, trimmed display name.
-     * If the stored name is blank, returns an empty string so callers
-     * can fall back to the system device name.
+     * Returns the validated, trimmed display name — the single value every caller should
+     * advertise (mDNS `_airplay._tcp`, the `GET /info` reply, the Home screen).
+     *
+     * Never empty: a blank or all-punctuation stored name resolves to
+     * [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV") so senders always get a usable name
+     * instead of silently falling back to the Android device name.
      */
     val effectiveDisplayName: String
-        get() = displayName.trim()
+        get() = MdnsNames.sanitize(displayName)
 
     /**
      * Returns true if at least one protocol is enabled.

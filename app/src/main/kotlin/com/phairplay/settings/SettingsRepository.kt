@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.phairplay.util.Logger
+import com.phairplay.util.MdnsNames
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -105,7 +106,7 @@ class SettingsRepository(private val context: Context) {
      * Missing keys fall back to their default values in [AppSettings].
      */
     private fun Preferences.toAppSettings(): AppSettings = AppSettings(
-        displayName        = this[Keys.DISPLAY_NAME]            ?: "",
+        displayName        = this[Keys.DISPLAY_NAME]            ?: MdnsNames.DEFAULT_DISPLAY_NAME,
         airPlayEnabled     = this[Keys.AIRPLAY_ENABLED]         ?: true,
         miracastEnabled    = this[Keys.MIRACAST_ENABLED]        ?: true,
         castEnabled        = this[Keys.CAST_ENABLED]            ?: true,

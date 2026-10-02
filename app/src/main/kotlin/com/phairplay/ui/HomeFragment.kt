@@ -16,6 +16,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.R
+import com.phairplay.settings.SettingsRepository
 import com.phairplay.service.ActiveConnection
 import com.phairplay.service.PhairPlayService
 import com.phairplay.service.Protocol
@@ -23,8 +24,8 @@ import com.phairplay.service.ProtocolState
 import com.phairplay.service.ServiceController
 import com.phairplay.service.ServiceState
 import com.phairplay.util.Logger
-import com.phairplay.util.NetworkUtils
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -77,6 +78,12 @@ class HomeFragment : Fragment() {
     private var miracastState = ProtocolState.DISABLED
     private var castState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
+
+    /** The name mDNS actually registered (differs from the requested one on a collision). */
+    private var registeredName: String? = null
+
+    /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
+    private var lastRequestedName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_home, container, false)
@@ -153,12 +160,37 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Shows the device's AirPlay name on the HomeScreen so the user knows
-     * what to look for in their sender's picker.
+     * Shows the AirPlay name on the Home screen so the user knows what to look for in
+     * their sender's picker.
+     *
+     * This reads the **spoofed** name from Settings, not the Android device name — the
+     * whole point of the setting is that the sender sees the name chosen here, and showing
+     * the system name made a working rename look broken.
      */
     private fun showDeviceName() {
-        val name = NetworkUtils.getDeviceName(requireContext())
-        textDeviceName.text = getString(R.string.home_device_visible_as, name)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val settings = SettingsRepository(requireContext()).settingsFlow.first()
+            // effectiveDisplayName is never blank — see MdnsNames.DEFAULT_DISPLAY_NAME.
+            lastRequestedName = settings.effectiveDisplayName
+            updateDeviceNameText(lastRequestedName)
+        }
+    }
+
+    /**
+     * Renders the "Visible as: …" line.
+     *
+     * Once mDNS has reported the name it actually registered, that wins over the requested
+     * one: NsdManager resolves a collision with another device of the same name by appending
+     * " (2)", and the picker shows the registered name, so that is what the user needs to
+     * see here too.
+     */
+    private fun updateDeviceNameText(requestedName: String) {
+        val actual = registeredName
+        val nameToShow = if (actual.isNullOrBlank()) requestedName else actual
+        if (!actual.isNullOrBlank() && actual != requestedName) {
+            Logger.w("mDNS name collision — requested '$requestedName', registered as '$actual'")
+        }
+        textDeviceName.text = getString(R.string.home_device_visible_as, nameToShow)
     }
 
     // ─── State Observation ───────────────────────────────────────────────────
@@ -173,6 +205,14 @@ class HomeFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             svc.serviceState.collectLatest { state -> updateServiceStateBadge(state) }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            // The name mDNS really registered — used to show " (2)"-style collision renames
+            // instead of the name the user asked for.
+            svc.registeredName.collectLatest { name ->
+                registeredName = name
+                updateDeviceNameText(lastRequestedName)
+            }
         }
         viewLifecycleOwner.lifecycleScope.launch {
             svc.airPlayState.collectLatest { state ->
