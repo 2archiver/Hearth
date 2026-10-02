@@ -50,6 +50,7 @@ class AppVersionTest {
         assertEquals("unknown", AppVersion.base("   "))
     }
 
+    /** Regression guard: `substringBefore('.')` would answer "1" here — a major version. */
     @Test
     fun `train is the major and minor version`() {
         assertEquals("1.3", AppVersion.train("1.3.0-main.4-googletv"))
@@ -58,6 +59,11 @@ class AppVersionTest {
     @Test
     fun `train ignores the patch and pre-release parts`() {
         assertEquals("1.3", AppVersion.train("1.3.2-beta.7-googletv"))
+    }
+
+    @Test
+    fun `train keeps both components of a two-part version`() {
+        assertEquals("1.3", AppVersion.train("1.3-googletv"))
     }
 
     @Test

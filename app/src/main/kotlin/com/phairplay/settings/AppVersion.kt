@@ -44,7 +44,12 @@ object AppVersion {
      * The release train behind a build — what a changelog is filed under.
      *
      * `1.3.0-main.4-googletv` → `1.3`
+     *
+     * The first TWO components, not `substringBefore('.')`: that would answer `1`, which is a
+     * major version, not the train.
      */
-    fun train(versionName: String): String =
-        base(versionName).substringBefore('.').ifBlank { UNKNOWN }
+    fun train(versionName: String): String {
+        val parts = base(versionName).split('.')
+        return if (parts.size >= 2) "${parts[0]}.${parts[1]}" else parts[0]
+    }
 }
