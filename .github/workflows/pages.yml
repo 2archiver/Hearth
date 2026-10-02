@@ -1,13 +1,18 @@
 # Publishes the download page (site/) to GitHub Pages.
 #
-# `enablement: true` switches the repository's Pages source to "GitHub Actions" on the first
-# run, so the page needs no manual Settings → Pages step. It only needs `pages: write`
-# (below), which a push to main has; on a pull request from a fork it is skipped instead of
-# failing the build.
+# The APK download does NOT depend on this page — releases/download/latest/PhairPlay-googletv.apk
+# works on its own. The page is a nicer front door, and it reads the release list from the GitHub
+# API in the browser, so publishing a new APK never requires redeploying it.
 #
-# The page itself reads the release list from the GitHub API in the browser, so publishing a
-# new APK never requires redeploying it. Note the APK download does NOT depend on Pages at
-# all — releases/download/latest/PhairPlay-googletv.apk works on its own.
+# `enablement: true` asks configure-pages to switch the repository's Pages source to "GitHub
+# Actions" by itself. *Creating* a Pages site is an administration-level action, which a workflow
+# GITHUB_TOKEN cannot be granted (there is no `administration` scope for workflow tokens), so the
+# first time it is refused with "Resource not accessible by integration". Rather than going red over
+# something the APK does not need, the job says exactly what to click and skips the deploy:
+#
+#     Settings → Pages → Build and deployment → Source: GitHub Actions
+#
+# After that one-time switch, configure-pages succeeds and this workflow deploys normally.
 
 name: Releases page
 
@@ -29,18 +34,43 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Fork PRs and first runs cannot change repo settings; skipping keeps the build green.
-    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+
+      - name: Configure Pages (enables the GitHub Actions source if the token is allowed to)
+        id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
         with:
           enablement: true
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Explain the one-time Pages switch
+        if: steps.pages.outcome == 'failure'
+        env:
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          echo "::warning::GitHub Pages is not enabled and this workflow's token cannot enable it (creating a Pages site needs admin rights, which GITHUB_TOKEN cannot hold). One-time fix: Settings → Pages → Build and deployment → Source: GitHub Actions, then re-run this workflow. The APK download does not depend on Pages."
+          {
+            echo "## Download page skipped — Pages needs one manual click"
+            echo ""
+            echo "Settings → Pages → Build and deployment → **Source: GitHub Actions**, then re-run"
+            echo "this workflow (or push any change under \`site/\`)."
+            echo ""
+            echo "The APK is unaffected: https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the page
+        if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site
-      - id: deployment
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
