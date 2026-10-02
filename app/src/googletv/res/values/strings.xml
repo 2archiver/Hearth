@@ -4,6 +4,6 @@
     Only strings that differ from the main flavor need to be listed here.
 -->
 <resources>
-    <!-- Google TV users see this device label in the AirPlay picker -->
-    <string name="app_name">PhairPlay</string>
+    <!-- Launcher label for the Google TV build (with archiver tag) -->
+    <string name="app_name">PhairPlay (archiver)</string>
 </resources>

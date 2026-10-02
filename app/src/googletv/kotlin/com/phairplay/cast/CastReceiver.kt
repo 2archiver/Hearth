@@ -28,7 +28,9 @@ class CastReceiver(
 
         if (!isAvailable(context)) {
             Logger.w("Google Cast not available on this device (missing Google Play Services)")
-            onStateChanged(ProtocolState.DISABLED)
+            // ERROR, not DISABLED: settings say Cast is on — the honest detail
+            // ("Cast App ID not set or Play Services unavailable") explains why it can't run.
+            onStateChanged(ProtocolState.ERROR)
             return
         }
 

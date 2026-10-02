@@ -25,7 +25,10 @@
     <string name="protocol_detail_disabled">In Einstellungen aktivieren</string>
     <string name="protocol_detail_waiting">Warte auf Sender…</string>
     <string name="protocol_detail_connected">Streaming von %1$s</string>
-    <string name="protocol_detail_error">WLAN-Einstellungen prüfen</string>
+    <string name="protocol_detail_connected_fallback">Wird gestreamt</string>
+    <string name="protocol_detail_error_airplay">Empfängerfehler — Neustart versuchen</string>
+    <string name="protocol_detail_error_miracast">Wi-Fi Direct nicht verfügbar oder Berechtigung fehlt</string>
+    <string name="protocol_detail_error_cast">Cast-App-ID fehlt oder Play Services nicht verfügbar</string>
 
     <!-- ── Service states ──────────────────────────────────────── -->
     <string name="service_state_running">Aktiv</string>

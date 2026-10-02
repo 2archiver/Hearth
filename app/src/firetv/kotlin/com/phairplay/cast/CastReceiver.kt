@@ -9,16 +9,18 @@ import com.phairplay.util.Logger
  * Fire TV Cast receiver implementation.
  *
  * Amazon Fire TV does not ship Google Play Services, so the official Google
- * Cast TV SDK cannot run on this flavor. The receiver reports DISABLED instead
- * of pretending to advertise a protocol it cannot actually serve.
+ * Cast TV SDK cannot run on this flavor. The receiver reports ERROR (with the
+ * honest "Cast App ID not set or Play Services unavailable" detail) instead of
+ * pretending to advertise a protocol it cannot serve — or worse, showing the
+ * old DISABLED/"Enable in Settings" hint when the toggle was already on.
  */
 class CastReceiver(
     @Suppress("UNUSED_PARAMETER") context: Context,
     private val onStateChanged: (ProtocolState) -> Unit
 ) {
     fun start() {
-        Logger.w("Google Cast disabled on Fire TV flavor")
-        onStateChanged(ProtocolState.DISABLED)
+        Logger.w("Google Cast is not available on Fire TV flavor (no Google Play Services)")
+        onStateChanged(ProtocolState.ERROR)
     }
 
     fun stop() {

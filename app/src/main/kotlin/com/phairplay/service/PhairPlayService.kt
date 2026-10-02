@@ -296,19 +296,45 @@ class PhairPlayService : Service() {
     }
 
     private fun startMiracast() {
-        _miracastState.value = ProtocolState.ADVERTISING
+        // Sender name: Wi-Fi Direct does not expose a friendly peer name during
+        // WFD setup, so a stable generic label is used on the status card.
+        val senderName = getString(R.string.miracast_sender_name)
         miracastReceiver = MiracastReceiver(
             context = applicationContext,
-            onStateChanged = { state -> _miracastState.value = state }
+            // Same surface AirPlay decodes onto — MainActivity shows the streaming
+            // overlay for Miracast CONNECTED, so the Surface exists before frames flow.
+            videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
+            onStateChanged = { state ->
+                _miracastState.value = state
+                when (state) {
+                    ProtocolState.CONNECTED -> {
+                        _activeConnection.value = ActiveConnection(senderName, Protocol.MIRACAST)
+                        updateNotification(isRunning = true, streamingSenderName = senderName)
+                    }
+                    ProtocolState.ADVERTISING,
+                    ProtocolState.DISABLED,
+                    ProtocolState.ERROR -> {
+                        // Another protocol (AirPlay) may own the active connection.
+                        if (_activeConnection.value?.protocol == Protocol.MIRACAST) {
+                            _activeConnection.value = null
+                        }
+                        updateNotification(isRunning = state != ProtocolState.DISABLED &&
+                                                       state != ProtocolState.ERROR)
+                    }
+                }
+            }
+            // Note: no optimistic ADVERTISING preset — the receiver emits the real
+            // state once the Wi-Fi P2P service registration completes (async).
         ).also { it.start() }
         Logger.d("Miracast receiver started")
     }
 
     private fun startCast() {
-        _castState.value = ProtocolState.ADVERTISING
         castReceiver = CastReceiver(
             context = applicationContext,
             onStateChanged = { state -> _castState.value = state }
+            // No optimistic ADVERTISING preset — CastReceiver reports its real
+            // state synchronously (ADVERTISING / ERROR / DISABLED).
         ).also { it.start() }
         Logger.d("Cast receiver started")
     }
