@@ -3,8 +3,9 @@
 #   jvm-tests      protocol/logic unit tests, no Android SDK needed
 #   android-build  Android Lint + debug APK (the artifact you can sideload straight from a PR)
 #
-# Failing runs put the tail of the Gradle output in the job summary, because runner logs are
-# awkward to reach from the API and expire after 90 days.
+# Failing runs publish the tail of the Gradle output to the job summary AND comment it back on
+# the pull request (or the commit, for pushes), because runner logs sit on a blob host that is
+# awkward to reach and expire after 90 days.
 
 name: CI
 
@@ -13,6 +14,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
 
 jobs:
   jvm-tests:
@@ -61,9 +67,44 @@ jobs:
             echo ""
             echo "### Failed tests"
             echo '```'
-            grep -rh "FAILED" test-runner/build/test-results/test/*.xml 2>/dev/null | head -40 || true
+            grep -h -B2 "<failure" test-runner/build/test-results/test/*.xml 2>/dev/null | head -40 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Runner logs live on a blob host that is awkward to reach and they expire; job summaries
+      # are not readable through the REST API. So on failure, post the tail of the build log back
+      # to the pull request (or to the commit, for pushes) where anyone — or any bot — can read it.
+      - name: Report the failure where it can be read
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          body=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "<details><summary>Last 120 lines of the build output</summary>"
+            echo ""
+            echo '```'
+            tail -n 120 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$body"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            number=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
+            gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
+              || echo "::warning::could not comment on PR #$number"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$body")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       - name: Upload JVM test report
         uses: actions/upload-artifact@v4
@@ -126,6 +167,41 @@ jobs:
             tail -n 150 build.log 2>/dev/null || echo "(no build log)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Runner logs live on a blob host that is awkward to reach and they expire; job summaries
+      # are not readable through the REST API. So on failure, post the tail of the build log back
+      # to the pull request (or to the commit, for pushes) where anyone — or any bot — can read it.
+      - name: Report the failure where it can be read
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          body=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "<details><summary>Last 120 lines of the build output</summary>"
+            echo ""
+            echo '```'
+            tail -n 120 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$body"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            number=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
+            gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
+              || echo "::warning::could not comment on PR #$number"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$body")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       - name: Upload build reports
         uses: actions/upload-artifact@v4

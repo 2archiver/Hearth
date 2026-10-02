@@ -12,6 +12,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
+
 jobs:
   android-lint:
     name: Android Lint (${{ matrix.flavor }})
@@ -72,6 +77,41 @@ jobs:
             sed -n '1,80p' app/build/reports/lint-results-*.txt 2>/dev/null || echo "(no lint report was produced — the build failed before lint ran)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Runner logs live on a blob host that is awkward to reach and they expire; job summaries
+      # are not readable through the REST API. So on failure, post the tail of the build log back
+      # to the pull request (or to the commit, for pushes) where anyone — or any bot — can read it.
+      - name: Report the failure where it can be read
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          body=$(mktemp)
+          {
+            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "<details><summary>Last 120 lines of the build output</summary>"
+            echo ""
+            echo '```'
+            tail -n 120 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$body"
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            number=$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")
+            gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body" \
+              || echo "::warning::could not comment on PR #$number"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat "$body")" > /dev/null \
+              || echo "::warning::could not comment on the commit"
+          fi
 
       # Upload the lint report so it's easy to review in GitHub
       - name: Upload Lint report
