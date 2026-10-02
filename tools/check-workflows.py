@@ -58,6 +58,9 @@ def check(path):
         problems.append(f"{path}: contains a TAB character (YAML forbids tabs for indentation)")
 
     for n, line in enumerate(text.splitlines(), 1):
+        # Comments may quote prose ("GitHub Actions") on one line and close it on the next.
+        if line.lstrip().startswith("#"):
+            continue
         if line.count('"') % 2 == 1 and "'" not in line:
             problems.append(f"{path}:{n}: odd number of double quotes -> {line.strip()[:90]}")
 
