@@ -332,7 +332,10 @@ jobs:
             echo ""
             echo "Errors:"
             echo '```'
-            grep -E "^e: |error:|FAILURE: |What went wrong|> Task .* FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: " build.log 2>/dev/null | head -60 || true
+            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
+            # failing unit test names itself; head keeps a wall of warnings from pushing the
+            # real error out of the report.
+            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"
