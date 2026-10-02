@@ -181,7 +181,12 @@ android {
             "UnusedResources",
             // Advisory: the project deliberately supports a wide API range for old TVs;
             // targetSdk is bumped deliberately, not on every new platform release.
-            "OldTargetApi"
+            "OldTargetApi",
+            // PhairPlay ships for Google TV only, where every device is ARM (Chromecast with
+            // Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs). The native
+            // FairPlay/ALAC libraries are built for armeabi-v7a and arm64-v8a to keep the APK
+            // small; x86/x86_64 would only serve ChromeOS, which this app does not target.
+            "ChromeOsAbiSupport"
         )
     }
 
