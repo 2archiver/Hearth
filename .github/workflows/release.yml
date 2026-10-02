@@ -1,0 +1,128 @@
+# Release workflow — builds the Google TV APK and publishes a GitHub Release.
+#
+# Trigger: push a tag like v1.2.0 (or v1.2.0-beta.1 for a pre-release),
+# or run it manually from the Actions tab and enter the tag.
+#
+# Every release contains exactly these files:
+#   PhairPlay-<tag>-googletv.apk   versioned APK
+#   PhairPlay-googletv.apk         same APK under a fixed name, so this link always works:
+#       https://github.com/<owner>/<repo>/releases/latest/download/PhairPlay-googletv.apk
+#   SHA256SUMS.txt                 checksums
+#
+# Signing (recommended — lets new versions update old ones): add these repository secrets
+#   KEYSTORE_BASE64   base64 of your .jks   (base64 -w0 phairplay-release.jks)
+#   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+# Without them the APK is signed with a throw-away debug key: it installs fine, but a later
+# release signed with a different key must be uninstalled first.
+
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.2.0 (created from the selected branch if missing)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish Google TV APK
+    runs-on: ubuntu-latest
+
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate tag and derive version
+        id: ver
+        run: |
+          if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)(\.([0-9]+))?(-.+)?$ ]]; then
+            echo "Tag must look like v1.2.0 (got: $TAG)" >&2; exit 1
+          fi
+          major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}; patch=${BASH_REMATCH[4]:-0}
+          echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
+          # 1.2.3 -> 10203: always increases with the version, so updates install over older builds
+          echo "code=$(( major * 10000 + minor * 100 + patch ))" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" == *-* ]] && echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT" || echo "prerelease=" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant Gradle wrapper execute permission
+        run: chmod +x gradlew
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Write local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$SECRET_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "Signing with the release keystore."
+          else
+            echo "::warning::No KEYSTORE_BASE64 secret — signing with the debug key. Add signing secrets for update-safe releases."
+          fi
+
+      - name: Build release APK
+        run: >
+          ./gradlew :app:assembleGoogletvRelease --stacktrace
+          -Pphairplay.versionName=${{ steps.ver.outputs.name }}
+          -Pphairplay.versionCode=${{ steps.ver.outputs.code }}
+
+      - name: Collect release files
+        run: |
+          mkdir -p dist
+          src=$(ls app/build/outputs/apk/googletv/release/*.apk | head -1)
+          cp "$src" "dist/PhairPlay-${TAG}-googletv.apk"
+          cp "$src" "dist/PhairPlay-googletv.apk"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="## PhairPlay ${TAG} for Google TV
+
+          **Download \`PhairPlay-googletv.apk\` below** — that is the only file you need.
+
+          Built for Google TV / Android TV OS 10+ (tested target: Android 14). See the
+          [install guide](https://github.com/${{ github.repository }}/blob/main/docs/guides/INSTALLATION.md)
+          for Downloader and ADB steps.
+
+          ---
+          "
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "PhairPlay $TAG (Google TV)" \
+              --notes "$notes" --generate-notes \
+              --target "${{ github.sha }}" \
+              ${{ steps.ver.outputs.prerelease }}
+          fi

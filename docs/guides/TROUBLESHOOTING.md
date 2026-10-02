@@ -22,7 +22,7 @@
 
 **Cause 5: Wi-Fi P2P disabled (Miracast)**
 - Miracast requires Wi-Fi Direct. Some Android TVs disable this.
-- Check: Settings → My Fire TV / Google TV → About → verify Wi-Fi Direct is available.
+- Check: Settings → System → About → verify Wi-Fi Direct is available.
 
 ---
 
@@ -58,17 +58,9 @@
 
 ## App crashes on startup
 
-1. Check you're using the correct flavor APK for your device.
+1. Check you installed `PhairPlay-googletv.apk` and your TV runs Android TV OS 10 or newer.
 2. Try reinstalling: `adb uninstall com.phairplay.googletv` then install again.
 3. Report the crash: attach `adb logcat -d` output to a GitHub Issue.
-
----
-
-## Cast not available on Fire TV
-
-Google Cast requires Google Play Services, which is not available on Amazon Fire TV.
-The Cast toggle in Settings will be automatically hidden on Fire TV devices.
-This is by design and cannot be changed.
 
 ---
 

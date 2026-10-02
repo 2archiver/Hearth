@@ -6,20 +6,18 @@ import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
 
 /**
- * Fire TV Cast receiver implementation.
+ * JVM test-runner stand-in for the Google TV CastReceiver (app/src/googletv/).
  *
- * Amazon Fire TV does not ship Google Play Services, so the official Google
- * Cast TV SDK cannot run on this flavor. The receiver reports ERROR (with the
- * honest "Cast App ID not set or Play Services unavailable" detail) instead of
- * pretending to advertise a protocol it cannot serve — or worse, showing the
- * old DISABLED/"Enable in Settings" hint when the toggle was already on.
+ * The real implementation needs the Google Cast TV SDK (an AAR), which the
+ * AGP-free test-runner cannot load. This stub keeps the same public surface
+ * (notably isConfigured) so CastReceiverTest runs on the plain JVM.
  */
 class CastReceiver(
     @Suppress("UNUSED_PARAMETER") context: Context,
     private val onStateChanged: (ProtocolState) -> Unit
 ) {
     fun start() {
-        Logger.w("Google Cast is not available on Fire TV flavor (no Google Play Services)")
+        Logger.w("Google Cast is not available in the JVM test-runner stub")
         onStateChanged(ProtocolState.ERROR)
     }
 

@@ -1,10 +1,10 @@
 // App module build configuration for PhairPlay.
 //
-// Two product flavors are defined from the start:
-//   - "googletv": targets Google TV / Android TV (minSdk 29)
-//   - "firetv":   targets Amazon Fire TV (minSdk 25)
+// PhairPlay ships for Google TV only (Android TV OS 10+; developed against Android 14).
+// The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...),
+// the applicationId, and the Cast SDK source set stay stable.
 //
-// Shared code lives in src/main/. Flavor-specific overrides in src/googletv/ and src/firetv/.
+// Shared code lives in src/main/. Google TV specific code lives in src/googletv/.
 
 plugins {
     alias(libs.plugins.android.application)
@@ -26,19 +26,23 @@ android {
 
     defaultConfig {
         // applicationId is overridden per flavor below
-        minSdk = 25           // Lowest common denominator (Fire TV)
+        minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        // CI release builds derive these from the git tag (see .github/workflows/release.yml)
+        // so every published APK has a higher versionCode and can update the previous one.
+        versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull() ?: 2
+        versionName = providers.gradleProperty("phairplay.versionName").orNull ?: "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")
 
-        // Native FairPlay (libplayfair.so) — build for all Android ABIs so PhairPlay runs on
-        // the full range of Android TV / Fire TV hardware (32- and 64-bit ARM, plus x86/x86_64
-        // for Intel devices, ChromeOS, and emulators). Required for Google Play 64-bit compliance.
+        // Native code (libplayfair.so, libalac) — Google TV hardware is ARM only
+        // (Chromecast with Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs),
+        // so x86/x86_64 are dropped to keep the APK small. arm64-v8a is the main target;
+        // armeabi-v7a stays because many Google TV devices (incl. Chromecast with Google TV)
+        // run a 32-bit userspace.
         ndk {
-            abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            abiFilters += setOf("armeabi-v7a", "arm64-v8a")
         }
     }
 
@@ -50,8 +54,8 @@ android {
         }
     }
 
-    // Two flavors: one for Google TV, one for Amazon Fire TV.
-    // This separation allows flavor-specific code, resources, and dependencies.
+    // Single flavor: Google TV. Flavor-specific code (Cast Connect receiver),
+    // resources, and dependencies live in src/googletv/.
     flavorDimensions += "platform"
     productFlavors {
         create("googletv") {
@@ -60,17 +64,11 @@ android {
             minSdk = 29        // Google TV requires Android 10+
             versionNameSuffix = "-googletv"
         }
-        create("firetv") {
-            dimension = "platform"
-            applicationId = "com.phairplay.firetv"
-            minSdk = 25        // Fire TV supports Android 7.1+
-            versionNameSuffix = "-firetv"
-        }
     }
 
     // Release signing: credentials are injected via environment variables in CI.
     // Set KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD to enable.
-    // Local builds without these vars produce unsigned release APKs (fine for dev/test).
+    // Local builds without these vars are signed with the debug key (fine for dev/test).
     val keystorePath = System.getenv("KEYSTORE_PATH")
     if (keystorePath != null) {
         signingConfigs {
@@ -94,7 +92,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Use the release key when provided; otherwise fall back to the auto-generated
+            // debug key so a locally built release APK is still installable on a TV
+            // (an unsigned APK is rejected by Android). Updates only work across builds
+            // signed with the same key, so use a real keystore for published releases.
             signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -120,10 +123,6 @@ android {
         getByName("googletv") {
             kotlin.srcDirs("src/googletv/kotlin")
             res.srcDirs("src/googletv/res")
-        }
-        getByName("firetv") {
-            kotlin.srcDirs("src/firetv/kotlin")
-            res.srcDirs("src/firetv/res")
         }
         getByName("test") {
             kotlin.srcDirs("src/test/kotlin")
@@ -219,8 +218,7 @@ dependencies {
     // Binary property lists — AirPlay 2 handshake payloads (GET /info, SETUP)
     implementation(libs.ddplist)
 
-    // Google TV Cast Connect receiver SDK. Kept out of the Fire TV flavor because
-    // Fire TV lacks Google Play Services and cannot run Google Cast receiver APIs.
+    // Google TV Cast Connect receiver SDK (needs Google Play Services, present on Google TV).
     "googletvImplementation"(libs.play.services.cast.tv)
 
     // Unit Testing

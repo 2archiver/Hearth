@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Releases page** — `site/index.html` (GitHub Pages) with a one-click **Download APK** button, Downloader/ADB install steps and a list of all releases; deployed by `.github/workflows/pages.yml`
+- **Release workflow** — `.github/workflows/release.yml`: push a `v*` tag and CI builds the Google TV APK and publishes a GitHub Release containing `PhairPlay-googletv.apk` (fixed name → `releases/latest/download/PhairPlay-googletv.apk` always works), a versioned copy and `SHA256SUMS.txt`; version name/code are derived from the tag. See `docs/RELEASING.md`
+
+### Changed
+
+- **Google TV only** — the APK is now optimized for Google TV (Android TV OS 10+, targeting Android 14): `minSdk 29` for the whole app, native libraries built for ARM only (`armeabi-v7a`, `arm64-v8a`) for a smaller APK
+- Release builds without a keystore are signed with the debug key instead of being left unsigned (an unsigned APK cannot be installed)
+
+### Removed
+
+- **Fire TV support** — the `firetv` flavor, its Cast stub (moved to `test-runner/src/stubs/` for JVM tests), CI jobs, docs and the `scripts/release.sh` local release script (replaced by the release workflow)
+
 ---
 
 ## [1.1] - 2026-10-02

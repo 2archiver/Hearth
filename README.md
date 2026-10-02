@@ -1,9 +1,9 @@
 # PhairPlay
 
-PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Android TV and Fire TV. It lets your macOS or iOS/iPadOS device mirror its screen and audio directly to your TV — no Apple TV required.
+PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It lets your macOS or iOS/iPadOS device mirror its screen and audio directly to your TV — no Apple TV required.
 
 ```
- macOS (Monterey+)            Android TV / Fire TV
+ macOS (Monterey+)            Google TV
  iOS / iPadOS (16+)           ┌──────────────────────┐
  ┌────────────────┐  AirPlay  │                      │
  │  [Your Screen] │ ────────► │  [Your TV Screen]    │
@@ -18,7 +18,7 @@ PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Android TV and 
 
 ## Current Status — v1.1
 
-PhairPlay's AirPlay 2 receiver is fully implemented and available as a signed beta release. Download the APK directly from the [GitHub Releases page](https://github.com/mazer666/PhairPlay/releases).
+PhairPlay's AirPlay 2 receiver is fully implemented and available as a beta release. **[⬇ Download the Google TV APK](https://2archiver.github.io/phairplay-archiver-fork-/)** — or grab it straight from the [Releases page](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest) (`PhairPlay-googletv.apk`).
 
 The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders (including iOS 27.0.1) is the current focus.
 
@@ -40,9 +40,9 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 - Access-control lockout after repeated failed pairing attempts
 
 ### App & Platform
-- Android TV / Fire TV app shell with foreground service and status UI
+- Google TV app shell with foreground service and status UI
 - Mirror audio toggle and PIN-auth toggle in Settings
-- Works on Google TV (Android 10+) and Fire TV (Android 7+)
+- Built for Google TV (Android TV OS 10+, tested on Android 14); ARM-only APK for a smaller download
 - Miracast Wi-Fi Direct / WFD advertisement, RTSP control-plane, and H.264 video playback (hardware decode)
 - Google TV Cast Connect SDK lifecycle (full testing requires Cast app ID)
 - Zero ads, zero analytics, zero internet required
@@ -62,9 +62,9 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 ## Requirements
 
 **On your TV:**
-- Google TV (Android 10+) or Amazon Fire TV (Android 7+)
+- Google TV / Android TV OS 10+ (Android 14 recommended)
 - Connected to the same Wi-Fi network as your Mac
-- Sideloading enabled (for Fire TV) or ADB enabled (for Google TV)
+- Sideloading enabled (Downloader app) or ADB debugging enabled
 
 **On your Mac:**
 - macOS 12 (Monterey) or later
@@ -79,16 +79,17 @@ v1.1 adds real Miracast video playback (RTP/H.264 → hardware decode → screen
 
 ## Installation
 
-### Option A: Download a Release APK (easiest)
+### Option A: Download the Release APK (easiest)
 
-Go to the [Releases page](https://github.com/mazer666/PhairPlay/releases) and download the APK for your device:
+Go to the [Releases page](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest) (or the [download page](https://2archiver.github.io/phairplay-archiver-fork-/)) and download **`PhairPlay-googletv.apk`** — it is the only APK, built for Google TV (Android 10+, tested on Android 14).
 
-| APK | Device |
-|-----|--------|
-| `PhairPlay-vX.Y.Z-googletv.apk` | Google TV, Android TV (Android 10+) |
-| `PhairPlay-vX.Y.Z-firetv.apk` | Amazon Fire TV (Android 7.1+) |
+Direct link that always points at the newest release:
 
-Then install it via ADB (see the Sideloading Guide below) or a sideloading app like *Downloader* on Fire TV.
+```
+https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk
+```
+
+Install it with the *Downloader* app on the TV (enter the link above) or via ADB — see the Sideloading Guide below.
 
 ### Option B: Build from Source
 
@@ -100,28 +101,23 @@ Then install it via ADB (see the Sideloading Guide below) or a sideloading app l
 
 2. **Clone the repository**
    ```bash
-   git clone https://github.com/mazer666/PhairPlay.git
-   cd PhairPlay
+   git clone https://github.com/2archiver/phairplay-archiver-fork-.git
+   cd phairplay-archiver-fork-
    ```
 
 3. **Build the APK**
    ```bash
-   # For Google TV:
    ./gradlew assembleGoogletvDebug
 
-   # Google TV with a registered Cast App ID:
+   # With a registered Cast App ID:
    ./gradlew assembleGoogletvDebug -Pphairplay.castAppId=<APP_ID>
-
-   # For Fire TV:
-   ./gradlew assembleFiretvDebug
    ```
    The APK will be in `app/build/outputs/apk/`.
 
    To run the same local checks used by CI before testing on a TV:
    ```bash
    ./gradlew :test-runner:test
-   ./gradlew :app:lintGoogletvDebug :app:lintFiretvDebug \
-     :app:assembleGoogletvDebug :app:assembleFiretvDebug
+   ./gradlew :app:lintGoogletvDebug :app:assembleGoogletvDebug
    ```
 
 4. **Install via ADB**
@@ -129,18 +125,20 @@ Then install it via ADB (see the Sideloading Guide below) or a sideloading app l
    # Enable ADB on your TV first (see below)
    adb connect <TV-IP-ADDRESS>
 
-   # Google TV:
    adb install app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
-
-   # Fire TV:
-   adb install app/build/outputs/apk/firetv/debug/app-firetv-debug.apk
    ```
 
 ---
 
 ## Sideloading Guide
 
-### Google TV (e.g., Chromecast with Google TV)
+### Google TV without a computer (Downloader app)
+
+1. Install **Downloader** (AFTVnews) from the Google Play Store on your TV.
+2. Go to **Settings → Apps → Security & restrictions → Install unknown apps** and allow **Downloader**.
+3. Open Downloader, enter the direct link from Option A (or the [download page](https://2archiver.github.io/phairplay-archiver-fork-/)), then choose **Install**.
+
+### Google TV with ADB (e.g., Chromecast with Google TV, Google TV Streamer, Android 14)
 
 1. Go to **Settings → System → About → Android TV OS build** and click it 7 times to enable Developer Options.
 2. Go to **Settings → System → Developer Options** and enable **USB debugging**.
@@ -148,23 +146,9 @@ Then install it via ADB (see the Sideloading Guide below) or a sideloading app l
 4. On your Mac/PC, run:
    ```bash
    adb connect <TV-IP>
-   adb install app-googletv-debug.apk
+   adb install PhairPlay-googletv.apk
    ```
 5. Launch PhairPlay from your app list.
-
-### Fire TV (Fire TV Stick, Fire TV Cube, etc.)
-
-1. Go to **Settings → My Fire TV → About** and click **Build** 7 times to enable Developer Options.
-2. Go to **Settings → My Fire TV → Developer Options** and enable:
-   - **ADB debugging** → ON
-   - **Apps from Unknown Sources** → ON
-3. Note your Fire TV's IP address from **Settings → My Fire TV → About → Network**.
-4. On your Mac/PC, run:
-   ```bash
-   adb connect <FireTV-IP>
-   adb install app-firetv-debug.apk
-   ```
-5. Launch PhairPlay from **Apps → Your Apps & Games**.
 
 ---
 

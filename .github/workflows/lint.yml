@@ -19,8 +19,6 @@ jobs:
         include:
           - flavor: googletv
             lint_task: :app:lintGoogletvDebug
-          - flavor: firetv
-            lint_task: :app:lintFiretvDebug
 
     steps:
       - name: Checkout code

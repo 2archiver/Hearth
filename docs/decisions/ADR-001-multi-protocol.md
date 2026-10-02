@@ -22,13 +22,13 @@ Each protocol is implemented as an independent component that can be enabled/dis
 
 1. **User experience**: Users should not need to know which protocol their sender uses. PhairPlay simply works.
 2. **Independence**: Protocols don't share network ports or state. One can fail without affecting others.
-3. **Graceful degradation**: If a protocol is unavailable (e.g., Cast on Fire TV without GMS), it is hidden in the UI.
+3. **Graceful degradation**: If a protocol is unavailable (e.g., Cast without Google Play Services), it is hidden in the UI.
 
 ## Consequences
 
 - Adds ~3 new package directories (`airplay/`, `miracast/`, `cast/`)
 - Increases APK size by ~2-5 MB (Cast SDK dependency)
-- Fire TV flavor must gracefully handle missing Google Play Services
+- The Cast receiver must gracefully handle missing Google Play Services or a missing Cast App ID
 - Miracast requires `CHANGE_WIFI_STATE` and `ACCESS_FINE_LOCATION` permissions (Wi-Fi P2P)
 
 ## Alternatives Considered

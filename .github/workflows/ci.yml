@@ -48,10 +48,6 @@ jobs:
             lint_task: :app:lintGoogletvDebug
             assemble_task: :app:assembleGoogletvDebug
             apk_path: app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
-          - flavor: firetv
-            lint_task: :app:lintFiretvDebug
-            assemble_task: :app:assembleFiretvDebug
-            apk_path: app/build/outputs/apk/firetv/debug/app-firetv-debug.apk
 
     steps:
       - name: Checkout code

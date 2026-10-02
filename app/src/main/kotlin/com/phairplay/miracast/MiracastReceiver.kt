@@ -45,7 +45,6 @@ import kotlinx.coroutines.launch
  * - Miracast requires Wi-Fi Direct, which some Android TV devices disable
  * - The WFD stack on Android TV is partly hidden (system APIs)
  * - Real-world compatibility must be tested on actual hardware
- * - Miracast is NOT available on Fire TV with standard APIs
  * - v1.1 plays video only — WFD audio is negotiated but not yet rendered
  *
  * Example:

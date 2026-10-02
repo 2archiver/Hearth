@@ -311,7 +311,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 
 **Status:** 🔄 Beta — v1.0.0-beta.1 published 2026-06-14
 
 **Tasks:**
-- [x] Signed release APKs for both flavors (`scripts/release.sh`)
+- [x] Signed release APK for Google TV (`.github/workflows/release.yml`, see `docs/RELEASING.md`)
 - [x] GitHub Release with GoogleTV + FireTV APKs ([v1.0.0-beta.1](https://github.com/mazer666/PhairPlay/releases/tag/v1.0.0-beta.1))
 - [x] CHANGELOG.md entry for v1.0.0-beta.1
 - [x] Documentation updated (README, ARCHITECTURE, PROJECT_PLAN)
