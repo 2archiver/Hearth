@@ -1,3 +1,11 @@
+# CI — runs on every push and pull request against main.
+#
+#   jvm-tests      protocol/logic unit tests, no Android SDK needed
+#   android-build  Android Lint + debug APK (the artifact you can sideload straight from a PR)
+#
+# Failing runs put the tail of the Gradle output in the job summary, because runner logs are
+# awkward to reach from the API and expire after 90 days.
+
 name: CI
 
 on:
@@ -25,8 +33,37 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
+      # :test-runner is a plain JVM module, but it lives in the same build as :app, so Gradle
+      # configures the Android module too and wants to know where the SDK is.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
+
+      - name: Write local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
       - name: Run JVM protocol test suite
-        run: ./gradlew :test-runner:test --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :test-runner:test --stacktrace 2>&1 | tee build.log
+
+      - name: Publish failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## JVM tests failed — last 150 lines"
+            echo '```'
+            tail -n 150 build.log 2>/dev/null || echo "(no build log)"
+            echo '```'
+            echo ""
+            echo "### Failed tests"
+            echo '```'
+            grep -rh "FAILED" test-runner/build/test-results/test/*.xml 2>/dev/null | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload JVM test report
         uses: actions/upload-artifact@v4
@@ -63,16 +100,32 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
+      # NDK 28.2.13676358 is preinstalled on ubuntu-latest; cmake;3.22.1 is not and AGP needs
+      # it for the native FairPlay/ALAC build. Naming both avoids an auto-download mid-build.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-35 build-tools;35.0.0'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Lint and build debug APKs
-        run: ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
+
+      - name: Publish failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Android build failed — last 150 lines"
+            echo '```'
+            tail -n 150 build.log 2>/dev/null || echo "(no build log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build reports
         uses: actions/upload-artifact@v4
