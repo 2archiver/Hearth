@@ -2,7 +2,6 @@ package com.phairplay.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -75,14 +74,20 @@ class MdnsNamesTest {
     }
 
     @Test
-    fun `sanitize never splits a multi-byte character`() {
-        // 32 × "é" = 64 bytes when encoded — one byte over the limit, so the last
-        // character must be dropped whole rather than leaving a half-written byte.
+    fun `sanitize drops accented characters rather than mangling them`() {
+        // The allowed set is [A-Za-z0-9 _-], so a non-ASCII letter is removed instead of
+        // being truncated mid-character — the advertised name stays ASCII either way.
+        assertEquals("Caf TV", MdnsNames.sanitize("Caf\u00e9 TV"))
+    }
+
+    @Test
+    fun `truncateUtf8 never splits a multi-byte character`() {
+        // 32 x U+00E9 = 64 UTF-8 bytes, one byte over the limit, so the final character has
+        // to be dropped whole rather than leaving half a byte behind.
         val accents = "\u00e9".repeat(32)
-        val result = MdnsNames.sanitize(accents)
-        assertEquals(31, result.length)
-        assertTrue("result must be valid UTF-8 round-trip", result.toByteArray(Charsets.UTF_8).size <= 63)
+        val result = MdnsNames.truncateUtf8(accents, 63)
         assertEquals("\u00e9".repeat(31), result)
+        assertEquals(62, result.toByteArray(Charsets.UTF_8).size)
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.phairplay.airplay
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import com.phairplay.airplay.handshake.PairingKeys
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
@@ -183,15 +182,15 @@ class MdnsService(
             setAttribute("pi", NetworkUtils.getPersistentUuid(context))
             setAttribute("flags", "0x4")                        // Screen-mirroring receiver
 
-            // AirPlay 2 identity: the receiver's long-lived Ed25519 public key.
-            //
-            // iOS reads `pk` straight out of the TXT record while *browsing* — before it has
-            // ever opened a connection — and uses it to decide whether this is a device it
-            // can pair with. `GET /info` also carries `pk`, but a sender that never gets
-            // past browse will never ask for it. Without a `pk` here an iPhone/iPad can show
-            // the device in its mirror list while refusing to actually connect to it.
-            runCatching { setAttribute("pk", PairingKeys.get(context).edPublic) }
-                .onFailure { Logger.w("Could not add the pk TXT record — iOS pairing may fail", it) }
+            // NOTE: a real Apple TV also advertises `pk` (the receiver's 32-byte Ed25519
+            // public key) here, and iOS can read it while browsing — before it ever opens a
+            // connection. We deliberately do not: NsdServiceInfo's only *public* setter is
+            // setAttribute(String, String), which re-encodes the value as UTF-8, so 32 raw
+            // key bytes would come out mangled and iOS would reject the signature outright.
+            // The byte[] overload exists in the platform but is hidden from the compile SDK
+            // (it resolves against Robolectric's android-all, not against android.jar), and
+            // reaching for it by reflection would run into the hidden-API restrictions.
+            // `GET /info` carries the same `pk`, which is the path our senders use.
         }
 
         airPlayListener = createRegistrationListener(

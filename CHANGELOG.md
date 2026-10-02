@@ -45,14 +45,18 @@ the sanitising rules (strip characters that corrupt a Bonjour record, collapse w
 at the 63-byte DNS-SD limit on a UTF-8 boundary). A fresh install, and "Reset to default",
 advertise **Apple TV** — matching the `AppleTV5,3` model PhairPlay already reports.
 
-**iOS senders can now see the receiver's identity before they connect**
+**The AirPlay advertisement matches a real Apple TV more closely**
 
-- The `_airplay._tcp` TXT record was missing `pk` (the receiver's Ed25519 public key). iOS
-  reads `pk` while *browsing*, before it opens a connection, and `GET /info` — which also
-  carried `pk` — is too late for a sender that never gets that far. A device with no `pk` in
-  its TXT record can appear in the iPhone's list while refusing to connect.
-- Also added `protovers=1.1` and `manufacturer=Apple` so the advertisement matches what a real
-  Apple TV sends.
+- Added `protovers=1.1` and `manufacturer=Apple` to the `_airplay._tcp` TXT record.
+- Investigated adding `pk` (the receiver's Ed25519 public key), which a real Apple TV
+  advertises and which iOS can read while browsing. **Not shipped, and not possible cleanly:**
+  the only public setter is `NsdServiceInfo.setAttribute(String, String)`, which re-encodes
+  the value as UTF-8, so 32 raw key bytes would reach the sender mangled and iOS would reject
+  the signature — worse than omitting the record. The `byte[]` overload exists on the platform
+  but is hidden from the compile SDK (it resolves against Robolectric's `android-all`, not
+  against `android.jar`), and reflecting into it would hit the hidden-API restrictions. The
+  comment in `MdnsService` records this so nobody re-adds it. `GET /info` carries the same
+  `pk`, which is the path our senders use.
 
 **A sender that disappeared mid-handshake no longer locks out the next one**
 
