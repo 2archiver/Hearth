@@ -39,11 +39,23 @@ class StreamStatsTest {
         StreamStats.resetStreams()
         // 3 payloads over a second is a nearly-static screen — the old code showed 0 fps
         // forever at this rate because it only recomputed every 300 payloads.
+        StreamStats.noteVideoPayload(500, 1_000L)
+        StreamStats.noteVideoPayload(500, 1_400L)
+        StreamStats.noteVideoPayload(500, 2_000L)
+        assertEquals(3, StreamStats.videoFps)                  // 3 payloads / 1000 ms
+        assertEquals(12, StreamStats.videoBitrateKbps)         // 1500 B → 12 kbit/s
+    }
+
+    @Test
+    fun `a payload timestamped at zero still opens a window`() {
+        // Regression: windowStartMs used 0L as its "no window" marker, so a payload stamped at
+        // 0 re-opened the window on every call and the rate counters never published at all.
+        StreamStats.resetStreams()
         StreamStats.noteVideoPayload(500, 0L)
         StreamStats.noteVideoPayload(500, 400L)
         StreamStats.noteVideoPayload(500, 1_000L)
-        assertEquals(3, StreamStats.videoFps)                  // 3 payloads / 1000 ms
-        assertEquals(12, StreamStats.videoBitrateKbps)         // 1500 B → 12 kbit/s
+        assertEquals(3, StreamStats.videoFps)
+        assertEquals(12, StreamStats.videoBitrateKbps)
     }
 
     @Test

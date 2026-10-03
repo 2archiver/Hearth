@@ -43,6 +43,14 @@ object StreamStats {
     private const val MAX_URL_COLUMNS = 44
 
     /**
+     * Sentinel for "no sample window open".
+     *
+     * Deliberately not `0L`: using 0 as the marker meant a payload timestamped at 0 (a fresh
+     * clock, a test) re-opened the window on every call and the counters never published.
+     */
+    private const val WINDOW_CLOSED = -1L
+
+    /**
      * Master switch, mirrored from the user setting as it changes (not just at receiver start).
      * The overlay only draws when this is true.
      */
@@ -84,7 +92,8 @@ object StreamStats {
 
     // ─── Rolling sample window ──────────────────────────────────────────────
     private val sampleLock = Any()
-    private var windowStartMs = 0L
+    /** Start of the open window, or [WINDOW_CLOSED] when no window is open. */
+    private var windowStartMs = WINDOW_CLOSED
     private var windowBytes = 0L
     private var windowPayloads = 0L
 
@@ -127,7 +136,7 @@ object StreamStats {
         castContentId = ""
 
         synchronized(sampleLock) {
-            windowStartMs = 0L
+            windowStartMs = WINDOW_CLOSED
             windowBytes = 0L
             windowPayloads = 0L
         }
@@ -149,7 +158,7 @@ object StreamStats {
     fun noteVideoPayload(bytes: Int, nowMillis: Long) {
         val now = nowMillis
         synchronized(sampleLock) {
-            if (windowStartMs == 0L) windowStartMs = now
+            if (windowStartMs == WINDOW_CLOSED) windowStartMs = now
             windowBytes += if (bytes > 0) bytes.toLong() else 0L
             windowPayloads++
             val elapsed = now - windowStartMs
