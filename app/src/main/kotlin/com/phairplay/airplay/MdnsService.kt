@@ -2,6 +2,7 @@ package com.phairplay.airplay
 
 import android.content.Context
 import android.net.nsd.NsdManager
+import android.os.Build
 import android.net.nsd.NsdServiceInfo
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
@@ -181,17 +182,21 @@ class MdnsService(
             setAttribute("vv", "2")                             // AirPlay protocol version 2
             setAttribute("pi", NetworkUtils.getPersistentUuid(context))
             setAttribute("flags", "0x4")                        // Screen-mirroring receiver
-
-            // NOTE: a real Apple TV also advertises `pk` (the receiver's 32-byte Ed25519
-            // public key) here, and iOS can read it while browsing — before it ever opens a
-            // connection. We deliberately do not: NsdServiceInfo's only *public* setter is
-            // setAttribute(String, String), which re-encodes the value as UTF-8, so 32 raw
-            // key bytes would come out mangled and iOS would reject the signature outright.
-            // The byte[] overload exists in the platform but is hidden from the compile SDK
-            // (it resolves against Robolectric's android-all, not against android.jar), and
-            // reaching for it by reflection would run into the hidden-API restrictions.
-            // `GET /info` carries the same `pk`, which is the path our senders use.
         }
+
+        // A real Apple TV advertises `pk` (the receiver's 32-byte Ed25519 public key) here
+        // and iOS reads it *while browsing*, before it opens a connection at all. Publishing
+        // it makes an iPhone treat us as an AirPlay 2 receiver during discovery rather than
+        // after `GET /info`, which is what makes the iPhone's picker and video-casting path
+        // behave the way they do with an Apple TV.
+        //
+        // The catch: NsdServiceInfo only grew a public setAttribute(String, byte[]) in
+        // Android 12 (API 31). Below that the only public setter takes a String, which
+        // re-encodes the value as UTF-8 and would mangle 32 raw key bytes — worse than
+        // omitting the record. So: publish on 12+, skip (and let `GET /info` carry `pk`,
+        // which it does) below that. Resolved reflectively so the compile SDK version does
+        // not decide whether older devices can build.
+        advertisePublicKey(serviceInfo)
 
         airPlayListener = createRegistrationListener(
             serviceLabel = "_airplay._tcp",
@@ -262,6 +267,29 @@ class MdnsService(
         registeredCount++
         if (registeredCount >= 2) {
             onStateChange(ProtocolState.ADVERTISING)
+        }
+    }
+
+    /**
+     * Adds the `pk` TXT record (the receiver's Ed25519 public key) when the platform can
+     * carry raw bytes in an mDNS TXT record — Android 12+ only.
+     *
+     * Best-effort by design: a device whose NsdServiceInfo lacks the byte[] setter, or a
+     * raw key the mDNS daemon rejects, must not stop the AirPlay service from advertising.
+     * `GET /info` carries the same key, so iOS still gets it over that path.
+     */
+    private fun advertisePublicKey(serviceInfo: NsdServiceInfo) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val publicKey = com.phairplay.airplay.handshake.PairingKeys.get(context).edPublic
+        if (publicKey.isEmpty()) return
+        runCatching {
+            val setter = NsdServiceInfo::class.java.getMethod(
+                "setAttribute", String::class.java, ByteArray::class.java
+            )
+            setter.invoke(serviceInfo, "pk", publicKey)
+            Logger.d("mDNS: advertising the AirPlay `pk` TXT record (${publicKey.size} bytes)")
+        }.onFailure { error ->
+            Logger.w("mDNS: could not advertise `pk` — iOS will read it from GET /info instead (${error.message})")
         }
     }
 

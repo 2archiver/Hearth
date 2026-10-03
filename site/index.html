@@ -17,6 +17,7 @@
   main { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px;
     background: #1d2a3d; color: var(--accent); border: 1px solid #2b4263; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: -14px 0 28px; }
   h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.1; margin: 14px 0 10px; }
   .lead { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 620px; }
 
@@ -61,6 +62,11 @@
   <h1>PhairPlay for Google TV</h1>
   <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your Google TV — one APK, nothing else to pick. Rebuilt automatically on every merge to <code class="inline">main</code>, so the button below always serves the newest build.</p>
 
+  <div class="badges">
+    <span class="badge">v1.4 — updates itself in place, no more re-installs</span>
+    <span class="badge">AirPlay · Google Cast</span>
+  </div>
+
   <section class="download" aria-label="Download">
     <a id="dl-btn" class="btn" href="" rel="noopener">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
@@ -70,7 +76,8 @@
       <div><span class="file">PhairPlay-googletv.apk</span></div>
       <div id="dl-meta">Rolling build from <code class="inline">main</code></div>
       <div id="dl-sha"></div>
-      <div id="dl-note">Mirrors from macOS 12+ and iOS 16+ (tested: iPhone 14, iOS 27.0.1).</div>
+      <div id="dl-note">Mirrors from macOS 12+ and iOS 16+ (tested: iPhone 14, iOS 27.0.1).<br>
+        Every build is signed with the same published key, so new versions install straight over the old one.</div>
     </div>
   </section>
 
@@ -102,9 +109,22 @@ adb install -r PhairPlay-googletv.apk</pre>
     <h3>Then</h3>
     <ul>
       <li>Open <b>PhairPlay</b> from your apps row and allow the permission prompts (notifications, nearby devices).</li>
-      <li>On your Mac / iPhone, open AirPlay and pick your TV. Both must be on the same Wi-Fi.</li>
-      <li>Trouble? See the <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/guides/TROUBLESHOOTING.md">troubleshooting guide</a>.</li>
+      <li>On your Mac / iPhone, open AirPlay and pick your TV. Both must be on the same network.</li>
+      <li><b>Casting</b> works too — PhairPlay ships its own Google Cast receiver, so no Google registration
+        is needed. See the <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/guides/CAST.md">Cast guide</a>
+        for what will and will not cast (YouTube and friends need their own receiver app).</li>
     </ul>
+  </div>
+
+  <div class="card">
+    <h3>Staying up to date</h3>
+    <p>You install PhairPlay once. After that the app checks GitHub for a newer build in the
+    background, downloads it, and offers a one-tap <b>Update ready — Install</b> prompt on the
+    Home screen. Settings → <b>Updates</b> controls how often it looks and whether it downloads
+    over Wi-Fi only.</p>
+    <p>Every release <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">is
+    signed with the same key</a>, which is why an update no longer fails with
+    <i>“App not installed as package conflicts with an existing package”</i>.</p>
   </div>
 
   <h2>All releases</h2>

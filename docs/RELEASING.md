@@ -27,8 +27,8 @@ work with either. The `latest` tag link is the one to bookmark: it is rebuilt on
 
 | Trigger | Mode | Release | Assets |
 |---------|------|---------|--------|
-| push / merge to `main` | rolling | tag `latest` (moved to the new commit, assets replaced in place) | `PhairPlay-googletv.apk`, `SHA256SUMS.txt` |
-| push a `v*` tag | versioned | permanent release for that tag | `PhairPlay-<tag>-googletv.apk`, `PhairPlay-googletv.apk`, `SHA256SUMS.txt` |
+| push / merge to `main` | rolling | tag `latest` (moved to the new commit, assets replaced in place) | `PhairPlay-googletv.apk`, `SHA256SUMS.txt`, `version.json` |
+| push a `v*` tag | versioned | permanent release for that tag | `PhairPlay-<tag>-googletv.apk`, `PhairPlay-googletv.apk`, `SHA256SUMS.txt`, `version.json` |
 | **Actions → Release → Run workflow** | either | enter `latest`, or a tag such as `v1.2.0` (created from the selected branch if missing) | as above |
 
 Tags containing a dash (`v1.2.0-beta.1`) are published as pre-releases. A failed run writes the
@@ -60,21 +60,71 @@ also drives rolling builds from `main` (published as `1.3.0-main.<run number>`).
   A version-derived code (`1.2.3` → `10203`) cannot do this: rolling builds from `main` would
   outrank or collide with the numbered release of the same version.
 
-## Sign releases (do this once)
+## Signing: why updates install in place
 
-Android only lets a new APK update an old one if both are signed with the same key. Without
-secrets the workflow signs with a throw-away debug key that differs on every runner: it installs
-fine, but the TV will demand an uninstall before taking the next build.
+Android only installs a new APK over an installed one when **both are signed with the same
+key**. Get this wrong and the TV reports:
 
-```bash
-keytool -genkey -v -keystore phairplay-release.jks -alias phairplay \
-  -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 phairplay-release.jks   # macOS: base64 -i phairplay-release.jks
+> **App not installed as package conflicts with an existing package**
+
+That message means "different signing key", not "different version". It used to happen on every
+PhairPlay update, because a build without signing secrets fell back to a throw-away debug key
+that differed on every CI run — so every update had to be preceded by an uninstall.
+
+PhairPlay fixes this by signing **every** build with one key:
+
+```
+app/signing/phairplay.p12        the public "community build" key, committed on purpose
 ```
 
-Add these in **Settings → Secrets and variables → Actions**: `KEYSTORE_BASE64` (output above),
-`KEYSTORE_PASSWORD`, `KEY_ALIAS` (`phairplay`), `KEY_PASSWORD`. Keep the `.jks` backed up and
-**never commit it**. Once they exist, every rolling build updates in place.
+| | |
+|---|---|
+| Alias / passwords | `phairplay` / `phairplay` (not a secret — see the trade-off below) |
+| Type | PKCS12, RSA 2048, self-signed, 30 years |
+| Used by | every build — `debug` **and** `release`, CI **and** local clones |
+
+Because `debug` and `release` share the key, a debug APK downloaded from a CI run and a release
+APK from the release workflow also replace each other.
+
+### The trade-off, stated plainly
+
+A committed private key is **not** a secret: anyone can build an APK signed with it. If someone
+published a malicious "PhairPlay update" signed with this key, Android would install it over
+PhairPlay without complaint. That is the cost of updates that Just Work for a sideloaded app
+with no Play Store in the loop.
+
+Mitigations built in:
+
+- PhairPlay's own updater **verifies the downloaded APK's signing certificate against its own**
+  before installing, and refuses anything that does not match — so the in-app path can never
+  install a differently-signed build ([docs/UPDATES.md](UPDATES.md)).
+- CI **verifies the APK signature after building** and prints the certificate SHA-256. Set the
+  repository variable `EXPECTED_APK_CERT_SHA256` to that fingerprint and the release **fails**
+  if a future build is signed with a different key.
+- Installing the APK by hand is still your call about which URL you trust.
+
+If you publish builds to other people and want a key only you hold, override the committed key:
+
+```bash
+tools/make-signing-key.sh phairplay.p12 phairplay        # write your own keystore
+KEYSTORE_PATH=/path/to/your.p12 \
+KEYSTORE_PASSWORD=… KEY_ALIAS=phairplay KEY_PASSWORD=… \
+  ./gradlew :app:assembleGoogletvRelease
+```
+
+In GitHub Actions, set **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|--------|-------|
+| `KEYSTORE_BASE64` | `base64 -w0 your.p12` (macOS: `base64 -i your.p12`) |
+| `KEYSTORE_PASSWORD` | keystore password |
+| `KEY_ALIAS` | `phairplay` |
+| `KEY_PASSWORD` | key password |
+| `KEYSTORE_TYPE` | optional; `pkcs12` for `.p12`/`.pfx` (default), `jks` for `.jks` |
+
+Keep your `.jks`/`.p12` backed up — lose it and you can never publish an in-place update again.
+Gradle properties `phairplay.keystorePath`, `phairplay.keystoreType`, `phairplay.keystorePassword`,
+`phairplay.keyAlias`, `phairplay.keyPassword` do the same thing without environment variables.
 
 ## The download page
 
@@ -96,6 +146,28 @@ Pages at all** — the release links above work regardless.
 # app/build/outputs/apk/googletv/release/app-googletv-release.apk
 ```
 
-Set `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` to sign with your release
-key. Omit the `-P` flags to use the base version from `gradle.properties` and a clock-derived
-versionCode.
+Set `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` to sign with your own key;
+otherwise the committed community key is used. Omit the `-P` flags to use the base version from
+`gradle.properties` and a clock-derived versionCode.
+
+## What the release workflow publishes now
+
+Alongside the APK and `SHA256SUMS.txt`, every release carries **`version.json`** — that is what
+PhairPlay's in-app updater reads:
+
+```json
+{
+  "versionName": "1.4.0-main.131",
+  "versionCode": 20432100,
+  "apk": "PhairPlay-googletv.apk",
+  "sha256": "…",
+  "size": 12345678,
+  "tag": "latest",
+  "commit": "…",
+  "builtAt": "…"
+}
+```
+
+The workflow also **verifies the APK signature** with `apksigner verify` and, for rolling builds,
+checks that the new `versionCode` is strictly greater than the published one — a code that does
+not grow is how an update quietly stops being installable.

@@ -16,8 +16,14 @@ import com.phairplay.R
 import android.view.Surface
 import com.phairplay.airplay.AirPlayReceiver
 import com.phairplay.cast.CastReceiver
-import com.phairplay.miracast.MiracastReceiver
+import com.phairplay.cast.bridge.CastBridgeReceiver
+import com.phairplay.update.StageResult
+import com.phairplay.update.StagedUpdate
+import com.phairplay.update.UpdateCheck
+import com.phairplay.update.UpdateInfo
+import com.phairplay.update.UpdateManager
 import com.phairplay.settings.AppSettings
+import com.phairplay.miracast.MiracastReceiver
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.DisplayCaps
 import com.phairplay.util.Logger
@@ -28,7 +34,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -105,6 +113,24 @@ class PhairPlayService : Service() {
     private var miracastReceiver: MiracastReceiver? = null
     private var castReceiver: CastReceiver? = null
 
+    /**
+     * PhairPlay's own Google Cast receiver, used when no Google-issued Cast App ID is
+     * configured. Runs instead of [castReceiver], never alongside it — two receivers
+     * advertising `_googlecast._tcp` for the same IP make senders show duplicate entries.
+     */
+    private var castBridge: CastBridgeReceiver? = null
+
+    /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
+    private var updateCheckJob: kotlinx.coroutines.Job? = null
+
+    /** Why the Cast card is in its current state ("Cast App ID not set", "port 8009 in use"…). */
+    private val _castDetail = MutableStateFlow<String?>(null)
+    val castDetail: StateFlow<String?> = _castDetail.asStateFlow()
+
+    /** Set while an automatic update check is running, so the UI can show a spinner. */
+    private val _updateChecking = MutableStateFlow(false)
+    val updateChecking: StateFlow<Boolean> = _updateChecking.asStateFlow()
+
     // Settings — read once when starting, re-read on restart
     private lateinit var settingsRepository: SettingsRepository
 
@@ -160,6 +186,36 @@ class PhairPlayService : Service() {
      */
     fun setVideoSurfaceProvider(provider: () -> Surface?) {
         videoSurfaceProvider = provider
+        // A Cast session may already be playing (started while the Activity was in the
+        // background with no Surface). Hand the new Surface over so video shows up.
+        castBridge?.attachSurface()
+    }
+
+    /**
+     * Bring PhairPlay's Activity to the front so there is a Surface to render video onto.
+     *
+     * WHY: PhairPlay draws through a Surface owned by [MainActivity], and MainActivity drops
+     * that Surface as soon as it is no longer visible (it installs a null-returning provider
+     * in `onStop`). A sender that starts casting while the TV is sitting on the home screen
+     * would therefore play audio with no picture. Re-opening the Activity restores it.
+     *
+     * Android 10+ restricts background activity launches, so this is best-effort: it normally
+     * succeeds because MainActivity is still in the back stack of a recent task. If the
+     * system refuses we log it and carry on — audio-only is better than nothing.
+     */
+    private fun bringToFront() {
+        runCatching {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            }
+            startActivity(intent)
+        }.onFailure { error ->
+            Logger.w("Could not bring PhairPlay to the front for playback: ${error.message}", error)
+        }
     }
 
     /**
@@ -172,6 +228,8 @@ class PhairPlayService : Service() {
     }
 
     override fun onDestroy() {
+        updateCheckJob?.cancel()
+        updateCheckJob = null
         Logger.i("PhairPlayService destroying")
         stopAllReceiversInternal()
         serviceJob.cancel()
@@ -195,7 +253,11 @@ class PhairPlayService : Service() {
 
         if (settings.airPlayEnabled)   startAirPlay(settings)
         if (settings.miracastEnabled)  startMiracast()
-        if (settings.castEnabled)      startCast()
+        if (settings.castEnabled)      startCast(settings)
+
+        // Look for a newer PhairPlay build in the background. Throttled inside
+        // UpdateManager (once every few hours), so this is cheap to call every start.
+        startUpdateChecker(settings)
     }
 
     /**
@@ -352,23 +414,179 @@ class PhairPlayService : Service() {
         Logger.d("Miracast receiver started")
     }
 
-    private fun startCast() {
-        castReceiver = CastReceiver(
+    /**
+     * Starts Google Cast, choosing between the two implementations:
+     *
+     * 1. **Cast Connect** (Google's SDK) when this build carries a Cast Application ID.
+     *    That is the official path and needs a registration at <https://cast.google.com/publish>.
+     * 2. **PhairPlay's Cast bridge** otherwise — mDNS + DIAL + castv2 implemented here, so
+     *    casting works on a TV whose owner has not registered anything with Google.
+     */
+    private fun startCast(settings: AppSettings) {
+        if (CastReceiver.isConfigured()) {
+            castReceiver = CastReceiver(
+                context = applicationContext,
+                onStateChanged = { state ->
+                    _castState.value = state
+                    _castDetail.value = when (state) {
+                        ProtocolState.ADVERTISING -> getString(R.string.cast_detail_connect_advertising)
+                        ProtocolState.ERROR -> getString(R.string.protocol_detail_error_cast)
+                        else -> null
+                    }
+                }
+            ).also { it.start() }
+            Logger.d("Cast receiver started (Cast Connect, registered app ID)")
+            return
+        }
+
+        if (!settings.castBridgeEnabled) {
+            _castDetail.value = getString(R.string.cast_detail_disabled)
+            _castState.value = ProtocolState.DISABLED
+            Logger.w("Cast is on but both back-ends are unavailable: no Cast App ID and the bridge is off")
+            return
+        }
+
+        val bridge = CastBridgeReceiver(
             context = applicationContext,
-            onStateChanged = { state -> _castState.value = state }
-            // No optimistic ADVERTISING preset — CastReceiver reports its real
-            // state synchronously (ADVERTISING / ERROR / DISABLED).
-        ).also { it.start() }
-        Logger.d("Cast receiver started")
+            displayName = settings.effectiveDisplayName,
+            surfaceProvider = { videoSurfaceProvider?.invoke() },
+            onStateChanged = { state ->
+                _castState.value = state
+                _castDetail.value = when (state) {
+                    ProtocolState.ADVERTISING -> castBridge?.lastNotice
+                        ?: castBridge?.lastError
+                        ?: getString(R.string.cast_detail_bridge_advertising)
+                    ProtocolState.ERROR -> castBridge?.lastError ?: getString(R.string.cast_detail_error)
+                    else -> null
+                }
+                if (state == ProtocolState.CONNECTED) {
+                    // A Cast sender connects from outside the app — make sure there is a
+                    // Surface to draw on before the LOAD command arrives.
+                    bringToFront()
+                    _activeConnection.value = ActiveConnection(
+                        getString(R.string.cast_sender_name), Protocol.CAST
+                    )
+                } else if (_activeConnection.value?.protocol == Protocol.CAST) {
+                    _activeConnection.value = null
+                }
+            }
+        )
+        castBridge = bridge
+        bridge.start()
+        if (bridge.lastError != null) {
+            _castDetail.value = bridge.lastError
+            _castState.value = ProtocolState.ERROR
+        }
+        Logger.d("Cast bridge started as '${settings.effectiveDisplayName}'")
+    }
+
+    /**
+     * Periodically asks GitHub whether a newer PhairPlay APK exists.
+     *
+     * Runs on the service's own scope, so a TV left sitting on the Home screen still hears
+     * about an update instead of only finding out the next time Settings is opened.
+     * UpdateManager throttles the network call itself; this loop only wakes it up.
+     */
+    private fun startUpdateChecker(settings: AppSettings) {
+        updateCheckJob?.cancel()
+        if (!settings.autoCheckForUpdates) return
+        updateCheckJob = serviceScope.launch {
+            while (isActive) {
+                runCatching { runUpdateCheck(settings) }
+                    .onFailure { Logger.w("Background update check failed: ${it.message}") }
+                delay(UPDATE_CHECK_PERIOD_MS)
+            }
+        }
+    }
+
+    /**
+     * One full update pass: check → (maybe) download → (maybe) install → notify.
+     *
+     * @return what the check found, so the Settings screen can report it.
+     */
+    private suspend fun runUpdateCheck(settings: AppSettings): UpdateCheck =
+        com.phairplay.update.UpdateFlow.run(
+            context = applicationContext,
+            autoDownload = settings.autoDownloadUpdates,
+            autoInstall = settings.autoInstallUpdates,
+            onNotifyAvailable = { notifyUpdateAvailable(it) },
+            onNotifyReady = { notifyUpdateReady(it) }
+        )
+
+    /**
+     * Settings → "Check for updates": one immediate check, respecting the download/install
+     * preferences. Safe to call from the UI — the network work runs on [Dispatchers.IO].
+     */
+    suspend fun checkForUpdatesNow(): UpdateCheck {
+        val settings = settingsRepository.settingsFlow.first()
+        _updateChecking.value = true
+        return try {
+            runUpdateCheck(settings)
+        } finally {
+            _updateChecking.value = false
+        }
+    }
+
+    /** Downloads an update the user just agreed to. */
+    suspend fun downloadUpdate(info: UpdateInfo): StageResult =
+        UpdateManager.get(applicationContext).downloadAndStage(info)
+
+    /** Installs the staged update. */
+    suspend fun installStagedUpdate(): Boolean =
+        UpdateManager.get(applicationContext).installStaged()
+
+    /** The download waiting to be installed, if any. */
+    fun stagedUpdate(): StagedUpdate? = UpdateManager.get(applicationContext).stagedUpdate()
+
+    /** Forgets the staged download. */
+    fun discardStagedUpdate() = UpdateManager.get(applicationContext).clearDownload()
+
+    private fun notifyUpdateAvailable(info: UpdateInfo) = notifyUpdate(
+        title = getString(R.string.update_notification_title),
+        text = getString(R.string.update_notification_available, info.shortLabel())
+    )
+
+    private fun notifyUpdateReady(info: UpdateInfo) = notifyUpdate(
+        title = getString(R.string.update_notification_title),
+        text = getString(R.string.update_notification_ready, info.shortLabel())
+    )
+
+    /** Posts a dismissible (non-ongoing) notification on the service channel. */
+    private fun notifyUpdate(title: String, text: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return
+        val openApp = PendingIntent.getActivity(
+            this, UPDATE_PENDING_INTENT_ID,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_RECOMMENDATION)
+            .build()
+        try {
+            manager.notify(UPDATE_NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // Android 13+ needs POST_NOTIFICATIONS; without it the Settings screen is the
+            // only place an update can be announced, which is fine.
+            Logger.w("Could not post the update notification: notification permission not granted")
+        }
     }
 
     private fun stopAllReceiversInternal() {
         try { airPlayReceiver?.stop() } catch (e: Exception) { Logger.e("AirPlay stop error", e) }
         try { miracastReceiver?.stop() } catch (e: Exception) { Logger.e("Miracast stop error", e) }
         try { castReceiver?.stop() } catch (e: Exception) { Logger.e("Cast stop error", e) }
+        try { castBridge?.stop() } catch (e: Exception) { Logger.e("Cast bridge stop error", e) }
         airPlayReceiver = null
         miracastReceiver = null
         castReceiver = null
+        castBridge = null
+        _castDetail.value = null
         _airPlayState.value = ProtocolState.DISABLED
         _miracastState.value = ProtocolState.DISABLED
         _castState.value = ProtocolState.DISABLED
@@ -469,6 +687,13 @@ class PhairPlayService : Service() {
     companion object {
         const val CHANNEL_ID      = "phairplay_service_channel"
         const val NOTIFICATION_ID = 1001
+
+        /** Separate, dismissible notification used to announce an available update. */
+        const val UPDATE_NOTIFICATION_ID = 1002
+        const val UPDATE_PENDING_INTENT_ID = 20
+
+        /** How often the background updater wakes up (UpdateManager throttles the rest). */
+        const val UPDATE_CHECK_PERIOD_MS = 6 * 60 * 60 * 1000L
         const val ACTION_START    = "com.phairplay.action.START"
         const val ACTION_STOP     = "com.phairplay.action.STOP"
         const val ACTION_RESTART  = "com.phairplay.action.RESTART"

@@ -71,7 +71,7 @@ jobs:
             # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
             # failing unit test names itself; head keeps a wall of warnings from pushing the
             # real error out of the report.
-            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            grep -E "^e: |error:|Error: |FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"
@@ -149,6 +149,19 @@ jobs:
           set -euo pipefail
           ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
 
+      # Lint aborts the build with nothing but "Lint found errors in the project", which is
+      # useless in a PR comment. The text report names the file, the line and the check id,
+      # so fold it into build.log before the failure reporter reads that log.
+      - name: Fold lint findings into the build log
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          for f in app/build/reports/lint-results*.txt; do
+            [ -f "$f" ] || continue
+            { echo "===== $f ====="; cat "$f"; } >> build.log
+          done || true
+
       - name: Report the failure (job summary + comment)
         if: failure()
         env:
@@ -165,7 +178,7 @@ jobs:
             # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
             # failing unit test names itself; head keeps a wall of warnings from pushing the
             # real error out of the report.
-            grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            grep -E "^e: |error:|Error: |FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"

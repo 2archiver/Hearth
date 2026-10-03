@@ -110,11 +110,15 @@ class SettingsRepository(private val context: Context) {
         airPlayEnabled     = this[Keys.AIRPLAY_ENABLED]         ?: true,
         miracastEnabled    = this[Keys.MIRACAST_ENABLED]        ?: true,
         castEnabled        = this[Keys.CAST_ENABLED]            ?: true,
+        castBridgeEnabled  = this[Keys.CAST_BRIDGE_ENABLED]     ?: true,
         airPlayPinAuthEnabled = this[Keys.AIRPLAY_PIN_AUTH]     ?: false,
         startOnBoot        = this[Keys.START_ON_BOOT]           ?: false,
         showDebugOverlay   = this[Keys.SHOW_DEBUG_OVERLAY]      ?: false,
         forceHighResolution = this[Keys.FORCE_HIGH_RESOLUTION]  ?: false,
-        mirrorAudioEnabled = this[Keys.MIRROR_AUDIO_ENABLED]    ?: true
+        mirrorAudioEnabled = this[Keys.MIRROR_AUDIO_ENABLED]    ?: true,
+        autoCheckForUpdates  = this[Keys.AUTO_CHECK_UPDATES]    ?: true,
+        autoDownloadUpdates  = this[Keys.AUTO_DOWNLOAD_UPDATES] ?: true,
+        autoInstallUpdates   = this[Keys.AUTO_INSTALL_UPDATES]  ?: false
     )
 
     /**
@@ -126,11 +130,15 @@ class SettingsRepository(private val context: Context) {
         this[Keys.AIRPLAY_ENABLED]      = settings.airPlayEnabled
         this[Keys.MIRACAST_ENABLED]     = settings.miracastEnabled
         this[Keys.CAST_ENABLED]         = settings.castEnabled
+        this[Keys.CAST_BRIDGE_ENABLED]  = settings.castBridgeEnabled
         this[Keys.AIRPLAY_PIN_AUTH]     = settings.airPlayPinAuthEnabled
         this[Keys.START_ON_BOOT]        = settings.startOnBoot
         this[Keys.SHOW_DEBUG_OVERLAY]   = settings.showDebugOverlay
         this[Keys.FORCE_HIGH_RESOLUTION] = settings.forceHighResolution
         this[Keys.MIRROR_AUDIO_ENABLED] = settings.mirrorAudioEnabled
+        this[Keys.AUTO_CHECK_UPDATES]   = settings.autoCheckForUpdates
+        this[Keys.AUTO_DOWNLOAD_UPDATES] = settings.autoDownloadUpdates
+        this[Keys.AUTO_INSTALL_UPDATES] = settings.autoInstallUpdates
     }
 
     /**
@@ -144,10 +152,14 @@ class SettingsRepository(private val context: Context) {
         val AIRPLAY_ENABLED     = booleanPreferencesKey("airplay_enabled")
         val MIRACAST_ENABLED    = booleanPreferencesKey("miracast_enabled")
         val CAST_ENABLED        = booleanPreferencesKey("cast_enabled")
+        val CAST_BRIDGE_ENABLED = booleanPreferencesKey("cast_bridge_enabled")
         val AIRPLAY_PIN_AUTH    = booleanPreferencesKey("airplay_pin_auth")
         val START_ON_BOOT       = booleanPreferencesKey("start_on_boot")
         val SHOW_DEBUG_OVERLAY  = booleanPreferencesKey("show_debug_overlay")
         val FORCE_HIGH_RESOLUTION = booleanPreferencesKey("force_high_resolution")
         val MIRROR_AUDIO_ENABLED = booleanPreferencesKey("mirror_audio_enabled")
+        val AUTO_CHECK_UPDATES   = booleanPreferencesKey("auto_check_updates")
+        val AUTO_DOWNLOAD_UPDATES = booleanPreferencesKey("auto_download_updates")
+        val AUTO_INSTALL_UPDATES  = booleanPreferencesKey("auto_install_updates")
     }
 }

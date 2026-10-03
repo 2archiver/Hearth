@@ -66,32 +66,30 @@ If the name still looks wrong:
 
 ## Casting from an iPhone app (Rumble, YouTube, …)
 
-**Use Screen Mirroring for anything that must reach PhairPlay.**
+Two different things get called "casting". Which you want decides the route:
+
+**Screen mirroring (always works)** — the whole phone screen, including any video:
 
 1. On the iPhone, open **Control Centre → Screen Mirroring**.
 2. Pick the name PhairPlay advertises (**Apple TV** by default).
-3. Open the app and play — the whole phone screen is mirrored, including video.
+3. Open the app and play.
 
-This is the only route that reaches PhairPlay, and it is what apps like Rumble mean by
-"screen mirroring" in their own support notes.
+**Google Cast (PhairPlay 1.4+, for apps that cast a media URL)** — the app's own cast icon now
+lists PhairPlay, and the TV fetches and plays the video itself. See [CAST.md](CAST.md) for what
+works, what doesn't (YouTube/Netflix need their own registered receiver), and how to fix a Cast
+card that shows an error.
 
-### Why that app's own cast button doesn't list PhairPlay
+If the Cast card says *"Ports 8008/8009 are already in use"*, the TV's own built-in Chromecast
+is already serving Cast on those ports — PhairPlay cannot also bind them. Use the built-in
+receiver, or turn it off in the TV's settings and restart PhairPlay.
 
-If an app has its own cast icon (the rectangle-with-wi-fi-arc symbol), it is almost always
-**Google Cast**, not AirPlay. PhairPlay cannot appear in that list, and this is not a bug that
-can be fixed in this app:
+### If the iPhone cannot see the TV at all
 
-- **Google Cast needs a Google-registered Cast App ID.** Google issues the ID, and a receiver
-  only shows up in a Cast sender's device list once its App ID is registered and published.
-  The Cast control plane in PhairPlay is wired up and the SDK is started, but with no
-  registered App ID the Cast card reports *Cast App ID not set or Play Services unavailable*.
-  See [CAST_APP_ID.md](CAST_APP_ID.md).
-- **Emulating a Chromecast instead is not possible on a Google TV.** A Cast receiver listens on
-  TCP port 8009, and on a Google TV that port is already owned by the built-in Chromecast
-  receiver that ships with the device. An app cannot bind it.
-
-So: an in-app cast button sends your video to the TV's **own** built-in receiver, which plays it
-but never hands it to PhairPlay. Screen Mirroring is the route that does.
+Check the **Network:** line on PhairPlay's Home screen first — it names the interface and IP the
+receiver is advertising on (`Ethernet · 192.168.1.42`). The phone must be on that same network,
+and multicast (mDNS) has to be able to cross between them. Wired TV + wireless phone is the
+usual mismatch, and no app can work around a router that keeps them apart. More in
+[CAST.md → Ethernet](CAST.md#ethernet-wired-google-tv).
 
 ### If Screen Mirroring connects but the video is black
 
@@ -163,13 +161,28 @@ aspect-fitted: black bars left and right are correct, a stretched image would be
 
 ## Installing a new APK fails
 
-**`INSTALL_FAILED_UPDATE_INCOMPATIBLE` / signature mismatch / "App not installed"**
-- The installed build was signed with a different key. Android never updates across keys.
-- Fix: uninstall once, then install — `adb uninstall com.phairplay.googletv` (or Settings → Apps →
-  PhairPlay → Uninstall on the TV), then install the new APK.
-- Prevent it: a maintainer can add the signing secrets (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
-  `KEY_ALIAS`, `KEY_PASSWORD`) so every published APK uses one key — see
-  [docs/RELEASING.md](../RELEASING.md).
+**"App not installed as package conflicts with an existing package"**
+
+This means *different signing key*, not *different version* — Android never updates across keys.
+As of 1.4 it should not happen any more: every PhairPlay build is signed with the same key, and
+the in-app updater refuses to install an APK that would be rejected
+(see [docs/UPDATES.md](../UPDATES.md)).
+
+If you still see it, the APK came from a build made with a different key (a fork, or someone
+else's keystore). Uninstall once, then install — `adb uninstall com.phairplay.googletv` (or
+Settings → Apps → PhairPlay → Uninstall on the TV). After that, builds from this repository
+update cleanly forever.
+
+**Best fix: don't install by hand at all.** Open **Settings → Updates → Check for updates** on
+the TV and let PhairPlay do it. It verifies the new APK's signature against its own before
+installing, so it cannot hand you a build Android would refuse.
+
+**`INSTALL_FAILED_UPDATE_INCOMPATIBLE` / signature mismatch**
+- Same cause and same fix as above.
+
+**"Install blocked" / the install dialog never appears**
+- Allow installs from this source: **Settings → Apps → Special access → Install unknown apps →
+  PhairPlay → Allow**.
 
 **`INSTALL_FAILED_VERSION_DOWNGRADE`**
 - You are installing an older APK over a newer one. Every build published by CI has a higher

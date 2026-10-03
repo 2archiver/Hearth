@@ -56,6 +56,11 @@ sourceSets {
                 // MediaCodec/Surface dependencies but exposes the companion-object
                 // members (parseSpsResolution, SpsBitReader) needed by VideoDecoderSpsTest.
                 "**/airplay/VideoDecoder.kt"
+                // Note: com.phairplay.update and com.phairplay.cast.bridge stay IN this
+                // compilation. Neither touches AndroidX or R — update/ uses plain
+                // android.content.* and java.net.*, and cast/bridge/ only reaches back to
+                // com.phairplay.service.ProtocolState (which is compiled here). Nothing in
+                // their tests instantiates NsdManager or MediaPlayer, so no JNI is hit.
             )
         }
     }

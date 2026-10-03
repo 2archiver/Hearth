@@ -54,9 +54,21 @@ data class AppSettings(
 
     /**
      * Whether the Google Cast receiver is enabled.
-     * When false: Cast SDK is not initialized.
+     * When false: neither the Cast Connect SDK nor PhairPlay's built-in Cast bridge runs.
      */
     val castEnabled: Boolean = true,
+
+    /**
+     * Whether PhairPlay advertises and serves Google Cast itself (mDNS `_googlecast._tcp`
+     * + DIAL on 8008 + castv2 on 8009) instead of relying on Google's Cast Connect SDK.
+     *
+     * WHY: Cast Connect refuses to start without a Cast Application ID issued by Google
+     * after registering the app in the Cast SDK Developer Console. Without one — the default
+     * — the bridge is the only way Cast works at all, so it is on by default. When a build
+     * *does* carry an app ID (`-Pphairplay.castAppId=…`) Cast Connect takes over and the
+     * bridge stays off, because two receivers advertising the same IP confuse senders.
+     */
+    val castBridgeEnabled: Boolean = true,
 
     // ─── AirPlay specific ──────────────────────────────────────────────────
     /**
@@ -102,7 +114,29 @@ data class AppSettings(
      * the whole mirror session down after a couple of seconds — so this defaults OFF to keep video
      * mirroring rock-solid. Turn on to experiment with audio.
      */
-    val mirrorAudioEnabled: Boolean = true
+    val mirrorAudioEnabled: Boolean = true,
+
+    // ─── Updates ────────────────────────────────────────────────────────────
+    /**
+     * Check GitHub for a newer PhairPlay build in the background (at most once every few
+     * hours, and only when the app is opened).
+     */
+    val autoCheckForUpdates: Boolean = true,
+
+    /**
+     * Download a found update without asking, then show "Update ready — Install".
+     *
+     * Android still shows its own confirmation unless the platform allows PhairPlay to
+     * replace itself silently (Android 12+ normally does). Nothing is ever installed
+     * without the user pressing Install except in that platform-supported self-update case.
+     */
+    val autoDownloadUpdates: Boolean = true,
+
+    /**
+     * Install a downloaded update as soon as it is verified, without another prompt.
+     * Off = show "Update ready — Install" and wait.
+     */
+    val autoInstallUpdates: Boolean = false
 ) {
 
     /**

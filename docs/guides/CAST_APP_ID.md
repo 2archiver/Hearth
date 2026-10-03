@@ -41,8 +41,14 @@ or an environment variable:
 PHAIRPLAY_CAST_APP_ID=<APP_ID> ./gradlew assembleGoogletvDebug
 ```
 
-If no ID is supplied, the Google TV build still succeeds, but PhairPlay marks
-Cast as an error at runtime instead of pretending Cast is ready for testing.
-With a valid ID, the Google TV flavor starts the official Cast Connect SDK.
-Media load/playback handling still requires hardware validation with matching
-Cast sender apps and DRM-free test media.
+If no ID is supplied, the Google TV build still succeeds — and Cast still works, because
+PhairPlay 1.4+ falls back to its own built-in Cast receiver (mDNS `_googlecast._tcp` + DIAL on
+8008 + castv2 on 8009), which needs no registration at all. That is the default, and it is
+controlled by **Settings → Built-in Cast bridge** (on by default).
+
+With a valid ID, the Google TV flavour starts the official Cast Connect SDK **instead of** the
+bridge, and the Cast card says so. Media load/playback handling with the official SDK still
+requires hardware validation with matching Cast sender apps and DRM-free test media.
+
+See [CAST.md](CAST.md) for what the built-in bridge can and cannot play (in short: apps that
+cast a media URL work; apps like YouTube that need their own registered receiver do not).

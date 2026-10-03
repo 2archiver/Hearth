@@ -19,6 +19,10 @@ import com.phairplay.R
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.Logger
+import com.phairplay.update.StageResult
+import com.phairplay.update.UpdateCheck
+import com.phairplay.update.UpdateFlow
+import com.phairplay.update.UpdateInfo
 import com.phairplay.util.MdnsNames
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -46,6 +50,7 @@ class SettingsFragment : Fragment() {
     private lateinit var headerAirPlay: TextView
     private lateinit var headerService: TextView
     private lateinit var headerDeveloper: TextView
+    private lateinit var headerUpdates: TextView
     private lateinit var headerAbout: TextView
 
     // Settings rows
@@ -54,13 +59,22 @@ class SettingsFragment : Fragment() {
     private lateinit var rowAirPlay: View
     private lateinit var rowMiracast: View
     private lateinit var rowCast: View
+    private lateinit var rowCastBridge: View
     private lateinit var rowMirrorAudio: View
     private lateinit var rowPinAuth: View
     private lateinit var rowStartOnBoot: View
     private lateinit var rowDebugOverlay: View
     private lateinit var rowForceHighRes: View
     private lateinit var textVersionValue: TextView
+    private lateinit var rowCheckUpdates: LinearLayout
+    private lateinit var textCheckUpdatesValue: TextView
+    private lateinit var rowAutoCheckUpdates: View
+    private lateinit var rowAutoDownloadUpdates: View
+    private lateinit var rowAutoInstallUpdates: View
     private lateinit var rowReset: LinearLayout
+
+    /** Set while an update check is in flight, so repeat taps don't start a second one. */
+    private var updateCheckRunning = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_settings, container, false)
@@ -85,6 +99,7 @@ class SettingsFragment : Fragment() {
         headerAirPlay   = view.findViewById(R.id.header_airplay)
         headerService   = view.findViewById(R.id.header_service)
         headerDeveloper = view.findViewById(R.id.header_developer)
+        headerUpdates   = view.findViewById(R.id.header_updates)
         headerAbout     = view.findViewById(R.id.header_about)
 
         rowDisplayName      = view.findViewById(R.id.row_display_name)
@@ -92,12 +107,18 @@ class SettingsFragment : Fragment() {
         rowAirPlay          = view.findViewById(R.id.row_airplay)
         rowMiracast         = view.findViewById(R.id.row_miracast)
         rowCast             = view.findViewById(R.id.row_cast)
+        rowCastBridge       = view.findViewById(R.id.row_cast_bridge)
         rowMirrorAudio      = view.findViewById(R.id.row_mirror_audio)
         rowPinAuth          = view.findViewById(R.id.row_pin_auth)
         rowStartOnBoot      = view.findViewById(R.id.row_start_on_boot)
         rowDebugOverlay     = view.findViewById(R.id.row_debug_overlay)
         rowForceHighRes     = view.findViewById(R.id.row_force_high_res)
         textVersionValue    = view.findViewById(R.id.text_version_value)
+        rowCheckUpdates      = view.findViewById(R.id.row_check_updates)
+        textCheckUpdatesValue = view.findViewById(R.id.text_check_updates_value)
+        rowAutoCheckUpdates  = view.findViewById(R.id.row_auto_check_updates)
+        rowAutoDownloadUpdates = view.findViewById(R.id.row_auto_download_updates)
+        rowAutoInstallUpdates = view.findViewById(R.id.row_auto_install_updates)
         rowReset            = view.findViewById(R.id.row_reset)
     }
 
@@ -108,6 +129,7 @@ class SettingsFragment : Fragment() {
         headerAirPlay.setText(R.string.settings_section_airplay)
         headerService.setText(R.string.settings_section_service)
         headerDeveloper.setText(R.string.settings_section_developer)
+        headerUpdates.setText(R.string.settings_section_updates)
         headerAbout.setText(R.string.settings_section_about)
     }
 
@@ -116,13 +138,22 @@ class SettingsFragment : Fragment() {
         configureToggleRow(rowAirPlay,      R.string.setting_airplay_enabled,    R.string.setting_airplay_subtitle)
         configureToggleRow(rowMiracast,     R.string.setting_miracast_enabled,   R.string.setting_miracast_subtitle)
         configureToggleRow(rowCast,         R.string.setting_cast_enabled,       R.string.setting_cast_subtitle)
+        configureToggleRow(rowCastBridge,   R.string.setting_cast_bridge,        R.string.setting_cast_bridge_subtitle)
         configureToggleRow(rowMirrorAudio,  R.string.setting_mirror_audio,       R.string.setting_mirror_audio_subtitle)
         configureToggleRow(rowPinAuth,      R.string.setting_pin_auth,           R.string.setting_pin_auth_subtitle)
         configureToggleRow(rowStartOnBoot,  R.string.setting_start_on_boot,      0)
         configureToggleRow(rowDebugOverlay, R.string.setting_debug_overlay,      R.string.setting_debug_overlay_subtitle)
         configureToggleRow(rowForceHighRes, R.string.setting_force_high_res,      R.string.setting_force_high_res_subtitle)
+        configureToggleRow(rowAutoCheckUpdates,    R.string.setting_auto_check_updates,
+            R.string.setting_auto_check_updates_subtitle)
+        configureToggleRow(rowAutoDownloadUpdates, R.string.setting_auto_download_updates,
+            R.string.setting_auto_download_updates_subtitle)
+        configureToggleRow(rowAutoInstallUpdates,  R.string.setting_auto_install_updates,
+            R.string.setting_auto_install_updates_subtitle)
 
-        textVersionValue.text = BuildConfig.VERSION_NAME
+        textVersionValue.text = getString(
+            R.string.update_version_value, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE
+        )
     }
 
     /**
@@ -164,11 +195,30 @@ class SettingsFragment : Fragment() {
         setToggle(rowAirPlay,      settings.airPlayEnabled)
         setToggle(rowMiracast,     settings.miracastEnabled)
         setToggle(rowCast,         settings.castEnabled)
+        setToggle(rowCastBridge,   settings.castBridgeEnabled)
         setToggle(rowMirrorAudio,  settings.mirrorAudioEnabled)
         setToggle(rowPinAuth,      settings.airPlayPinAuthEnabled)
         setToggle(rowStartOnBoot,  settings.startOnBoot)
         setToggle(rowDebugOverlay, settings.showDebugOverlay)
         setToggle(rowForceHighRes, settings.forceHighResolution)
+        setToggle(rowAutoCheckUpdates,    settings.autoCheckForUpdates)
+        setToggle(rowAutoDownloadUpdates, settings.autoDownloadUpdates)
+        setToggle(rowAutoInstallUpdates,  settings.autoInstallUpdates)
+        refreshStagedUpdateRow()
+    }
+
+    /**
+     * Shows the staged download (if any) on the "Check for updates" row, so an update that
+     * was downloaded in the background is still installable after the app was closed and
+     * reopened — otherwise it would look like nothing ever happened.
+     */
+    private fun refreshStagedUpdateRow() {
+        val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
+        textCheckUpdatesValue.text = if (staged != null) {
+            getString(R.string.update_ready_message_short, staged.info.versionName)
+        } else {
+            getString(R.string.setting_check_updates_subtitle)
+        }
     }
 
     private fun setToggle(row: View, value: Boolean) {
@@ -187,14 +237,136 @@ class SettingsFragment : Fragment() {
 
         setToggleListener(rowAirPlay)      { enabled -> save { it.copy(airPlayEnabled = enabled) } }
         setToggleListener(rowMiracast)     { enabled -> save { it.copy(miracastEnabled = enabled) } }
-        setToggleListener(rowCast)         { enabled -> save { it.copy(castEnabled = enabled) } }
+        setToggleListener(rowCast)         { enabled -> saveAndRestart { it.copy(castEnabled = enabled) } }
+        setToggleListener(rowCastBridge)   { enabled -> saveAndRestart { it.copy(castBridgeEnabled = enabled) } }
         setToggleListener(rowMirrorAudio)  { enabled -> saveAndRestart { it.copy(mirrorAudioEnabled = enabled) } }
         setToggleListener(rowPinAuth)      { enabled -> saveAndRestart { it.copy(airPlayPinAuthEnabled = enabled) } }
         setToggleListener(rowStartOnBoot)  { enabled -> save { it.copy(startOnBoot = enabled) } }
         setToggleListener(rowDebugOverlay) { enabled -> save { it.copy(showDebugOverlay = enabled) } }
         setToggleListener(rowForceHighRes) { enabled -> save { it.copy(forceHighResolution = enabled) } }
+        setToggleListener(rowAutoCheckUpdates)    { enabled -> save { it.copy(autoCheckForUpdates = enabled) } }
+        setToggleListener(rowAutoDownloadUpdates) { enabled -> save { it.copy(autoDownloadUpdates = enabled) } }
+        setToggleListener(rowAutoInstallUpdates)  { enabled -> save { it.copy(autoInstallUpdates = enabled) } }
 
+        rowCheckUpdates.setOnClickListener { runUpdateCheck() }
         rowReset.setOnClickListener { resetSettings() }
+    }
+
+    // ─── Updates ────────────────────────────────────────────────────────────
+
+    /**
+     * "Check for updates": talks to GitHub, then offers whatever it finds.
+     *
+     * The whole flow is one dialog the user can drive with the remote: up-to-date, an update
+     * to download, or a downloaded update to install. Verification happens inside
+     * [UpdateFlow] — an APK signed with a different key is refused there rather than handed
+     * to Android, which is what used to produce "App not installed as package conflicts with
+     * an existing package".
+     */
+    private fun runUpdateCheck() {
+        if (updateCheckRunning) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val settings = settingsRepository.settingsFlow.first()
+
+            // A staged download outranks a new check: offer the install we already have.
+            val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
+            if (staged != null) {
+                showInstallDialog(staged.info)
+                return@launch
+            }
+
+            updateCheckRunning = true
+            textCheckUpdatesValue.setText(R.string.update_checking)
+            val result = try {
+                UpdateFlow.run(
+                    context = requireContext(),
+                    autoDownload = false,      // the dialog drives the download from here
+                    autoInstall = settings.autoInstallUpdates
+                )
+            } finally {
+                updateCheckRunning = false
+            }
+            refreshStagedUpdateRow()
+
+            when (result) {
+                is UpdateCheck.Available -> showAvailableDialog(result.info)
+                is UpdateCheck.UpToDate -> showMessageDialog(
+                    R.string.update_dialog_title,
+                    if (result.newerThanPublished) {
+                        getString(
+                            R.string.update_up_to_date_ahead,
+                            BuildConfig.VERSION_NAME,
+                            result.info.shortLabel()
+                        )
+                    } else {
+                        getString(R.string.update_up_to_date, result.info.shortLabel())
+                    }
+                )
+                is UpdateCheck.Failed -> showMessageDialog(R.string.update_error_title, result.message)
+                is UpdateCheck.Skipped -> Unit
+            }
+        }
+    }
+
+    private fun showAvailableDialog(info: UpdateInfo) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.update_dialog_title)
+            .setMessage(
+                getString(
+                    R.string.update_available_message,
+                    info.shortLabel(),
+                    BuildConfig.VERSION_NAME
+                )
+            )
+            .setPositiveButton(R.string.update_action_download) { _, _ -> downloadAndOfferInstall(info) }
+            .setNegativeButton(R.string.update_action_later, null)
+            .show()
+    }
+
+    private fun downloadAndOfferInstall(info: UpdateInfo) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val dialog = AlertDialog.Builder(requireContext())
+                .setTitle(R.string.update_dialog_title)
+                .setMessage(R.string.update_downloading)
+                .setCancelable(false)
+                .show()
+            val result = com.phairplay.update.UpdateManager.get(requireContext())
+                .downloadAndStage(info)
+            dialog.dismiss()
+            refreshStagedUpdateRow()
+            when (result) {
+                is StageResult.Staged -> showInstallDialog(result.update.info)
+                is StageResult.Failed -> showMessageDialog(R.string.update_error_title, result.message)
+            }
+        }
+    }
+
+    private fun showInstallDialog(info: UpdateInfo) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.update_ready_title)
+            .setMessage(getString(R.string.update_ready_message, info.shortLabel()))
+            .setPositiveButton(R.string.update_action_install) { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val installed = com.phairplay.update.UpdateManager.get(requireContext())
+                        .installStaged()
+                    if (installed) {
+                        showMessageDialog(R.string.update_dialog_title, getString(R.string.update_install_started))
+                    } else {
+                        showMessageDialog(R.string.update_error_title, getString(R.string.update_install_failed))
+                    }
+                    refreshStagedUpdateRow()
+                }
+            }
+            .setNegativeButton(R.string.update_action_later, null)
+            .show()
+    }
+
+    private fun showMessageDialog(titleRes: Int, message: String) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(titleRes)
+            .setMessage(message)
+            .setPositiveButton(R.string.update_action_close, null)
+            .show()
     }
 
     private fun setToggleListener(row: View, onChanged: (Boolean) -> Unit) {

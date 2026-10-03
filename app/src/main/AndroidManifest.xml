@@ -41,8 +41,24 @@
     <!-- Start on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        Cast volume: a Cast sender's volume slider maps onto the TV's music stream.
+        Normal-level permission — granted at install, never prompted at runtime.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Foreground service notification (Android 13+ requires runtime grant) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Self-update: lets PhairPlay install the newer APK it downloads from its own GitHub
+        releases. Android 8+ requires this for any install that does not go through the Play
+        Store; the user still sees a confirmation the first time (Settings → Apps →
+        Special access → Install unknown apps). The in-app updater refuses any APK that is
+        not signed with the same key as the running app, so this cannot be used to swap in
+        an unrelated package.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
         Declare this app as a TV app (leanback).
@@ -127,6 +143,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!--
+            Receives the result of the PackageInstaller session started by the in-app
+            updater. Not exported and reached only by an explicit Intent
+            (UpdateInstallReceiver.intent), so no other app can spoof install results.
+        -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
 
     </application>
 

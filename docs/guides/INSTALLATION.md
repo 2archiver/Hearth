@@ -12,6 +12,10 @@ https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/P
 It is rebuilt on every merge to `main` — no tag hunting. See [docs/RELEASING.md](../RELEASING.md)
 for every other place the APK can be found.
 
+**Updating:** install the new APK straight over the old one — no uninstall. Every PhairPlay
+build is signed with the same key, so Android treats it as an update. Or skip the computer
+entirely: **Settings → Updates → Check for updates** on the TV. See [docs/UPDATES.md](../UPDATES.md).
+
 ---
 
 ## Prerequisites
@@ -103,8 +107,10 @@ cd phairplay-archiver-fork-
 The version comes from `phairplay.versionName` in `gradle.properties` and the versionCode is
 derived from the clock, so a local build always installs over the previous one.
 
-Google Cast requires a registered Cast App ID for real testing. See
-[Google Cast App ID](CAST_APP_ID.md) before testing Cast on Google TV.
+Google Cast works out of the box through PhairPlay's own built-in Cast receiver (no Google
+registration needed). Registering a Cast App ID and building with `-Pphairplay.castAppId=…`
+switches PhairPlay to the official Cast Connect SDK instead — see [Google Cast App ID](CAST_APP_ID.md)
+and [Google Cast](CAST.md).
 
 ---
 
@@ -117,6 +123,8 @@ Google Cast requires a registered Cast App ID for real testing. See
 4. On your Mac: click the AirPlay icon → select your TV
 5. On Windows: Settings → Display → Connect to wireless display → select your TV
 6. In Chrome: Menu → Cast → select your TV
+7. Casting a video from an iPhone app: use the app's cast button (PhairPlay now serves Google
+   Cast itself) — what works and what doesn't is in [Google Cast](CAST.md)
 7. On a 4K Google TV: **Settings → Higher resolution (up to 4K)** advertises the TV's real
    resolution to the sender for a sharper mirror. Leave it off if the TV struggles to decode it.
 
