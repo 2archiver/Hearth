@@ -4,6 +4,7 @@ import android.view.Surface
 import com.phairplay.airplay.RtspRequest
 import com.phairplay.airplay.RtspRequestReader
 import com.phairplay.airplay.RtspResponse
+import com.phairplay.airplay.StreamStats
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +31,9 @@ import java.net.Socket
  *   - otherwise  → an RTSP request parsed by [RtspRequestReader]; keep-alives
  *     are answered so the sender doesn't drop the session mid-stream.
  *
- * Audio: only the video channel is consumed in v1.1 — WFD audio (LPCM over the
- * interleaved audio channel) is accepted and intentionally not played yet.
+ * Audio: WFD carries audio inside an MPEG-2 transport stream and there is no demuxer here, so
+ * the interleaved audio channel is drained and counted (so the debug HUD can say whether the
+ * source is sending audio at all) but deliberately not decoded. See docs/guides/MIRACAST.md.
  */
 internal class WfdRtspServer(
     private val onSessionStarted: () -> Unit,
@@ -49,6 +51,18 @@ internal class WfdRtspServer(
     @Volatile private var videoRenderer: WfdVideoRenderer? = null
     private var currentCSeq = 0
     private var sessionStarted = false
+
+    /**
+     * Parameters the source has driven via `SET_PARAMETER` (presentation URL, trigger method),
+     * echoed back in later `GET_PARAMETER` replies so the source sees its own choices honoured.
+     */
+    private val sourceValues = LinkedHashMap<String, String>()
+
+    /** Last `wfd_trigger_method` the source asked us to use, kept for diagnostics. */
+    @Volatile private var pendingTrigger: String? = null
+
+    /** Counts audio payloads so the debug HUD can say whether the source is sending any. */
+    private var audioPayloads = 0
 
     fun start(scope: CoroutineScope) {
         if (running) return
@@ -112,10 +126,24 @@ internal class WfdRtspServer(
                 if (first == INTERLEAVED_MARKER) {
                     // Binary RTP/RTCP frame interleaved on the RTSP connection
                     val (channel, frameData) = readInterleavedFrame(stream) ?: break
-                    if (channel == CHANNEL_VIDEO_RTP && renderer != null) {
-                        renderer.onRtpVideoFrame(frameData)
+                    when (channel) {
+                        CHANNEL_VIDEO_RTP -> {
+                            StreamStats.noteVideoPayload(frameData.size)
+                            renderer?.onRtpVideoFrame(frameData)
+                        }
+                        CHANNEL_AUDIO_RTP -> {
+                            // Consumed so the connection keeps draining, but not decoded: WFD
+                            // carries audio inside an MPEG-2 transport stream, and demuxing that
+                            // is out of scope here. Counted so the HUD can say whether the
+                            // source is sending audio at all.
+                            audioPayloads++
+                            if (audioPayloads == 1) {
+                                Logger.i("WFD: source is sending audio on the interleaved audio " +
+                                    "channel (video only is decoded — see docs/guides/MIRACAST.md)")
+                            }
+                        }
+                        else -> Unit   // RTCP sender reports
                     }
-                    // Other channels (RTCP, audio) are consumed and ignored in v1.1
                     continue
                 }
 
@@ -140,6 +168,14 @@ internal class WfdRtspServer(
         } finally {
             renderer?.release()
             videoRenderer = null
+            StreamStats.videoDecoderReady = false
+            StreamStats.videoQueue = 0
+            if (audioPayloads > 0) {
+                Logger.i("WFD: session ended — $audioPayloads audio payload(s) received and not decoded")
+            }
+            audioPayloads = 0
+            sourceValues.clear()
+            pendingTrigger = null
             try {
                 socket.close()
             } catch (e: Exception) {
@@ -187,23 +223,46 @@ internal class WfdRtspServer(
             "OPTIONS" -> RtspResponse(
                 statusCode = 200,
                 statusMessage = "OK",
-                headers = mapOf("Public" to "org.wfa.wfd1.0, GET_PARAMETER, SET_PARAMETER")
+                // Every method this receiver implements. Sources read this before using PLAY /
+                // SETUP, and a list that omits them reads as "this sink cannot stream".
+                headers = mapOf("Public" to WfdParameters.PUBLIC_METHODS)
             )
-            "GET_PARAMETER" -> RtspResponse(
-                statusCode = 200,
-                statusMessage = "OK",
-                headers = mapOf("Content-Type" to "text/parameters"),
-                body = sinkParameters()
-            )
-            "SET_PARAMETER" -> RtspResponse(statusCode = 200, statusMessage = "OK")
+
+            "GET_PARAMETER" -> {
+                // Answer exactly the parameters the source asked for. It validates the reply
+                // against its own request list; a fixed blob that omits wfd_uibc_capability or
+                // wfd_standby_resume_capability is a well-known reason Windows drops the session.
+                val body = WfdParameters.renderResponse(request.body, sourceValues)
+                Logger.d("WFD GET_PARAMETER → ${body.lineSequence().count { it.isNotBlank() }} parameter(s)")
+                RtspResponse(
+                    statusCode = 200,
+                    statusMessage = "OK",
+                    headers = mapOf("Content-Type" to "text/parameters"),
+                    body = body
+                )
+            }
+
+            "SET_PARAMETER" -> {
+                val applied = WfdParameters.applySetParameter(request.body, sourceValues)
+                for ((name, value) in applied) {
+                    Logger.i("WFD SET_PARAMETER $name: $value")
+                    if (name == "wfd_trigger_method") pendingTrigger = value
+                }
+                // Anything the source tries to set that we do not echo (its video formats, audio
+                // codecs or RTP ports) is deliberately ignored: promising a codec or transport we
+                // do not implement would have it stream in a format we then drop.
+                RtspResponse(statusCode = 200, statusMessage = "OK")
+            }
+
             "SETUP" -> RtspResponse(
                 statusCode = 200,
                 statusMessage = "OK",
                 headers = mapOf(
-                    "Session" to WFD_SESSION_ID,
+                    "Session" to "$WFD_SESSION_ID;timeout=60",
                     "Transport" to "RTP/AVP/TCP;unicast;interleaved=0-1"
                 )
             )
+
             "PLAY" -> {
                 if (!sessionStarted) {
                     sessionStarted = true
@@ -212,33 +271,29 @@ internal class WfdRtspServer(
                 RtspResponse(
                     statusCode = 200,
                     statusMessage = "OK",
-                    headers = mapOf("Session" to WFD_SESSION_ID)
+                    headers = mapOf(
+                        "Session" to WFD_SESSION_ID,
+                        "Range" to "npt=now-",
+                        "RTP-Info" to "url=${request.uri};seq=0;rtptime=0"
+                    )
                 )
             }
+
             "PAUSE" -> RtspResponse(
                 statusCode = 200,
                 statusMessage = "OK",
                 headers = mapOf("Session" to WFD_SESSION_ID)
             )
+
             "TEARDOWN" -> RtspResponse(
                 statusCode = 200,
                 statusMessage = "OK",
                 headers = mapOf("Session" to WFD_SESSION_ID)
             )
+
             else -> RtspResponse(statusCode = 501, statusMessage = "Not Implemented")
         }
     }
-
-    private fun sinkParameters(): String =
-        listOf(
-            "wfd_audio_codecs: LPCM 00000003 00",
-            "wfd_video_formats: 00 00 02 10 0001FFFF 00000000 00000000 00 0000 0000 00 none none",
-            "wfd_client_rtp_ports: RTP/AVP/TCP;unicast 0 0 mode=play",
-            "wfd_content_protection: none",
-            "wfd_display_edid: none",
-            "wfd_coupled_sink: none",
-            "wfd_connector_type: 05"
-        ).joinToString(separator = "\r\n", postfix = "\r\n")
 
     private fun sendResponse(outputStream: OutputStream, response: RtspResponse) {
         val sb = StringBuilder()
@@ -269,7 +324,10 @@ internal class WfdRtspServer(
         /** '$' marks the start of an interleaved binary frame (RFC 2326 §10.12). */
         private const val INTERLEAVED_MARKER = 0x24
 
-        /** Interleaved channel assignment negotiated in SETUP: 0 = video RTP. */
+        /** Interleaved channel assignment negotiated in SETUP: 0 = video RTP, 1 = video RTCP. */
         private const val CHANNEL_VIDEO_RTP = 0
+
+        /** 2 = audio RTP, 3 = audio RTCP (RFC 2326 pairs them). Not decoded — see [handleClient]. */
+        private const val CHANNEL_AUDIO_RTP = 2
     }
 }

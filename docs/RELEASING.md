@@ -39,14 +39,14 @@ runner logs.
 
 ```bash
 # 1. bump the base version (single source of truth)
-sed -i 's/^phairplay.versionName=.*/phairplay.versionName=1.3.0/' gradle.properties
+sed -i 's/^phairplay.versionName=.*/phairplay.versionName=1.5.0/' gradle.properties
 # 2. update CHANGELOG.md, commit, merge to main
-git tag v1.3.0
-git push origin v1.3.0
+git tag v1.5.0
+git push origin v1.5.0
 ```
 
 That's it — the workflow builds and publishes. `phairplay.versionName` in `gradle.properties`
-also drives rolling builds from `main` (published as `1.3.0-main.<run number>`).
+also drives rolling builds from `main` (published as `1.5.0-main.<run number>`).
 
 ### Version numbering
 
@@ -158,7 +158,7 @@ PhairPlay's in-app updater reads:
 
 ```json
 {
-  "versionName": "1.4.0-main.131",
+  "versionName": "1.5.0-main.131",
   "versionCode": 20432100,
   "apk": "PhairPlay-googletv.apk",
   "sha256": "…",

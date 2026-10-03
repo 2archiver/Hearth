@@ -17,6 +17,7 @@ import android.view.Surface
 import com.phairplay.airplay.AirPlayReceiver
 import com.phairplay.cast.CastReceiver
 import com.phairplay.cast.bridge.CastBridgeReceiver
+import com.phairplay.cast.bridge.CastMediaPlayer
 import com.phairplay.update.StageResult
 import com.phairplay.update.StagedUpdate
 import com.phairplay.update.UpdateCheck
@@ -131,6 +132,16 @@ class PhairPlayService : Service() {
     private val _castDetail = MutableStateFlow<String?>(null)
     val castDetail: StateFlow<String?> = _castDetail.asStateFlow()
 
+    /**
+     * True while a Cast sender has media loaded (as opposed to merely connected).
+     *
+     * WHY: showing the full-screen video surface the moment a sender *launches* an app would
+     * black out the Home screen for audio-only casting (Spotify, podcasts). This flips only
+     * once there is actually something to draw — or something audible to report in the HUD.
+     */
+    private val _castMediaActive = MutableStateFlow(false)
+    val castMediaActive: StateFlow<Boolean> = _castMediaActive.asStateFlow()
+
     /** Set while an automatic update check is running, so the UI can show a spinner. */
     private val _updateChecking = MutableStateFlow(false)
     val updateChecking: StateFlow<Boolean> = _updateChecking.asStateFlow()
@@ -148,6 +159,14 @@ class PhairPlayService : Service() {
         updateSettingsJob = serviceScope.launch {
             var previous: Triple<Boolean, Boolean, Boolean>? = null
             settingsRepository.settingsFlow.collect { settings ->
+                // Mirror the debug-overlay toggle into the shared stats bus as it changes.
+                //
+                // WHY HERE: Settings saves this one without restarting the receivers (it is a
+                // UI-only preference), and it used to be read only inside startAirPlay() — so
+                // flipping the switch did nothing until the user happened to press Restart, and
+                // the overlay never appeared at all for Cast/Miracast sessions. Reading the flow
+                // makes the toggle take effect the moment it is flipped, mid-session included.
+                com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
                 val current = Triple(
                     settings.autoCheckForUpdates,
                     settings.autoDownloadUpdates,
@@ -269,6 +288,11 @@ class PhairPlayService : Service() {
         val settings = settingsRepository.settingsFlow.first()
         Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}, Miracast=${settings.miracastEnabled}, Cast=${settings.castEnabled}")
 
+        // Belt and braces for the debug overlay: the settings collector in onCreate() already
+        // mirrors this, but a receiver started before that collector's first emission must not
+        // read a stale value.
+        com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
+
         _serviceState.value = ServiceState.Running
         updateNotification(isRunning = true)
 
@@ -321,8 +345,8 @@ class PhairPlayService : Service() {
      * @param settings Current app settings; read once per start/restart cycle.
      */
     private fun startAirPlay(settings: AppSettings) {
-        // Mirror the debug-overlay setting into the shared stats bus that StreamingScreen reads.
-        com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
+        // (The debug-overlay setting is mirrored in onCreate()/startReceivers() — it is live,
+        // not start-up-only.)
 
         // Idempotent: a redundant ACTION_START (e.g. the activity being recreated while the
         // foreground service is still alive) must NOT spin up a second AirPlayReceiver competing
@@ -386,12 +410,14 @@ class PhairPlayService : Service() {
                         _photoFrame.value = null
                         _activeConnection.value =
                             ActiveConnection(pendingSenderName, Protocol.AIRPLAY)
+                        beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
                         updateNotification(isRunning = true, streamingSenderName = pendingSenderName)
                     }
                     ProtocolState.ADVERTISING,
                     ProtocolState.DISABLED,
                     ProtocolState.ERROR       -> {
                         _activeConnection.value = null
+                        endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
                         updateNotification(isRunning = state != ProtocolState.DISABLED &&
                                                        state != ProtocolState.ERROR)
                     }
@@ -399,6 +425,23 @@ class PhairPlayService : Service() {
             }
         ).also { it.start() }
         Logger.d("AirPlay receiver started (displayName='${settings.effectiveDisplayName}')")
+    }
+
+    /**
+     * Starts a fresh debug-overlay session for [source], clearing the previous one's counters.
+     *
+     * Never clears another protocol's session: a Cast session ending must not wipe counters an
+     * AirPlay stream is still writing.
+     */
+    private fun beginStatsSession(source: String) {
+        com.phairplay.airplay.StreamStats.beginSession(source)
+    }
+
+    /** Ends the debug-overlay session, but only if [source] is the one that owns it. */
+    private fun endStatsSession(source: String) {
+        if (com.phairplay.airplay.StreamStats.source == source) {
+            com.phairplay.airplay.StreamStats.endSession()
+        }
     }
 
     private fun startMiracast() {
@@ -415,6 +458,7 @@ class PhairPlayService : Service() {
                 when (state) {
                     ProtocolState.CONNECTED -> {
                         _activeConnection.value = ActiveConnection(senderName, Protocol.MIRACAST)
+                        beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_MIRACAST)
                         updateNotification(isRunning = true, streamingSenderName = senderName)
                     }
                     ProtocolState.ADVERTISING,
@@ -424,6 +468,7 @@ class PhairPlayService : Service() {
                         if (_activeConnection.value?.protocol == Protocol.MIRACAST) {
                             _activeConnection.value = null
                         }
+                        endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_MIRACAST)
                         updateNotification(isRunning = state != ProtocolState.DISABLED &&
                                                        state != ProtocolState.ERROR)
                     }
@@ -487,10 +532,23 @@ class PhairPlayService : Service() {
                     _activeConnection.value = ActiveConnection(
                         getString(R.string.cast_sender_name), Protocol.CAST
                     )
-                } else if (_activeConnection.value?.protocol == Protocol.CAST) {
-                    _activeConnection.value = null
+                    beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_CAST)
+                } else {
+                    if (_activeConnection.value?.protocol == Protocol.CAST) {
+                        _activeConnection.value = null
+                    }
+                    endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_CAST)
                 }
-            }
+            },
+            onMediaChanged = { state, positionSec, durationSec ->
+                val stats = com.phairplay.airplay.StreamStats
+                stats.castState = state
+                stats.castPositionSec = positionSec
+                stats.castDurationSec = durationSec
+                stats.audioActive = state == CastMediaPlayer.State.PLAYING
+                _castMediaActive.value = state != CastMediaPlayer.State.IDLE
+            },
+            onNotice = { message -> _castDetail.value = message }
         )
         castBridge = bridge
         bridge.start()
@@ -617,10 +675,13 @@ class PhairPlayService : Service() {
         _airPlayState.value = ProtocolState.DISABLED
         _miracastState.value = ProtocolState.DISABLED
         _castState.value = ProtocolState.DISABLED
+        _castMediaActive.value = false
         _photoFrame.value = null
         _nowPlaying.value = null
         _pairingPin.value = null
         _registeredName.value = null
+        // Every receiver is gone, so no session can still be writing counters.
+        com.phairplay.airplay.StreamStats.endSession()
     }
 
     // ─── Notification ────────────────────────────────────────────────────────

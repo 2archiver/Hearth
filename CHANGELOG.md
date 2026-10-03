@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5] - 2026-10-03
+
+Casting and Miracast both worked end-to-end on paper and neither worked in practice, and the
+debug overlay showed nothing at all. Three separate bugs, three separate fixes.
+
+### Fixed — Cast
+
+**The TV answered DIAL but never answered discovery.** PhairPlay advertised itself over mDNS
+(`_googlecast._tcp`) and served DIAL over HTTP on 8008 — but it never answered SSDP
+`M-SEARCH`. Senders built on the Cast SDK browse mDNS and found the TV; senders built on DIAL
+(Netflix, YouTube, Windows, the Chrome desktop button) send `M-SEARCH` to
+`239.255.255.250:1900` and only talk to devices that reply. To every one of those the TV did
+not exist. `SsdpResponder` now answers `ssdp:all`, `upnp:rootdevice` and the DIAL service
+target, pointing the sender at the DIAL device description.
+
+**Every reply went to every connected phone.** Cast replies were broadcast to all open
+channels instead of to the sender that asked, so a second phone was bombarded with statuses
+addressed to the first. Replies are now addressed to the connection the request arrived on.
+
+**Failures were answered with silence.** A `LOAD` with no `contentId`, or any media command
+with no session open, returned nothing. A sender waiting on a reply it will never get sits on
+"connecting…" forever. Those now get `LOAD_FAILED` / `INVALID_REQUEST`.
+
+**The scrubber froze mid-playback.** The sender's progress bar is driven by `MEDIA_STATUS`,
+which only ever arrived on a state change. It is now pushed once a second while playing, and
+the rebuffering callbacks report `BUFFERING` honestly instead of leaving `PLAYING` on screen.
+
+**Queue commands did nothing.** `QUEUE_LOAD` / `QUEUE_NEXT` / `QUEUE_PREV` /
+`QUEUE_GET_ITEMS` / `QUEUE_INSERT` / `QUEUE_REMOVE` / `QUEUE_UPDATE` are implemented, so
+senders that build a playlist rather than loading one URL get an answer and start playing.
+
+**`GET /apps/<id>` claimed the TV could run everything.** It now reports `installed`
+truthfully, which stops senders showing the device and then failing.
+
+### Added — Cast
+
+**DIAL hand-off to the TV's own apps.** A real smart TV does not try to emulate Netflix or
+YouTube — it *launches the app installed on the TV* and lets the phone drive that. PhairPlay
+runs on an Android TV, so it can do exactly the same thing: a recognised DIAL name whose app
+is installed is started by intent (deep-linked to the title when the sender sent one), and
+PhairPlay stays out of the way. Anything unrecognised (`CC1AD845`, VLC, Plex, Chrome) is
+played by the built-in receiver as before.
+
+**Private Cast channels are reported instead of silently ignored.** Apps with their own
+registered receiver — YouTube, Netflix, Spotify — launch here and then speak a private channel
+only their own receiver understands. That is now surfaced on the Cast card as an explanation
+with "use Screen Mirroring" as the workaround, rather than presenting as a black screen.
+
+### Fixed — Miracast
+
+**The capability negotiation ignored what the source asked for.** Every `GET_PARAMETER` was
+answered with one fixed blob. A WFD source asks for a *specific list* and validates the reply
+against it; Windows asks for `wfd_uibc_capability` and `wfd_standby_resume_capability` and
+drops the session when they are missing. Replies now name exactly the requested parameters,
+in the order requested, answering `none` for anything unsupported rather than omitting it.
+
+**`OPTIONS` did not advertise `SETUP` or `PLAY`.** Sources re-check the `Public:` header before
+using them; the old reply omitted both.
+
+**`wfd_video_formats` was not a valid format.** It reported profile `02` / level `10` — neither
+is defined by the Wi-Fi Display spec — so a validating source could reject the whole list. It
+now reports Constrained Baseline / level 4.2 against the CEA modes it advertises.
+
+**`SET_PARAMETER` results were thrown away.** The source's `wfd_presentation_URL` and
+`wfd_trigger_method` are remembered and echoed back. Its video formats, audio codecs and RTP
+ports are deliberately *not* echoed: promising a codec or transport this receiver does not
+implement would have the source stream in a format that is then dropped.
+
+**Audio is counted, not decoded.** WFD carries audio inside an MPEG-2 transport stream and
+there is no demuxer here, so the audio channel is drained and logged rather than played. It was
+previously undocumented; [docs/guides/MIRACAST.md](docs/guides/MIRACAST.md) now says so, and
+the debug HUD shows whether the source is sending audio.
+
+### Fixed — Debug overlay
+
+The overlay could sit on screen showing a row of zeroes, which is indistinguishable from
+"the overlay is broken". Three causes:
+
+- **The setting was never live.** `overlayEnabled` was copied from Settings only inside
+  `startAirPlay()`. Toggling *Debug overlay* does not restart the service, so the toggle did
+  nothing until the user happened to press Restart. It is now mirrored from the settings flow
+  and takes effect mid-session.
+- **Only AirPlay wrote counters.** A Cast or Miracast session showed an empty HUD. Every
+  receiver now feeds the stats bus, and the HUD names the source.
+- **`fps` refreshed every 300 payloads** — five seconds of "0 fps" at 60 fps, and forever if
+  the sender sent fewer than 300 payloads. Sampling is now a rolling one-second window that
+  also produces a bitrate, an uptime clock, and a per-protocol layout (Cast reports player
+  state and position; AirPlay/Miracast report resolution, fps, kbps, queue depth and drops).
+
+The HUD is also explicitly elevated and brought to the front, because a `SurfaceView` is
+composited in its own layer below the window and could end up drawn over it.
+
 ## [1.4] - 2026-10-03
 
 ### Fixed

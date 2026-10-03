@@ -58,7 +58,6 @@ class MirrorStreamServer(
     private var framePtsUs = 0L
     private var framesIn = 0
     private var framesDropped = 0
-    private var lastStatMs = 0L
     // Set by the reader thread when a frame is dropped under load; the decoder thread then skips
     // frames until the next keyframe (IDR) so it never decodes a reference-broken, corrupt stream.
     @Volatile private var awaitingKeyframe = false
@@ -103,9 +102,9 @@ class MirrorStreamServer(
                         // ALWAYS advance the AES-CTR keystream, in order, for every video payload —
                         // skipping any packet desyncs the keystream and corrupts all later frames.
                         val annexB = MirrorCrypto.avccToAnnexB(cipher.update(payload))
-                        if (annexB.isNotEmpty()) enqueue(Frame(annexB))
+                        if (annexB.isNotEmpty()) enqueue(Frame(annexB), payloadSize)
                     }
-                    1 -> parseConfig(payload)?.let { enqueue(it) }
+                    1 -> parseConfig(payload)?.let { enqueue(it, payloadSize) }
                     else -> Logger.v("Mirror: ignoring payload type $payloadType ($payloadSize B)")
                 }
             }
@@ -117,24 +116,40 @@ class MirrorStreamServer(
         }
     }
 
-    /** Bounded enqueue — if the decoder is behind, drop the oldest item to keep latency bounded. */
-    private fun enqueue(item: Item) {
+    /**
+     * Bounded enqueue — if the decoder is behind, drop the oldest item to keep latency bounded.
+     *
+     * [payloadBytes] is the on-the-wire size of the payload, which is what the debug overlay's
+     * bitrate counter averages. Sampling moved into [StreamStats.noteVideoPayload] so the fps
+     * figure refreshes every second instead of every 300 payloads.
+     */
+    private fun enqueue(item: Item, payloadBytes: Int) {
         framesIn++
+        StreamStats.noteVideoPayload(payloadBytes)
         if (!queue.offer(item)) {
             queue.poll()
             queue.offer(item)
             framesDropped++
+            StreamStats.noteVideoPayloadDropped()
             awaitingKeyframe = true        // a frame was lost — resync the decoder at the next IDR
         }
         StreamStats.videoQueue = queue.size
         if (framesIn % 300 == 0) {
-            val now = System.currentTimeMillis()
-            if (lastStatMs != 0L) StreamStats.videoFps = (300_000L / (now - lastStatMs).coerceAtLeast(1)).toInt()
-            lastStatMs = now
-            StreamStats.videoDropPct = framesDropped * 100 / framesIn
             Logger.i("Video stats: in=$framesIn dropped=$framesDropped " +
                 "(${StreamStats.videoDropPct}%) queue=${queue.size}/$QUEUE_CAPACITY ${StreamStats.videoFps}fps")
         }
+    }
+
+    /**
+     * Publishes the *decoded* size (rather than the advertised one) to the HUD once MediaCodec
+     * has reported it, so the overlay shows what is really being rendered.
+     */
+    private fun publishResolution() {
+        val width = StreamStats.videoWidth
+        val height = StreamStats.videoHeight
+        if (width <= 0 || height <= 0) return
+        val resolved = "${width}x${height}"
+        if (resolved != StreamStats.videoRes) StreamStats.videoRes = resolved
     }
 
     private fun parseConfig(payload: ByteArray): Config? = try {
@@ -152,17 +167,27 @@ class MirrorStreamServer(
     private fun runDecoder() {
         try {
             while (running) {
-                val item = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
+                val item = queue.poll(200, TimeUnit.MILLISECONDS)
+                if (item == null) {
+                    // Queue drained — the HUD's queue depth must fall back to 0, otherwise it
+                    // freezes at whatever the backlog was and looks like a stalled decoder.
+                    StreamStats.videoQueue = 0
+                    continue
+                }
                 when (item) {
                     is Config -> configureDecoder(item.sps, item.pps)
                     is Frame -> decodeFrame(item.annexB)
                 }
+                StreamStats.videoQueue = queue.size
+                publishResolution()
             }
         } catch (e: Exception) {
             if (running) Logger.e("Mirror decoder thread error", e)
         } finally {
             decoder?.release()
             decoder = null
+            StreamStats.videoDecoderReady = false
+            StreamStats.videoQueue = 0
         }
     }
 
@@ -193,7 +218,10 @@ class MirrorStreamServer(
         val sc = MirrorCrypto.START_CODE
         decoder = VideoDecoder(surface).also { it.initialize(sc + sps, sc + pps, width, height) }
         awaitingKeyframe = true                                // a fresh decoder must start at an IDR
+        // The advertised size first; VideoDecoder refines it from the SPS and reports the real
+        // decoded size back through StreamStats.videoWidth/videoHeight.
         StreamStats.videoRes = "${width}x${height}"
+        StreamStats.videoDecoderReady = true
         Logger.i("Mirror decoder (re)built for surface (sps=${sps.size}B pps=${pps.size}B)")
     }
 
@@ -209,6 +237,7 @@ class MirrorStreamServer(
         if (!d.isHealthy) {                                    // error state — drop, await next config
             Logger.w("Mirror: decoder unhealthy — dropping, awaiting new SPS/PPS")
             d.release(); decoder = null; configuredSurface = null; lastSps = null; lastPps = null
+            StreamStats.videoDecoderReady = false
             return
         }
         if (awaitingKeyframe) {

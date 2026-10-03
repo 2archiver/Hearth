@@ -74,10 +74,24 @@ Two different things get called "casting". Which you want decides the route:
 2. Pick the name PhairPlay advertises (**Apple TV** by default).
 3. Open the app and play.
 
-**Google Cast (PhairPlay 1.4+, for apps that cast a media URL)** — the app's own cast icon now
-lists PhairPlay, and the TV fetches and plays the video itself. See [CAST.md](CAST.md) for what
-works, what doesn't (YouTube/Netflix need their own registered receiver), and how to fix a Cast
-card that shows an error.
+**Google Cast (for apps that cast a media URL)** — the app's own cast icon now lists PhairPlay,
+and the TV fetches and plays the video itself. See [CAST.md](CAST.md) for what works, what
+doesn't, and how to fix a Cast card that shows an error.
+
+Two limits get reported on the Cast card rather than left mysterious:
+
+- *"\<app\> is using a private Cast channel that only its own receiver understands"* — the app
+  launched its own receiver here and then spoke a private protocol. Use **Screen Mirroring** for
+  that app.
+- *"\<app\> is being played by this TV's own app"* — the DIAL launch was handed to the app
+  installed on the TV (Netflix, YouTube, Spotify…), which is what a real smart TV does. The phone
+  is now talking to that app, not to PhairPlay.
+
+**Miracast** — see [MIRACAST.md](MIRACAST.md). Note the platform ceiling: Android's public
+Wi-Fi P2P APIs can advertise a WFD service and run discovery, but a third-party app cannot
+silently accept an incoming Wi-Fi Direct connection the way the system's own wireless-display
+feature can. If your TV already ships a "Screen mirroring" feature, prefer it. Miracast video
+works; **WFD audio is not decoded** (it is carried in an MPEG-2 transport stream).
 
 If the Cast card says *"Ports 8008/8009 are already in use"*, the TV's own built-in Chromecast
 is already serving Cast on those ports — PhairPlay cannot also bind them. Use the built-in
@@ -123,6 +137,23 @@ That is a different problem, and usually one of:
 - Solution: not fixable in software; the TV box needs hardware H.264 support.
 
 ---
+
+## The debug overlay shows nothing
+
+**Settings → Debug overlay** should take effect the moment you flip it — no Restart, and it works
+during a live session. If the HUD is blank:
+
+- **"SRC idle — nothing streaming"** means the overlay is working and no sender is connected.
+  That is the correct reading when nothing is casting.
+- **"DECODE waiting for SPS/PPS + surface"** with a rising `kbps`: the TV is receiving video it
+  cannot decode yet. Give it a second; WFD senders repeat SPS/PPS with every keyframe.
+- **Never appears at all:** the overlay is drawn on the streaming screen, so it only shows while
+  AirPlay mirroring, Miracast, or a Cast sender with media loaded is on screen. AirPlay
+  *audio-only* shows the now-playing card instead, which has no HUD.
+
+Before 1.5 the toggle only took effect at receiver start-up (so it looked broken until you hit
+Restart), `fps` only refreshed every 300 packets, and Cast/Miracast sessions fed no counters at
+all. All three are fixed.
 
 ## High latency (>200ms)
 

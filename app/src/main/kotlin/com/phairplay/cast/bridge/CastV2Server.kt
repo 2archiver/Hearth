@@ -115,7 +115,10 @@ internal class CastV2Server(
                     Logger.w("Cast: could not decode a $length-byte frame — dropping it")
                     continue
                 }
-                runCatching { app.handle(message) }
+                // Pass the connection the message arrived on so replies go back to that sender
+                // alone — broadcasting every reply to every phone meant a second sender was
+                // bombarded with statuses addressed to the first.
+                runCatching { app.handle(message, sink) }
                     .onFailure { Logger.e("Cast: error handling ${message.namespace}", it) }
             }
         } catch (e: Exception) {

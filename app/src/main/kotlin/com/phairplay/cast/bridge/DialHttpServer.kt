@@ -27,8 +27,18 @@ internal class DialHttpServer(
     private val port: Int,
     private val deviceName: () -> String,
     private val localIpAddress: () -> String,
-    private val onLaunch: (appId: String) -> Unit,
-    private val onStop: () -> Unit
+    /**
+     * Called after a launch. [handedOff] is true when an app already installed on the TV took
+     * the request (so PhairPlay must not also start playing it), false when the built-in
+     * receiver should handle it.
+     */
+    private val onLaunch: (appId: String, handedOff: Boolean) -> Unit,
+    private val onStop: () -> Unit,
+    /**
+     * Lets a request be handed to a native TV app (Netflix, YouTube, …) instead of being
+     * played by PhairPlay's generic media player. Null disables hand-off.
+     */
+    private val appLauncher: DialAppLauncher? = null
 ) {
 
     @Volatile private var running = false
@@ -49,6 +59,17 @@ internal class DialHttpServer(
         runningAppId = null
         instanceId = null
     }
+
+    /**
+     * Stable per-device UUID, shared by the DIAL device description and the SSDP responder so
+     * senders that cache by USN see one device rather than two.
+     */
+    val deviceUuid: String
+        get() = UUID.nameUUIDFromBytes(deviceName().toByteArray(StandardCharsets.UTF_8)).toString()
+
+    /** Absolute URL of the UPnP device description, advertised in every SSDP reply. */
+    val deviceDescriptionUrl: String
+        get() = "http://${localIpAddress()}:$port/ssdp/device-desc.xml"
 
     /**
      * Binds and starts serving.
@@ -157,8 +178,12 @@ internal class DialHttpServer(
 
             appId != null && method == "POST" -> {
                 Logger.i("Cast: DIAL launch $appId${if (body.isNotBlank()) " body=${body.take(200)}" else ""}")
+                // First choice: an app already installed on this TV. A real smart TV does
+                // exactly this — DIAL launches the native app and the phone drives *that*,
+                // which is the only way apps with a private command channel can ever work.
+                val handedOff = appLauncher?.launch(appId, body) ?: false
                 markRunning(appId)
-                onLaunch(appId)
+                onLaunch(appId, handedOff)
                 writeResponse(
                     socket, 201, "Created", "text/plain", "",
                     extraHeaders = "Location: ${appLocation(appId)}"
@@ -190,7 +215,7 @@ internal class DialHttpServer(
 
     private fun deviceDescription(): String {
         val name = deviceName()
-        val udn = UUID.nameUUIDFromBytes(name.toByteArray(StandardCharsets.UTF_8))
+        val udn = deviceUuid
         return """<?xml version="1.0" encoding="utf-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
   <specVersion><major>1</major><minor>0</minor></specVersion>
@@ -223,15 +248,31 @@ internal class DialHttpServer(
         }
     }
 
+    /**
+     * `GET /apps/<id>` — "is this app installed here, and is it running?"
+     *
+     * Senders ask this *before* showing a device, and again to decide whether to launch or to
+     * attach to a running instance. `installed` is answered truthfully: for a name we have
+     * handed to a native app (or can play ourselves) we say yes, and for a name we have never
+     * heard of we say no rather than pretending. A device that claims to run everything is
+     * exactly what makes senders show a device and then fail.
+     */
     private fun appState(appId: String): String {
         val running = (runningAppId == appId)
         val state = if (running) "running" else "stopped"
         val link = if (running) """<link rel="run" href="run"/>""" else ""
+        val installed = when {
+            running -> true
+            appLauncher?.isInstalled(appId) == true -> true
+            DialApps.isKnown(appId) -> false   // recognised, but nothing on this TV can run it
+            else -> true                       // generic receivers answer "yes" for anything
+        }
         return """<?xml version="1.0" encoding="utf-8"?>
 <service xmlns="urn:dial-multiscreen-org:schemas:dial" dialVer="1.7">
   <name>$appId</name>
   <options allowStop="true"/>
   <state>$state</state>
+  <additionalData><installed>$installed</installed></additionalData>
   $link
 </service>"""
     }
