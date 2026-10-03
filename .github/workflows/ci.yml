@@ -29,6 +29,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate release automation
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 tools/test_extract_release_notes.py
+          python3 tools/check-workflows.py .github/workflows/*.yml
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

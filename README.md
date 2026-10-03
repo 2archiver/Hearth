@@ -4,34 +4,24 @@ PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It l
 
 ---
 
-## ⬇ Download the APK
+## Download the latest APK
 
-**`PhairPlay-googletv.apk`** — one file, rebuilt automatically on every merge to `main`:
+**[Download PhairPlay for Google TV](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk)**
 
-```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
-```
+The link always points to the latest successful build from `main`. The APK keeps one simple filename; the [current GitHub release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) shows the exact version embedded in the APK and explains what's new.
 
-That link never goes stale and never needs a tag, a release to be cut by hand, or GitHub Pages to be switched on.
+- [Read the current update notes](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest)
+- [Verify the APK checksum](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt)
+- Runs on Google TV / Android TV OS 10+ (tested on Google TV 4K, Android TV OS 14)
+- Optional [download page](https://2archiver.github.io/phairplay-archiver-fork-/) — the APK link works without Pages
 
-| | |
-|---|---|
-| **APK** | [`PhairPlay-googletv.apk`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk) |
-| **Checksum** | [`SHA256SUMS.txt`](https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt) |
-| **Release page** | [releases/tag/latest](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) — version, versionCode, commit |
-| **Numbered releases** | [all releases](https://github.com/2archiver/phairplay-archiver-fork-/releases) — `v1.2.0` and friends stay available |
-| **Download page** | <https://2archiver.github.io/phairplay-archiver-fork-/> (optional; needs Pages → Source: *GitHub Actions*) |
-| **Runs on** | Google TV / Android TV OS 10+ — tested on Google TV 4K, Android TV OS 14 |
+**Install:** open *Downloader* on the TV, paste the download link above, then choose **Install**. From a computer, use `adb install -r PhairPlay-googletv.apk`. See the [installation guide](docs/guides/INSTALLATION.md).
 
-**Guides:** [Installation](docs/guides/INSTALLATION.md) · [Keeping up to date](docs/UPDATES.md) · [Google Cast](docs/guides/CAST.md) · [Miracast](docs/guides/MIRACAST.md) · [Troubleshooting](docs/guides/TROUBLESHOOTING.md)
+**Update:** on the TV, choose **Settings → Updates → Check for updates**. PhairPlay checks the latest release, verifies its checksum and signing certificate, then offers to install it. Builds signed with this repository's key install over the existing app; older or differently signed builds may need a one-time reinstall. See [keeping PhairPlay up to date](docs/UPDATES.md).
 
-**Install it on the TV:** open the *Downloader* app, paste the link above, then **Install** — or from a computer, `adb install -r PhairPlay-googletv.apk`. Full steps: [docs/guides/INSTALLATION.md](docs/guides/INSTALLATION.md).
+**Help:** [Troubleshooting](docs/guides/TROUBLESHOOTING.md) · [Google Cast](docs/guides/CAST.md) · [Miracast](docs/guides/MIRACAST.md).
 
-**Updating:** once you are on a build signed with this repository's community key, install future APKs straight over the old one — Android treats them as in-place updates. Some early 1.4 builds (and builds from other forks or private keys) need a one-time uninstall/reinstall to switch signing keys; the in-app updater identifies this and explains the safe steps. See [docs/UPDATES.md](docs/UPDATES.md).
-
-Or skip the computer: **Settings → Updates → Check for updates** on the TV. PhairPlay asks GitHub what the newest build is, verifies the download against the published SHA-256 **and** against its own signing certificate, and installs it — silently on Android 12+ when the signing key matches. See [docs/UPDATES.md](docs/UPDATES.md).
-
-**No APK there yet?** The release is published by GitHub Actions on the first push to `main` after the workflow lands. Until then, run **Actions → CI** on the repository and download the `debug-apk-googletv` artifact — CI builds that APK on every push and pull request.
+**No APK yet?** GitHub Actions publishes one after a successful build from `main`. For a temporary test build, use **Actions → CI** and download `debug-apk-googletv`.
 
 ```
  macOS (Monterey+)            Google TV
@@ -47,25 +37,13 @@ Or skip the computer: **Settings → Updates → Check for updates** on the TV. 
 
 ---
 
-## Current Status — v1.5
+## Latest update
 
-PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
+The [current release page](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) is the source of truth for the newest APK. Its title is taken from the version inside that APK, and its **What's new** section is refreshed for each successful update. See the [full changelog](CHANGELOG.md) for release history.
 
-**v1.5 is about casting from the phone actually connecting, and about being able to see what is going on when it doesn't:**
-- **Google Cast now answers SSDP/DIAL discovery.** PhairPlay only advertised over mDNS (`_googlecast._tcp`), which the Google Cast SDK browses — but Netflix, YouTube and Windows find receivers by sending a UPnP `M-SEARCH` to port 1900, and we never answered. As far as every DIAL sender was concerned the TV did not exist. It now does.
-- **Cast hands off to the app already on your TV.** A DIAL launch for `Netflix`, `YouTube`, `Spotify` and friends starts the real app installed on the TV instead of trying to play a protected stream PhairPlay cannot decode. That is what a real smart TV does, and it is the only way those apps can ever work.
-- **The Cast protocol is much closer to a real Chromecast.** Replies go to the sender that asked, failures are answered instead of swallowed, queue/playlist commands work, and `MEDIA_STATUS` is pushed every second so the phone's progress bar keeps moving.
-- **Apps with a private Cast channel now say so.** YouTube and Netflix launch their own receiver and then speak a protocol only that receiver knows. PhairPlay says exactly that on the Cast card instead of silently doing nothing.
-- **Miracast negotiation is complete.** `GET_PARAMETER` answers exactly the parameters the source asked for (including `wfd_uibc_capability`, which Windows requires), `wfd_video_formats` reports a valid H.264 profile/level instead of values no source recognises, and the OPTIONS reply lists every method we implement.
-- **The debug overlay actually works.** Toggling it now takes effect immediately (no Restart), it shows real numbers within a second instead of after 300 packets, and it now reports Cast and Miracast sessions too — not just AirPlay.
+PhairPlay's AirPlay 2 receiver includes mDNS advertising, RTSP, pairing, FairPlay key handling, H.264 mirroring, AAC/ALAC audio, NTP A/V sync, and DACP remote control. Real-device validation with macOS and iOS senders is ongoing. Known limits are documented in the [Google Cast guide](docs/guides/CAST.md) and [Miracast guide](docs/guides/MIRACAST.md).
 
-See the [changelog](CHANGELOG.md) for the full list. Limits are documented honestly:
-[docs/guides/CAST.md](docs/guides/CAST.md) for what can and cannot be cast, and
-[docs/guides/MIRACAST.md](docs/guides/MIRACAST.md) for Miracast's platform ceiling on Android TV.
-
-The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.
-
-v1.3 fixes the spoofed device name end to end: renaming now restarts the receivers, `GET /info` answers with the name you set instead of the Android device name, and a fresh install advertises **Apple TV**. It also adds the `pk` record iOS reads while browsing, and stops an abandoned connection from locking out the next sender. v1.2 makes releases automatic (rolling `latest` build on every merge to `main`, plus permanent `v*` tag releases), fixes the Gradle wrapper so CI can actually build the APK, and lets a 4K Google TV advertise a 4K mirror instead of a hardcoded 1080p/1440p. v1.1 added real Miracast video playback and replaced the old fake "Check Wi-Fi settings" errors with honest, per-protocol status details. Google Cast is now served by PhairPlay itself and needs no Google-registered Cast App ID; registering one still switches to the official SDK (see [docs/guides/CAST.md](docs/guides/CAST.md)).
+Earlier releases added the spoofed device name and iOS discovery fixes (v1.3), automatic APK updates and the release pipeline (v1.2), and Miracast video playback (v1.1). The [changelog](CHANGELOG.md) has the full details.
 
 ### Tested with
 
@@ -107,11 +85,11 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 - Open source — Apache 2.0 license
 
 ### Releases
-- Rolling [`latest`](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) release rebuilt on every merge to `main`
-- Permanent versioned releases from `v*` tags
-- `SHA256SUMS.txt` with every release; versionCode grows with every build so updates install in place
-- `version.json` with every release — what the in-app updater reads
-- Every APK signed with one committed key, and verified by CI before it is published
+- One current [`latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest), updated from `main`
+- Release title and notes identify the version and changes in the APK; the direct download link stays the same
+- `SHA256SUMS.txt` and `version.json` accompany the APK; the in-app updater uses the version code
+- Every APK is signed with the community key and verified by CI before publishing
+- Older releases remain available as history; new builds do not create competing release entries
 
 ## What PhairPlay Does NOT Do
 
@@ -151,19 +129,15 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 
 ### Option A: Download the release APK (easiest)
 
-Download **`PhairPlay-googletv.apk`** from the rolling [`latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest) — it is the only APK, built for Google TV (Android TV OS 10+, tested on Android TV OS 14).
+Download **`PhairPlay-googletv.apk`** from the [current release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest). It is the only APK in the release and is built for Google TV (Android TV OS 10+, tested on Android TV OS 14).
 
-Direct link that always points at the newest build:
+Direct download link (always the latest successful build):
 
 ```
 https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
 ```
 
-Install it with the *Downloader* app on the TV (enter the link above) or via ADB — see the Sideloading Guide below. Prefer a numbered version? Every `v*` release also ships `PhairPlay-googletv.apk`, so this works too:
-
-```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/v1.2.0/PhairPlay-googletv.apk
-```
+Install it with the *Downloader* app on the TV or with ADB — see the Sideloading Guide below. The title on the release page shows the version embedded in the APK and the notes explain what's changed.
 
 ### Option B: Build from Source
 
@@ -193,8 +167,8 @@ https://github.com/2archiver/phairplay-archiver-fork-/releases/download/v1.2.0/P
    ./gradlew :app:assembleGoogletvRelease -Pphairplay.castAppId=<APP_ID>
    ```
    The version comes from `phairplay.versionName` in `gradle.properties`; the versionCode is
-   derived from the clock so every local build installs over the previous one. Override either
-   with `-Pphairplay.versionName=1.2.0 -Pphairplay.versionCode=10200`.
+   derived from the clock so each local build can update the previous one. Override the version
+   with `-Pphairplay.versionName=1.6.0`; normally leave versionCode on its automatic setting.
 
    To run the same local checks used by CI before testing on a TV:
    ```bash

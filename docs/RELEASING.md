@@ -1,64 +1,52 @@
 # Releasing PhairPlay (Google TV)
 
-PhairPlay ships **one APK, for Google TV** (Android TV OS 10+; developed and tested against
-Google TV 4K running Android TV OS 14). Releases are built and published by GitHub Actions —
-**merging to `main` is enough**. No tag, no manual release, no Pages switch.
+PhairPlay has **one current GitHub release**, tagged `latest`. A successful
+build from `main` updates it in place, and GitHub marks that same release as **Latest**. The
+in-app updater, direct download link, and release page therefore point to the same APK. Older
+numbered releases are kept as history; new builds do not create competing release entries.
 
-## Where is the APK?
+## Download the current APK
 
-| You want | Get it here |
-|----------|-------------|
-| **The newest build, always** | <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk> |
-| Its checksum | <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt> |
-| What that build actually is (version, versionCode, commit) | <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest> |
-| A specific numbered version | <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/v1.2.0/PhairPlay-googletv.apk> |
-| Any release, newest first (`/releases/latest/…` redirects here) | <https://github.com/2archiver/phairplay-archiver-fork-/releases/latest/download/PhairPlay-googletv.apk> |
-| A quick debug APK without waiting for a release | **Actions → CI** on any push/PR → artifact `debug-apk-googletv` |
-| One you built yourself | `./gradlew :app:assembleGoogletvRelease` → `app/build/outputs/apk/googletv/release/app-googletv-release.apk` |
-| The pretty download page (optional) | <https://2archiver.github.io/phairplay-archiver-fork-/> |
+- **Install:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk>
+- **Release title, update notes, version, and build details:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest>
+- **Checksum:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt>
+- **Optional download page:** <https://2archiver.github.io/phairplay-archiver-fork-/>
 
-Both release links serve a file named `PhairPlay-googletv.apk`, so Downloader and `adb install -r`
-work with either. The `latest` tag link is the one to bookmark: it is rebuilt on every merge to
-`main`, whereas `/releases/latest/…` follows whichever release GitHub considers newest.
+The APK keeps the stable filename `PhairPlay-googletv.apk` so saved links and the TV updater
+never break. The release title is read from the APK's embedded `versionName`; the release notes
+show what's changed. The release contains one APK, its checksum, and `version.json` for the
+in-app updater.
 
 ## How publishing works
 
-`.github/workflows/release.yml` runs one job in two modes:
+`.github/workflows/release.yml` runs on pushes to `main` and manual runs selected on `main`.
+It builds, verifies, and publishes the APK only when that commit is still the current tip of
+`main`. A fixed concurrency group prevents two builds from racing over the `latest` tag.
 
-| Trigger | Mode | Release | Assets |
-|---------|------|---------|--------|
-| push / merge to `main` | rolling | tag `latest` (moved to the new commit, assets replaced in place) | `PhairPlay-googletv.apk`, `SHA256SUMS.txt`, `version.json` |
-| push a `v*` tag | versioned | permanent release for that tag | `PhairPlay-<tag>-googletv.apk`, `PhairPlay-googletv.apk`, `SHA256SUMS.txt`, `version.json` |
-| **Actions → Release → Run workflow** | either | enter `latest`, or a tag such as `v1.2.0` (created from the selected branch if missing) | as above |
+The workflow moves the `latest` tag to the current commit, removes extra APK files from that
+release, and publishes one APK plus its checksum and updater descriptor. It uses the version
+read from the built APK for the title and marks the release as GitHub's **Latest**. Notes show
+commit titles since the previous build plus the matching `CHANGELOG.md` summary. Older releases
+are left untouched as history.
 
-Tags containing a dash (`v1.2.0-beta.1`) are published as pre-releases. A failed run writes the
-last 150 lines of the Gradle output into the job summary, so you can see why without downloading
-runner logs.
+### Publishing an update
 
-### Publish a numbered release
+1. Update `CHANGELOG.md` with the user-visible changes. Use `## [Unreleased]` for in-progress
+   work, or a version heading matching the release version (for example, `## [1.6]`).
+2. When starting a new release train, bump `phairplay.versionName` in `gradle.properties`.
+3. Merge or push to `main`. GitHub Actions builds and publishes the current APK automatically.
 
-```bash
-# 1. bump the base version (single source of truth)
-sed -i 's/^phairplay.versionName=.*/phairplay.versionName=1.5.0/' gradle.properties
-# 2. update CHANGELOG.md, commit, merge to main
-git tag v1.5.0
-git push origin v1.5.0
-```
+No release tag or manual release editing is needed. To run the workflow manually, choose
+**Actions → Release → Run workflow** and select the `main` branch.
 
-That's it — the workflow builds and publishes. `phairplay.versionName` in `gradle.properties`
-also drives rolling builds from `main` (published as `1.5.0-main.<run number>`).
+### Version numbers
 
-### Version numbering
-
-- **versionName** — `gradle.properties` (`phairplay.versionName`) for the base; CI passes
-  `<base>-main.<run number>` for rolling builds and the tag's version for `v*` releases.
-  The `googletv` flavor appends `-googletv`.
-- **versionCode** — minutes since 2024-01-01T00:00:00Z. It grows with *every* build, on both
-  paths, so a new APK always updates the installed one instead of being rejected as a downgrade.
-  A local `./gradlew` build derives the same way; `-Pphairplay.versionCode=…` overrides it.
-
-  A version-derived code (`1.2.3` → `10203`) cannot do this: rolling builds from `main` would
-  outrank or collide with the numbered release of the same version.
+- **Version name:** CI builds `<phairplay.versionName>-main.<run number>`; the Google TV APK
+  adds the `-googletv` flavor suffix. The workflow reads the final version back from the APK
+  before setting the release title and writing `version.json`.
+- **Version code:** a clock-based integer that is forced above the code in the current release.
+  Android uses this number to determine whether an APK can update an installed app. A local
+  `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides it.
 
 ## Signing: why updates install in place
 
@@ -129,10 +117,10 @@ Gradle properties `phairplay.keystorePath`, `phairplay.keystoreType`, `phairplay
 
 ## The download page
 
-`site/index.html` is a static page with a big **Download APK** button, Downloader/ADB install
-steps, and a list of all releases. It reads the release list from the GitHub API in the browser,
-so publishing a release updates it automatically, and its button points at the rolling `latest`
-APK even if the API call fails.
+`site/index.html` is a static page with one prominent **Download latest APK** button, Downloader/ADB
+install steps, and a current-version summary. It reads the current release from GitHub in the
+browser; older release links are tucked into a collapsed history section. The button keeps working
+even if the GitHub API is unavailable because it uses the stable `latest` download URL.
 
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The
 `Releases page` workflow passes `enablement: true`, so a run from `main` flips that switch for
@@ -142,8 +130,7 @@ Pages at all** — the release links above work regardless.
 ## Local release build
 
 ```bash
-./gradlew :app:assembleGoogletvRelease \
-  -Pphairplay.versionName=1.2.0 -Pphairplay.versionCode=10200
+./gradlew :app:assembleGoogletvRelease
 # app/build/outputs/apk/googletv/release/app-googletv-release.apk
 ```
 
@@ -158,8 +145,8 @@ PhairPlay's in-app updater reads:
 
 ```json
 {
-  "versionName": "1.5.0-main.131",
-  "versionCode": 20432100,
+  "versionName": "1.5.0-main.131-googletv",
+  "versionCode": 1449351,
   "apk": "PhairPlay-googletv.apk",
   "sha256": "…",
   "size": 12345678,
@@ -169,6 +156,6 @@ PhairPlay's in-app updater reads:
 }
 ```
 
-The workflow also **verifies the APK signature** with `apksigner verify` and, for rolling builds,
-checks that the new `versionCode` is strictly greater than the published one — a code that does
-not grow is how an update quietly stops being installable.
+Before publishing, the workflow verifies the APK's embedded version name and code, checks the
+signing certificate with `apksigner verify`, and refuses any build whose `versionCode` is not
+higher than the published APK.

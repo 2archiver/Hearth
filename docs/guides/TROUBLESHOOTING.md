@@ -217,7 +217,7 @@ before installing it. A different-key APK is never passed to Android's installer
 **`INSTALL_FAILED_VERSION_DOWNGRADE`**
 - You are installing an older APK over a newer one. Every build published by CI has a higher
   versionCode than the one before it, so this means the file is old — re-download from the
-  [rolling `latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest).
+  [current `latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest).
 - Forcing it: `adb install -r -d PhairPlay-googletv.apk`.
 
 **The download link returns 404**
