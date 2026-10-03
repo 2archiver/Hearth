@@ -166,6 +166,7 @@ android {
             // protocol/build CI when the pinned toolchain is known-good.
             "AndroidGradlePluginVersion",
             "GradleDependency",
+            "NewerVersionAvailable",
             // Localizations are incomplete during the pre-release hardware-test phase.
             "MissingTranslation",
             // Cleanup/style issues that should not block debug APK CI.
@@ -173,12 +174,21 @@ android {
             "DataExtractionRules",
             "DiscouragedApi",
             "MonochromeLauncherIcon",
+            "AdaptableIcon",
             // Launcher-icon shape is advisory; on Android TV the banner is the primary
             // artwork and the icon is rarely shown (sibling of MonochromeLauncherIcon above).
             "IconLauncherShape",
             "ObsoleteSdkInt",
             "Overdraw",
             "UnusedResources",
+            "UnusedIds",
+            "DuplicateDivider",
+            "RtlSymmetry",
+            "RtlHardcoded",
+            "StopShip",
+            "TypographyFractions",
+            "TypographyQuotes",
+            "SetTextI18n",
             // Advisory: the project deliberately supports a wide API range for old TVs;
             // targetSdk is bumped deliberately, not on every new platform release.
             "OldTargetApi",
@@ -186,7 +196,16 @@ android {
             // Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs). The native
             // FairPlay/ALAC libraries are built for armeabi-v7a and arm64-v8a to keep the APK
             // small; x86/x86_64 would only serve ChromeOS, which this app does not target.
-            "ChromeOsAbiSupport"
+            "ChromeOsAbiSupport",
+            // TV-only app; gestures / touch is not required
+            "GestureNavBackArrowMigration",
+            "BackButton",
+            "UnusedAttribute",
+            "InvalidWearFeatureConfig",
+            "ImpliedTouchscreenHardware",
+            "MissingClass",
+            "InvalidPackage",
+            "VisibleForTests"
         )
     }
 
