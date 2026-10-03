@@ -43,8 +43,10 @@ enum class MirrorResolution(val width: Int, val height: Int, val label: String) 
          * Picks the size to advertise.
          *
          * Rules, in order:
-         *  1. `preferHighResolution` off (the default) → always 1080p. Mirroring stays safe on
-         *     weak SoCs, which is the behaviour PhairPlay has always had.
+         *  1. `preferHighResolution` off → always 1080p, which is what a 1080p panel would get
+         *     anyway and what a user picks when a marginal SoCs drops frames at 4K. The toggle
+         *     ships on (1.6): before that a 4K Google TV was told it was a 1080p receiver, which
+         *     is why mirroring looked soft on exactly the hardware that could carry it.
          *  2. Never advertise more than the panel can show (`panelWidth`/`panelHeight`).
          *  3. Never advertise more than the hardware H.264 decoder reports it can decode.
          *  4. Otherwise take the largest candidate that satisfies both.
