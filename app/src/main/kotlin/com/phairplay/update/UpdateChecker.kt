@@ -231,6 +231,20 @@ class UpdateChecker(
     }
 }
 
+/** Why an update could not be completed; the UI uses this to choose useful next steps. */
+enum class UpdateFailureReason {
+    /** The release lookup failed (network, GitHub, or malformed release metadata). */
+    CHECK_FAILED,
+    /** The APK could not be downloaded or its checksum did not match. */
+    DOWNLOAD_FAILED,
+    /** Android cannot replace this install because the APK uses another signing key. */
+    SIGNATURE_MISMATCH,
+    /** The downloaded file is not a readable APK. */
+    INVALID_APK,
+    /** The running app's signing certificate could not be read safely. */
+    SIGNATURE_UNVERIFIED
+}
+
 /** Outcome of [UpdateChecker.check]. */
 sealed class UpdateCheck {
 
@@ -245,8 +259,15 @@ sealed class UpdateCheck {
      */
     data class UpToDate(val info: UpdateInfo, val newerThanPublished: Boolean) : UpdateCheck()
 
-    /** The check could not be completed; [message] is safe to show to the user. */
-    data class Failed(val message: String) : UpdateCheck()
+    /**
+     * The check or install could not be completed. [message] is safe to show to the user;
+     * [reason] lets the UI distinguish a transient error from a one-time key migration.
+     */
+    data class Failed(
+        val message: String,
+        val reason: UpdateFailureReason = UpdateFailureReason.CHECK_FAILED,
+        val info: UpdateInfo? = null
+    ) : UpdateCheck()
 
     /**
      * The check was deliberately not performed — usually because a successful check ran

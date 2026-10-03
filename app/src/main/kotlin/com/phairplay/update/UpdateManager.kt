@@ -95,7 +95,8 @@ class UpdateManager(private val context: Context) {
         val file = destinationFor(info)
         val downloaded = checker.download(info, file, onProgress)
             ?: return@withContext StageResult.Failed(
-                "Download failed. Check the TV's connection and try again."
+                "Download failed. Check the TV's connection and try again.",
+                UpdateFailureReason.DOWNLOAD_FAILED
             )
 
         when (installer.verifySignature(downloaded)) {
@@ -110,20 +111,27 @@ class UpdateManager(private val context: Context) {
                 // would be rejected with "package conflicts with an existing package".
                 downloaded.delete()
                 StageResult.Failed(
-                    "That build is signed with a different key than the installed PhairPlay, " +
-                        "so Android would refuse to install it. Uninstall PhairPlay once and " +
-                        "install the new APK, or use a build from the same source."
+                    "Android cannot install this update over the current PhairPlay because the " +
+                        "signing keys differ. Use an APK signed with this install's key, or make " +
+                        "a one-time manual switch to the new source.",
+                    UpdateFailureReason.SIGNATURE_MISMATCH
                 )
             }
 
             SignatureCheck.Unreadable -> {
                 downloaded.delete()
-                StageResult.Failed("The downloaded file is not a readable APK. Try again.")
+                StageResult.Failed(
+                    "The downloaded file is not a readable APK. Try again.",
+                    UpdateFailureReason.INVALID_APK
+                )
             }
 
             SignatureCheck.Unknown -> {
                 downloaded.delete()
-                StageResult.Failed("Could not verify the download. Try again.")
+                StageResult.Failed(
+                    "Could not verify the download. Try again.",
+                    UpdateFailureReason.SIGNATURE_UNVERIFIED
+                )
             }
         }
     }
@@ -211,5 +219,8 @@ data class StagedUpdate(val info: UpdateInfo, val file: File)
 /** Outcome of [UpdateManager.downloadAndStage]. */
 sealed class StageResult {
     data class Staged(val update: StagedUpdate) : StageResult()
-    data class Failed(val message: String) : StageResult()
+    data class Failed(
+        val message: String,
+        val reason: UpdateFailureReason = UpdateFailureReason.DOWNLOAD_FAILED
+    ) : StageResult()
 }

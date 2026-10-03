@@ -98,9 +98,10 @@ Mitigations built in:
 - PhairPlay's own updater **verifies the downloaded APK's signing certificate against its own**
   before installing, and refuses anything that does not match — so the in-app path can never
   install a differently-signed build ([docs/UPDATES.md](UPDATES.md)).
-- CI **verifies the APK signature after building** and prints the certificate SHA-256. Set the
-  repository variable `EXPECTED_APK_CERT_SHA256` to that fingerprint and the release **fails**
-  if a future build is signed with a different key.
+- CI **verifies the APK signature after building** and pins the certificate SHA-256. The
+  checked-in community key fingerprint is the default; if you use a private `KEYSTORE_BASE64`
+  override, set the repository variable `EXPECTED_APK_CERT_SHA256` to that key's fingerprint.
+  A signer change then fails the release instead of silently breaking in-place updates.
 - Installing the APK by hand is still your call about which URL you trust.
 
 If you publish builds to other people and want a key only you hold, override the committed key:

@@ -57,6 +57,7 @@
     <string name="settings_section_airplay">AirPlay</string>
     <string name="settings_section_service">Dienst</string>
     <string name="settings_section_developer">Entwickler</string>
+    <string name="settings_section_updates">Updates</string>
     <string name="settings_section_about">Über</string>
 
     <!-- ── Settings row labels ─────────────────────────────────── -->
@@ -75,6 +76,36 @@
     <string name="setting_debug_overlay_subtitle">FPS und Latenz auf dem Streaming-Bildschirm anzeigen</string>
     <string name="setting_version">Version</string>
     <string name="setting_reset_defaults">Auf Standardwerte zurücksetzen</string>
+    <string name="setting_check_updates">Nach Updates suchen</string>
+    <string name="setting_check_updates_subtitle">Nach der neuesten PhairPlay-Version suchen</string>
+    <string name="setting_auto_check_updates">Automatisch nach Updates suchen</string>
+    <string name="setting_auto_check_updates_subtitle">Etwa alle sechs Stunden im Hintergrund suchen, solange PhairPlay läuft</string>
+    <string name="setting_auto_download_updates">Automatisch herunterladen</string>
+    <string name="setting_auto_download_updates_subtitle">Neue Versionen herunterladen und prüfen, damit sie bereitstehen</string>
+    <string name="setting_auto_install_updates">Automatisch installieren</string>
+    <string name="setting_auto_install_updates_subtitle">Geprüfte Updates installieren, wenn Android dies zulässt</string>
+    <string name="update_card_trust_hint">Updates werden vor der Installation geprüft</string>
+    <string name="update_action_check_now">Jetzt suchen</string>
+    <string name="update_action_check_again">Erneut suchen</string>
+    <string name="update_action_view_steps">Schritte ansehen</string>
+    <string name="update_action_open_release">Release-Seite öffnen</string>
+    <string name="update_status_checking">WIRD GEPRÜFT</string>
+    <string name="update_status_downloading">WIRD GELADEN</string>
+    <string name="update_status_available">UPDATE VERFÜGBAR</string>
+    <string name="update_status_ready">BEREIT ZUR INSTALLATION</string>
+    <string name="update_status_current">AKTUELL</string>
+    <string name="update_status_action_needed">AKTION ERFORDERLICH</string>
+    <string name="update_status_error">PRÜFUNG FEHLGESCHLAGEN</string>
+    <string name="update_current_version">Aktuelle Version %1$s</string>
+    <string name="update_key_mismatch_card">Einmalige Neuinstallation zum Wechsel des Signaturschlüssels erforderlich</string>
+    <string name="update_download_progress">Update wird heruntergeladen… %1$d%%</string>
+    <string name="update_key_mismatch_title">Einmalige Neuinstallation erforderlich</string>
+    <string name="update_key_mismatch_message">PhairPlay hat Version %1$s gefunden, sie wurde jedoch mit einem anderen Schlüssel signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Laden Sie die APK von dieser Release-Seite herunter, deinstallieren Sie PhairPlay einmal und installieren Sie anschließend die heruntergeladene APK. Bei der Deinstallation können Einstellungen verloren gehen. Notieren Sie sie vorher. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
+    <string name="update_key_mismatch_message_unknown">Dieses Update wurde mit einem anderen Schlüssel als die installierte App signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Verwenden Sie eine APK mit demselben Schlüssel oder wechseln Sie einmal manuell: Einstellungen notieren, PhairPlay deinstallieren und die APK von der Release-Seite installieren. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
+    <string name="update_download_failed_title">Update-Download fehlgeschlagen</string>
+    <string name="update_install_failed_title">Update konnte nicht installiert werden</string>
+    <string name="update_open_release_title">Release-Seite konnte nicht geöffnet werden</string>
+    <string name="update_open_release_failed">Auf diesem TV konnte kein Browser geöffnet werden. Öffnen Sie den Link auf einem anderen Gerät: %1$s</string>
 
     <!-- ── Waiting screen ──────────────────────────────────────── -->
     <string name="waiting_title">Bereit für AirPlay</string>

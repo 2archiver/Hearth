@@ -27,9 +27,9 @@ That link never goes stale and never needs a tag, a release to be cut by hand, o
 
 **Install it on the TV:** open the *Downloader* app, paste the link above, then **Install** — or from a computer, `adb install -r PhairPlay-googletv.apk`. Full steps: [docs/guides/INSTALLATION.md](docs/guides/INSTALLATION.md).
 
-**Updating:** install the new APK straight over the old one — every PhairPlay build is signed with the same key, so Android treats it as an update and nothing needs uninstalling. (That is what fixes *"App not installed as package conflicts with an existing package"*.)
+**Updating:** once you are on a build signed with this repository's community key, install future APKs straight over the old one — Android treats them as in-place updates. Some early 1.4 builds (and builds from other forks or private keys) need a one-time uninstall/reinstall to switch signing keys; the in-app updater identifies this and explains the safe steps. See [docs/UPDATES.md](docs/UPDATES.md).
 
-Or skip the computer: **Settings → Updates → Check for updates** on the TV. PhairPlay asks GitHub what the newest build is, verifies the download against the published SHA-256 **and** against its own signing certificate, and installs it — silently on Android 12+, since a package replacing itself needs no confirmation. See [docs/UPDATES.md](docs/UPDATES.md).
+Or skip the computer: **Settings → Updates → Check for updates** on the TV. PhairPlay asks GitHub what the newest build is, verifies the download against the published SHA-256 **and** against its own signing certificate, and installs it — silently on Android 12+ when the signing key matches. See [docs/UPDATES.md](docs/UPDATES.md).
 
 **No APK there yet?** The release is published by GitHub Actions on the first push to `main` after the workflow lands. Until then, run **Actions → CI** on the repository and download the `debug-apk-googletv` artifact — CI builds that APK on every push and pull request.
 
@@ -52,7 +52,7 @@ Or skip the computer: **Settings → Updates → Check for updates** on the TV. 
 PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
 
 **v1.4 removes the two things that made PhairPlay annoying to live with:**
-- **Updates just work.** Every build is signed with one key, so installing a new APK over the old one is an update and never needs an uninstall — and PhairPlay can now fetch and install it itself from **Settings → Updates**.
+- **Updates just work after a one-time signing-key transition.** Builds from this repository share one key, so subsequent APKs install in place; some early 1.4 or differently signed installs need a one-time reinstall first. PhairPlay checks the certificate before install and guides that transition from **Settings → Updates**.
 - **Google Cast works without registering anything with Google.** PhairPlay serves Cast directly (mDNS + DIAL + castv2), so an iPhone app's cast button now lists your TV.
 
 The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.

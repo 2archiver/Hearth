@@ -15,14 +15,15 @@
 # installs straight over the old one.
 #
 # SIGNING: builds are signed with app/signing/phairplay.p12, the public "community build"
-# key committed to this repository. Because every runner and every local clone signs with
-# the same key, installing a new APK updates the old one in place — no uninstall, and no
-# "App not installed as package conflicts with an existing package".
+# key committed to this repository. Every current runner and local clone uses the same key,
+# so updates install in place once the device is on this signing identity. Older/differently
+# signed installs may need a one-time reinstall; the updater explains that Android limitation.
 # The in-app updater refuses any APK whose certificate does not match the installed one,
 # so it can never hand a TV a build that Android would reject.
 #
 # Optional override (Settings → Secrets and variables → Actions) — use your own private key
-# if you publish builds to other people:
+# if you publish builds to other people. Pin its SHA-256 certificate fingerprint in the
+# EXPECTED_APK_CERT_SHA256 repository variable; releases fail closed if the signer drifts.
 #   KEYSTORE_BASE64      base64 of your keystore (base64 -w0 phairplay.p12)
 #   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
 #   KEYSTORE_TYPE        optional, defaults to pkcs12 for .p12/.pfx, otherwise jks
@@ -231,7 +232,9 @@ jobs:
       - name: Verify the APK signature and print the signing fingerprint
         shell: bash
         env:
-          EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 }}
+          # The checked-in community key is the default signing identity. If a maintainer
+          # intentionally overrides it, the repository variable must pin that private key.
+          EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 || 'b9cb7e4b4d5179870e672e850f5d3661f02c248f943dbaf10cd78cd0c047eaae' }}
         run: |
           set -euo pipefail
           # Pick whatever build-tools revision is installed rather than hard-coding one.
@@ -242,11 +245,13 @@ jobs:
           fi
           "$apksigner" verify --verbose dist/PhairPlay-googletv.apk
           fingerprint=$("$apksigner" verify --print-certs dist/PhairPlay-googletv.apk \
-            | grep -m1 'SHA-256' | sed -E 's/.*SHA-256 digest: *//')
+            | grep -m1 'SHA-256' | sed -E 's/.*SHA-256 digest: *//' \
+            | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          expected=$(printf '%s' "${EXPECTED_FINGERPRINT:-}" | tr '[:upper:]' '[:lower:]' | tr -d ':')
           echo "APK signing certificate SHA-256: $fingerprint"
           echo "Signing certificate SHA-256: \`$fingerprint\`" >> "$GITHUB_STEP_SUMMARY"
-          if [[ -n "${EXPECTED_FINGERPRINT:-}" && "$fingerprint" != "$EXPECTED_FINGERPRINT" ]]; then
-            echo "::error::APK was signed with an unexpected certificate. Expected $EXPECTED_FINGERPRINT but got $fingerprint. Publishing this would break in-place updates."
+          if [[ -z "$expected" || "$fingerprint" != "$expected" ]]; then
+            echo "::error::APK was signed with an unexpected certificate. Expected $expected but got $fingerprint. Publishing this would break in-place updates."
             exit 1
           fi
 
@@ -316,10 +321,10 @@ jobs:
           \`adb install -r PhairPlay-googletv.apk\` —
           [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
 
-          **Updating:** install this APK straight over the old one — it is signed with the
-          same key as every other PhairPlay build, so Android treats it as an update and
-          nothing needs uninstalling. Or let the TV do it: PhairPlay 1.4+ checks GitHub
-          itself in **Settings → Check for updates**.
+          **Updating:** builds from this repository use the same signing key, so later updates
+          install in place. An older or differently signed install may need a one-time manual
+          reinstall first; PhairPlay 1.4+ explains this before install. Or let the TV check in
+          **Settings → Updates → Check for updates**.
 
           Numbered releases (\`v1.2.0\`, …) stay available under
           [All releases](https://github.com/${REPO}/releases).
