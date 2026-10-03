@@ -154,18 +154,42 @@
     <!-- ── Updates ─────────────────────────────────────────────── -->
     <string name="settings_section_updates">Updates</string>
     <string name="setting_check_updates">Check for updates</string>
-    <string name="setting_check_updates_subtitle">Look for a newer PhairPlay build on GitHub</string>
+    <string name="setting_check_updates_subtitle">Look for the latest PhairPlay build</string>
+    <string name="update_card_trust_hint">Updates are checked before they are installed</string>
     <string name="setting_auto_check_updates">Check automatically</string>
-    <string name="setting_auto_check_updates_subtitle">Look for updates in the background, a few times a day</string>
+    <string name="setting_auto_check_updates_subtitle">Look for updates in the background about every six hours while PhairPlay is running</string>
     <string name="setting_auto_download_updates">Download automatically</string>
-    <string name="setting_auto_download_updates_subtitle">Fetch and verify the APK as soon as one is found</string>
+    <string name="setting_auto_download_updates_subtitle">Download and verify new builds so they are ready when you are</string>
     <string name="setting_auto_install_updates">Install automatically</string>
-    <string name="setting_auto_install_updates_subtitle">Install a verified update without asking again</string>
+    <string name="setting_auto_install_updates_subtitle">Install verified updates automatically when Android allows it</string>
+
+    <string name="update_action_check_now">Check now</string>
+    <string name="update_action_check_again">Check again</string>
+    <string name="update_action_download">Download</string>
+    <string name="update_action_install">Install now</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_action_close">Close</string>
+    <string name="update_action_retry">Try again</string>
+    <string name="update_action_open_release">Open release page</string>
+    <string name="update_action_view_steps">View steps</string>
+    <string name="update_status_checking">CHECKING</string>
+    <string name="update_status_downloading">DOWNLOADING</string>
+    <string name="update_status_available">UPDATE AVAILABLE</string>
+    <string name="update_status_ready">READY TO INSTALL</string>
+    <string name="update_status_current">UP TO DATE</string>
+    <string name="update_status_action_needed">ACTION NEEDED</string>
+    <string name="update_status_error">CHECK FAILED</string>
+    <string name="update_current_version">Current version %1$s</string>
+    <string name="update_key_mismatch_card">A one-time reinstall is needed to switch signing keys</string>
+    <string name="update_download_progress">Downloading update… %1$d%%</string>
 
     <string name="update_notification_title">PhairPlay update</string>
     <!-- %1$s = version of the newer build -->
     <string name="update_notification_available">Version %1$s is available</string>
     <string name="update_notification_ready">Version %1$s is downloaded and ready to install</string>
+    <string name="update_notification_migration_title">One-time update setup needed</string>
+    <!-- %1$s = update version -->
+    <string name="update_notification_migration">Version %1$s needs a one-time manual reinstall to switch signing keys</string>
 
     <string name="update_dialog_title">PhairPlay update</string>
     <string name="update_checking">Checking GitHub for a newer build…</string>
@@ -179,16 +203,19 @@
     <string name="update_ready_title">Update ready</string>
     <string name="update_ready_message">Version %1$s is downloaded and verified. Install it now?</string>
     <string name="update_install_started">Installing… PhairPlay will restart when it is done.</string>
-    <string name="update_action_download">Download</string>
-    <string name="update_action_install">Install now</string>
-    <string name="update_action_later">Later</string>
-    <string name="update_action_close">Close</string>
-    <string name="update_action_retry">Try again</string>
+    <string name="update_key_mismatch_title">One-time reinstall required</string>
+    <!-- %1$s = update version -->
+    <string name="update_key_mismatch_message">Version %1$s uses a different signing key. Android blocks replacing an app across keys. To switch to this release, open the release page, download the APK, uninstall PhairPlay once, then install it. Uninstalling may erase settings; note them first. Future updates with this key install normally.</string>
+    <string name="update_key_mismatch_message_unknown">This update uses a different signing key. Android blocks replacing an app across keys. Use an APK signed with the same key, or switch manually: note your settings, download the APK from the release page, uninstall PhairPlay once, then install it. Future updates with that key install normally.</string>
+    <string name="update_open_release_failed">Could not open a browser on this TV. Open this link on another device: %1$s</string>
     <!-- %1$s = versionName, %2$d = versionCode -->
     <string name="update_version_value">%1$s (%2$d)</string>
     <!-- %1$s = version of a downloaded update waiting to be installed -->
     <string name="update_ready_message_short">Version %1$s is ready to install</string>
     <string name="update_install_failed">The update could not be installed. Android refused it — check that the TV allows installing unknown apps for PhairPlay.</string>
+    <string name="update_download_failed_title">Update download failed</string>
+    <string name="update_install_failed_title">Could not install update</string>
+    <string name="update_open_release_title">Could not open release page</string>
     <string name="update_error_title">Update check failed</string>
     <string name="update_no_updates_yet">No releases have been published yet.</string>
 </resources>

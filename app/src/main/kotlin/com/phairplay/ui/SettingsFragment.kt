@@ -1,8 +1,8 @@
 package com.phairplay.ui
 
-import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import com.phairplay.service.ServiceController
 import android.text.InputFilter
 import android.text.InputType
 import android.view.LayoutInflater
@@ -10,12 +10,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.BuildConfig
 import com.phairplay.R
+import com.phairplay.service.ServiceController
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.Logger
@@ -36,7 +39,7 @@ import kotlinx.coroutines.launch
  *
  * HOW: Reads current settings from [SettingsRepository] and populates the UI.
  * Each toggle/row saves immediately when changed (no "Save" button needed).
- * Settings changes take effect on the next service restart.
+ * Receiver settings apply on service restart; update preferences are observed live by the service.
  *
  * Navigation: accessed via the "Settings" item in MainActivity's nav panel.
  */
@@ -68,13 +71,20 @@ class SettingsFragment : Fragment() {
     private lateinit var textVersionValue: TextView
     private lateinit var rowCheckUpdates: LinearLayout
     private lateinit var textCheckUpdatesValue: TextView
+    private lateinit var textUpdateBadge: TextView
+    private lateinit var textCheckUpdatesAction: TextView
+    private lateinit var progressUpdate: ProgressBar
     private lateinit var rowAutoCheckUpdates: View
     private lateinit var rowAutoDownloadUpdates: View
     private lateinit var rowAutoInstallUpdates: View
     private lateinit var rowReset: LinearLayout
 
-    /** Set while an update check is in flight, so repeat taps don't start a second one. */
+    /** Set while an update check or download is in flight, so repeat taps cannot race it. */
     private var updateCheckRunning = false
+
+    /** The latest result remains actionable from the large TV-friendly update card. */
+    private var pendingAvailableUpdate: UpdateInfo? = null
+    private var pendingKeyMismatchUpdate: UpdateInfo? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_settings, container, false)
@@ -86,6 +96,11 @@ class SettingsFragment : Fragment() {
         setSectionTitles()
         setRowLabels()
         loadAndPopulate()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::rowCheckUpdates.isInitialized && !updateCheckRunning) refreshStagedUpdateRow()
     }
 
     // ─── View Binding ────────────────────────────────────────────────────────
@@ -116,6 +131,9 @@ class SettingsFragment : Fragment() {
         textVersionValue    = view.findViewById(R.id.text_version_value)
         rowCheckUpdates      = view.findViewById(R.id.row_check_updates)
         textCheckUpdatesValue = view.findViewById(R.id.text_check_updates_value)
+        textUpdateBadge      = view.findViewById(R.id.text_update_badge)
+        textCheckUpdatesAction = view.findViewById(R.id.text_check_updates_action)
+        progressUpdate       = view.findViewById(R.id.progress_update)
         rowAutoCheckUpdates  = view.findViewById(R.id.row_auto_check_updates)
         rowAutoDownloadUpdates = view.findViewById(R.id.row_auto_download_updates)
         rowAutoInstallUpdates = view.findViewById(R.id.row_auto_install_updates)
@@ -213,11 +231,55 @@ class SettingsFragment : Fragment() {
      * reopened — otherwise it would look like nothing ever happened.
      */
     private fun refreshStagedUpdateRow() {
+        if (!::rowCheckUpdates.isInitialized) return
         val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
-        textCheckUpdatesValue.text = if (staged != null) {
-            getString(R.string.update_ready_message_short, staged.info.versionName)
+        if (staged != null) {
+            pendingAvailableUpdate = null
+            pendingKeyMismatchUpdate = null
+            setUpdateCardState(
+                message = getString(R.string.update_ready_message_short, staged.info.versionName),
+                badge = R.string.update_status_ready,
+                action = R.string.update_action_install,
+                badgeColor = R.color.status_running
+            )
         } else {
-            getString(R.string.setting_check_updates_subtitle)
+            val migration = pendingKeyMismatchUpdate
+            val available = pendingAvailableUpdate
+            when {
+                migration != null -> setUpdateCardState(
+                    message = getString(R.string.update_key_mismatch_card),
+                    badge = R.string.update_status_action_needed,
+                    action = R.string.update_action_view_steps,
+                    badgeColor = R.color.status_transitioning
+                )
+                available != null -> setUpdateCardState(
+                    message = getString(R.string.update_available_message, available.shortLabel(), BuildConfig.VERSION_NAME),
+                    badge = R.string.update_status_available,
+                    action = R.string.update_action_download
+                )
+                else -> setUpdateCardState(
+                    message = getString(R.string.update_current_version, BuildConfig.VERSION_NAME),
+                    badge = null,
+                    action = R.string.update_action_check_now
+                )
+            }
+        }
+    }
+
+    private fun setUpdateCardState(
+        message: CharSequence,
+        badge: Int?,
+        action: Int,
+        badgeColor: Int = R.color.accent_blue
+    ) {
+        textCheckUpdatesValue.text = message
+        textCheckUpdatesAction.setText(action)
+        if (badge == null) {
+            textUpdateBadge.visibility = View.GONE
+        } else {
+            textUpdateBadge.setText(badge)
+            textUpdateBadge.setTextColor(requireContext().getColor(badgeColor))
+            textUpdateBadge.visibility = View.VISIBLE
         }
     }
 
@@ -248,62 +310,117 @@ class SettingsFragment : Fragment() {
         setToggleListener(rowAutoDownloadUpdates) { enabled -> save { it.copy(autoDownloadUpdates = enabled) } }
         setToggleListener(rowAutoInstallUpdates)  { enabled -> save { it.copy(autoInstallUpdates = enabled) } }
 
-        rowCheckUpdates.setOnClickListener { runUpdateCheck() }
+        rowCheckUpdates.setOnClickListener {
+            if (updateCheckRunning) return@setOnClickListener
+            val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
+            when {
+                staged != null -> showInstallDialog(staged.info)
+                pendingKeyMismatchUpdate != null -> showSigningKeyMismatchDialog(pendingKeyMismatchUpdate)
+                pendingAvailableUpdate != null -> showAvailableDialog(pendingAvailableUpdate!!)
+                else -> runUpdateCheck()
+            }
+        }
         rowReset.setOnClickListener { resetSettings() }
     }
 
     // ─── Updates ────────────────────────────────────────────────────────────
 
     /**
-     * "Check for updates": talks to GitHub, then offers whatever it finds.
+     * "Check for updates": checks GitHub and renders the result in the update card.
      *
-     * The whole flow is one dialog the user can drive with the remote: up-to-date, an update
-     * to download, or a downloaded update to install. Verification happens inside
-     * [UpdateFlow] — an APK signed with a different key is refused there rather than handed
-     * to Android, which is what used to produce "App not installed as package conflicts with
-     * an existing package".
+     * Short confirmation dialogs are reserved for actions that need a decision (download,
+     * install, or a one-time signing-key migration). Verification happens before an APK is
+     * staged, so Android never receives a build it would reject as a package conflict.
      */
     private fun runUpdateCheck() {
         if (updateCheckRunning) return
+        updateCheckRunning = true
+        rowCheckUpdates.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
-            val settings = settingsRepository.settingsFlow.first()
+            try {
+                val settings = settingsRepository.settingsFlow.first()
 
-            // A staged download outranks a new check: offer the install we already have.
-            val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
-            if (staged != null) {
-                showInstallDialog(staged.info)
-                return@launch
-            }
+                // A staged download outranks a new check: offer the install we already have.
+                val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
+                if (staged != null) {
+                    showInstallDialog(staged.info)
+                    return@launch
+                }
 
-            updateCheckRunning = true
-            textCheckUpdatesValue.setText(R.string.update_checking)
-            val result = try {
-                UpdateFlow.run(
-                    context = requireContext(),
-                    autoDownload = false,      // the dialog drives the download from here
-                    autoInstall = settings.autoInstallUpdates
+                pendingAvailableUpdate = null
+                pendingKeyMismatchUpdate = null
+                progressUpdate.visibility = View.GONE
+                setUpdateCardState(
+                    message = getString(R.string.update_checking),
+                    badge = R.string.update_status_checking,
+                    action = R.string.update_action_check_now
                 )
+                val result = UpdateFlow.run(
+                    context = requireContext(),
+                    autoDownload = false,      // the card/dialog drives the download from here
+                    autoInstall = settings.autoInstallUpdates,
+                    forceCheck = true
+                )
+
+                when (result) {
+                    is UpdateCheck.Available -> {
+                        pendingAvailableUpdate = result.info
+                        setUpdateCardState(
+                            message = getString(
+                                R.string.update_available_message,
+                                result.info.shortLabel(),
+                                BuildConfig.VERSION_NAME
+                            ),
+                            badge = R.string.update_status_available,
+                            action = R.string.update_action_download
+                        )
+                        showAvailableDialog(result.info)
+                    }
+
+                    is UpdateCheck.UpToDate -> {
+                        val message = if (result.newerThanPublished) {
+                            getString(
+                                R.string.update_up_to_date_ahead,
+                                BuildConfig.VERSION_NAME,
+                                result.info.shortLabel()
+                            )
+                        } else {
+                            getString(R.string.update_up_to_date, result.info.shortLabel())
+                        }
+                        setUpdateCardState(
+                            message = message,
+                            badge = R.string.update_status_current,
+                            action = R.string.update_action_check_again,
+                            badgeColor = R.color.status_running
+                        )
+                    }
+
+                    is UpdateCheck.Failed -> {
+                        if (result.reason == com.phairplay.update.UpdateFailureReason.SIGNATURE_MISMATCH) {
+                            pendingKeyMismatchUpdate = result.info
+                            setUpdateCardState(
+                                message = getString(R.string.update_key_mismatch_card),
+                                badge = R.string.update_status_action_needed,
+                                action = R.string.update_action_view_steps,
+                                badgeColor = R.color.status_transitioning
+                            )
+                            showSigningKeyMismatchDialog(result.info)
+                        } else {
+                            setUpdateCardState(
+                                message = result.message,
+                                badge = R.string.update_status_error,
+                                action = R.string.update_action_retry,
+                                badgeColor = R.color.status_stopped
+                            )
+                            showMessageDialog(R.string.update_error_title, result.message)
+                        }
+                    }
+
+                    is UpdateCheck.Skipped -> refreshStagedUpdateRow()
+                }
             } finally {
                 updateCheckRunning = false
-            }
-            refreshStagedUpdateRow()
-
-            when (result) {
-                is UpdateCheck.Available -> showAvailableDialog(result.info)
-                is UpdateCheck.UpToDate -> showMessageDialog(
-                    R.string.update_dialog_title,
-                    if (result.newerThanPublished) {
-                        getString(
-                            R.string.update_up_to_date_ahead,
-                            BuildConfig.VERSION_NAME,
-                            result.info.shortLabel()
-                        )
-                    } else {
-                        getString(R.string.update_up_to_date, result.info.shortLabel())
-                    }
-                )
-                is UpdateCheck.Failed -> showMessageDialog(R.string.update_error_title, result.message)
-                is UpdateCheck.Skipped -> Unit
+                rowCheckUpdates.isEnabled = true
             }
         }
     }
@@ -324,19 +441,63 @@ class SettingsFragment : Fragment() {
     }
 
     private fun downloadAndOfferInstall(info: UpdateInfo) {
+        if (updateCheckRunning) return
+        updateCheckRunning = true
+        rowCheckUpdates.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
-            val dialog = AlertDialog.Builder(requireContext())
-                .setTitle(R.string.update_dialog_title)
-                .setMessage(R.string.update_downloading)
-                .setCancelable(false)
-                .show()
-            val result = com.phairplay.update.UpdateManager.get(requireContext())
-                .downloadAndStage(info)
-            dialog.dismiss()
-            refreshStagedUpdateRow()
+            pendingAvailableUpdate = null
+            progressUpdate.isIndeterminate = false
+            progressUpdate.progress = 0
+            progressUpdate.visibility = View.VISIBLE
+            setUpdateCardState(
+                message = getString(R.string.update_downloading),
+                badge = R.string.update_status_downloading,
+                action = R.string.update_action_check_now
+            )
+
+            val result = try {
+                com.phairplay.update.UpdateManager.get(requireContext())
+                    .downloadAndStage(info) { percent ->
+                        rowCheckUpdates.post {
+                            if (isAdded) {
+                                progressUpdate.progress = percent
+                                textCheckUpdatesValue.text = getString(R.string.update_download_progress, percent)
+                            }
+                        }
+                    }
+            } finally {
+                updateCheckRunning = false
+                rowCheckUpdates.isEnabled = true
+                progressUpdate.visibility = View.GONE
+            }
+
             when (result) {
-                is StageResult.Staged -> showInstallDialog(result.update.info)
-                is StageResult.Failed -> showMessageDialog(R.string.update_error_title, result.message)
+                is StageResult.Staged -> {
+                    pendingKeyMismatchUpdate = null
+                    refreshStagedUpdateRow()
+                    showInstallDialog(result.update.info)
+                }
+
+                is StageResult.Failed -> {
+                    if (result.reason == com.phairplay.update.UpdateFailureReason.SIGNATURE_MISMATCH) {
+                        pendingKeyMismatchUpdate = info
+                        setUpdateCardState(
+                            message = getString(R.string.update_key_mismatch_card),
+                            badge = R.string.update_status_action_needed,
+                            action = R.string.update_action_view_steps,
+                            badgeColor = R.color.status_transitioning
+                        )
+                        showSigningKeyMismatchDialog(info)
+                    } else {
+                        setUpdateCardState(
+                            message = result.message,
+                            badge = R.string.update_status_error,
+                            action = R.string.update_action_retry,
+                            badgeColor = R.color.status_stopped
+                        )
+                        showMessageDialog(R.string.update_download_failed_title, result.message)
+                    }
+                }
             }
         }
     }
@@ -352,13 +513,45 @@ class SettingsFragment : Fragment() {
                     if (installed) {
                         showMessageDialog(R.string.update_dialog_title, getString(R.string.update_install_started))
                     } else {
-                        showMessageDialog(R.string.update_error_title, getString(R.string.update_install_failed))
+                        showMessageDialog(R.string.update_install_failed_title, getString(R.string.update_install_failed))
                     }
                     refreshStagedUpdateRow()
                 }
             }
             .setNegativeButton(R.string.update_action_later, null)
             .show()
+    }
+
+    private fun showSigningKeyMismatchDialog(info: UpdateInfo?) {
+        val message = if (info != null) {
+            getString(R.string.update_key_mismatch_message, info.shortLabel())
+        } else {
+            getString(R.string.update_key_mismatch_message_unknown)
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.update_key_mismatch_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.update_action_open_release) { _, _ -> openUpdateReleasePage() }
+            .setNegativeButton(R.string.update_action_close, null)
+            .show()
+    }
+
+    private fun openUpdateReleasePage() {
+        val repo = BuildConfig.UPDATE_REPO.trim()
+        val releaseUrl = if (repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) {
+            "https://github.com/$repo/releases/latest"
+        } else {
+            "https://github.com/2archiver/phairplay-archiver-fork-/releases/latest"
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
+        } catch (e: Exception) {
+            Logger.w("Could not open the PhairPlay release page: ${e.message}")
+            showMessageDialog(
+                R.string.update_open_release_title,
+                getString(R.string.update_open_release_failed, releaseUrl)
+            )
+        }
     }
 
     private fun showMessageDialog(titleRes: Int, message: String) {

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -123,6 +124,9 @@ class PhairPlayService : Service() {
     /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
     private var updateCheckJob: kotlinx.coroutines.Job? = null
 
+    /** Watches update preferences so toggles take effect without restarting the receivers. */
+    private var updateSettingsJob: kotlinx.coroutines.Job? = null
+
     /** Why the Cast card is in its current state ("Cast App ID not set", "port 8009 in use"…). */
     private val _castDetail = MutableStateFlow<String?>(null)
     val castDetail: StateFlow<String?> = _castDetail.asStateFlow()
@@ -141,6 +145,21 @@ class PhairPlayService : Service() {
         Logger.i("PhairPlayService created")
         settingsRepository = SettingsRepository(applicationContext)
         createNotificationChannel()
+        updateSettingsJob = serviceScope.launch {
+            var previous: Triple<Boolean, Boolean, Boolean>? = null
+            settingsRepository.settingsFlow.collect { settings ->
+                val current = Triple(
+                    settings.autoCheckForUpdates,
+                    settings.autoDownloadUpdates,
+                    settings.autoInstallUpdates
+                )
+                if (previous != null && previous != current && _serviceState.value == ServiceState.Running) {
+                    Logger.i("Update preferences changed — refreshing the background update checker")
+                    startUpdateChecker(settings)
+                }
+                previous = current
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -230,6 +249,8 @@ class PhairPlayService : Service() {
     override fun onDestroy() {
         updateCheckJob?.cancel()
         updateCheckJob = null
+        updateSettingsJob?.cancel()
+        updateSettingsJob = null
         Logger.i("PhairPlayService destroying")
         stopAllReceiversInternal()
         serviceJob.cancel()
@@ -510,7 +531,8 @@ class PhairPlayService : Service() {
             autoDownload = settings.autoDownloadUpdates,
             autoInstall = settings.autoInstallUpdates,
             onNotifyAvailable = { notifyUpdateAvailable(it) },
-            onNotifyReady = { notifyUpdateReady(it) }
+            onNotifyReady = { notifyUpdateReady(it) },
+            onNotifyKeyMismatch = { notifyUpdateKeyMigrationRequired(it) }
         )
 
     /**
@@ -549,6 +571,11 @@ class PhairPlayService : Service() {
     private fun notifyUpdateReady(info: UpdateInfo) = notifyUpdate(
         title = getString(R.string.update_notification_title),
         text = getString(R.string.update_notification_ready, info.shortLabel())
+    )
+
+    private fun notifyUpdateKeyMigrationRequired(info: UpdateInfo) = notifyUpdate(
+        title = getString(R.string.update_notification_migration_title),
+        text = getString(R.string.update_notification_migration, info.shortLabel())
     )
 
     /** Posts a dismissible (non-ongoing) notification on the service channel. */

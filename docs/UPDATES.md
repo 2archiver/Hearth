@@ -16,10 +16,10 @@ downloads it and offers to install.
 | **Download automatically** | on | Fetch and verify the APK as soon as one is found, so installing is one tap |
 | **Install automatically** | off | Install a verified update without another prompt. Turn this on for zero-tap updates |
 
-Android 12+ normally lets an app replace **itself** without showing a confirmation dialog, so
-with all three on the update is genuinely hands-off: PhairPlay updates itself and restarts.
-On older Android, or if the TV's policy disagrees, the standard "Install?" confirmation is
-shown. PhairPlay never installs anything you did not ask for in that case.
+When the signing key matches, Android 12+ normally lets an app replace **itself** without a
+confirmation dialog, so with all three on the update is hands-off. On older Android, or if the
+TV's policy disagrees, the standard "Install?" confirmation is shown. A different signing key
+is never auto-installed; PhairPlay stops and explains the one-time transition instead.
 
 The first time, Android may need you to allow installs from PhairPlay:
 **Settings → Apps → Special access → Install unknown apps → PhairPlay → Allow**.
@@ -31,8 +31,9 @@ https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/P
 ```
 
 Paste it into **Downloader** on the TV, or `adb install -r PhairPlay-googletv.apk` from a
-computer. Android treats it as an update — **no uninstall** — because every PhairPlay build is
-signed with the same key.
+computer. Once the TV is running a build signed with this repository's community key, Android
+treats later APKs as updates — no uninstall. Older or differently signed installs need the
+one-time transition described above.
 
 ## 3. Let `adb` do it
 
@@ -42,27 +43,36 @@ adb install -r PhairPlay-googletv.apk
 
 ---
 
-## "App not installed as package conflicts with an existing package"
+## A different signing key / one-time reinstall
 
-This message means **the APK is signed with a different key than the installed app**. It is
-about the key, never about the version.
+Android only allows an app to update an existing install when both APKs are signed with the
+same key. This is a platform security rule; PhairPlay cannot bypass it or silently remove
+itself. It is about the signing certificate, not the version number.
 
-It used to happen on every PhairPlay update, because builds published without signing secrets
-fell back to a throw-away debug key that differed on every CI run. As of 1.4:
+The first public 1.4 rolling builds were published before the repository's long-lived community
+key was added. If your installed copy was signed with that earlier CI key, it cannot be replaced
+in place by a build signed with the new key. The updater now identifies this case before install
+and shows **One-time reinstall required** instead of a misleading "Update check failed" or an
+Android package-conflict error.
 
-- Every build — CI or local, `debug` or `release` — is signed with
-  `app/signing/phairplay.p12`, the public "community build" key committed to this repository
-  ([the trade-off, stated plainly](RELEASING.md#signing-why-updates-install-in-place)).
-- **The in-app updater refuses to install an APK whose certificate does not match the running
-  app's**, so it can never hand your TV a build that would be rejected. If it ever finds one
-  it says so and tells you what to do, instead of reproducing the error.
-- The release workflow runs `apksigner verify` on every APK and prints the certificate
-  fingerprint, so a build signed with an unexpected key is caught before it is published.
+To switch signing sources once:
 
-**If you still see it,** the APK you are installing came from somewhere that does not use this
-key (a fork, or a build made with someone else's keystore). Either uninstall PhairPlay once and
-install that APK — accepting that its future updates will need the same dance — or install a
-build from this repository, which will update cleanly forever after.
+1. Open the release page from the updater and download the APK to the TV (or use Downloader).
+2. Note any PhairPlay settings you want to keep. Android may erase app data when you uninstall.
+3. Uninstall the old PhairPlay, then install the downloaded APK.
+4. Keep using builds from the same signing source. Future updates signed with that key install
+   over the app normally.
+
+After the migration, all builds from this repository use `app/signing/phairplay.p12`, the
+public "community build" key committed intentionally
+([the trade-off, stated plainly](RELEASING.md#signing-why-updates-install-in-place)). Every
+release is checked by CI, and the in-app updater verifies both the published SHA-256 and APK
+signing certificate before offering installation.
+
+The same one-time transition is needed when switching between a fork/private build and another
+source. If you are not switching sources and see this again, do not uninstall yet: confirm that
+the APK came from the same repository/key as the installed app, then report the two build sources
+in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
 
 ---
 
@@ -80,5 +90,6 @@ build from this repository, which will update cleanly forever after.
 Forks: set `phairplay.updateRepo` in `gradle.properties` (or pass
 `-Pphairplay.updateRepo=you/your-fork`) so the app checks *your* releases, not upstream's.
 
-Nothing about this is hidden: no telemetry, no analytics, one HTTPS call to api.github.com, and
-it only happens when you open the app or turn the setting on.
+Nothing about this is hidden: no telemetry and no analytics. Manual checks make HTTPS requests
+to GitHub when you select **Check for updates**; automatic checks run about every six hours while
+the receiver service is running and the setting is on.

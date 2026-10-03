@@ -12,9 +12,11 @@ https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/P
 It is rebuilt on every merge to `main` — no tag hunting. See [docs/RELEASING.md](../RELEASING.md)
 for every other place the APK can be found.
 
-**Updating:** install the new APK straight over the old one — no uninstall. Every PhairPlay
-build is signed with the same key, so Android treats it as an update. Or skip the computer
-entirely: **Settings → Updates → Check for updates** on the TV. See [docs/UPDATES.md](../UPDATES.md).
+**Updating:** once installed on this repository's community signing key, future APKs install
+straight over the old one. Older 1.4 builds or APKs signed by another source may need a one-time
+uninstall/reinstall; PhairPlay checks for this and explains the steps. Or skip the computer for
+same-key updates: **Settings → Updates → Check for updates** on the TV. See
+[docs/UPDATES.md](../UPDATES.md).
 
 ---
 

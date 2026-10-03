@@ -118,8 +118,8 @@ data class AppSettings(
 
     // ─── Updates ────────────────────────────────────────────────────────────
     /**
-     * Check GitHub for a newer PhairPlay build in the background (at most once every few
-     * hours, and only when the app is opened).
+     * Check GitHub for a newer PhairPlay build in the background while the receiver service
+     * is running, at most once every few hours.
      */
     val autoCheckForUpdates: Boolean = true,
 

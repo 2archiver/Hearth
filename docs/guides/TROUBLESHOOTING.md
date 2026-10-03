@@ -164,18 +164,17 @@ aspect-fitted: black bars left and right are correct, a stretched image would be
 **"App not installed as package conflicts with an existing package"**
 
 This means *different signing key*, not *different version* — Android never updates across keys.
-As of 1.4 it should not happen any more: every PhairPlay build is signed with the same key, and
-the in-app updater refuses to install an APK that would be rejected
-(see [docs/UPDATES.md](../UPDATES.md)).
+The in-app updater now checks the APK certificate before installation and shows **One-time
+reinstall required** when the installed build uses another key (for example, an early 1.4 build,
+a fork, or a private-key build). This is a platform rule, not a retryable download error; see
+[docs/UPDATES.md](../UPDATES.md) for the safe one-time transition.
 
-If you still see it, the APK came from a build made with a different key (a fork, or someone
-else's keystore). Uninstall once, then install — `adb uninstall com.phairplay.googletv` (or
-Settings → Apps → PhairPlay → Uninstall on the TV). After that, builds from this repository
-update cleanly forever.
+Do not uninstall if you are not intentionally switching signing sources. First confirm that the
+APK came from the same repository/key as the installed app. After a deliberate one-time switch,
+keep using builds from that same signing key and future updates install normally.
 
-**Best fix: don't install by hand at all.** Open **Settings → Updates → Check for updates** on
-the TV and let PhairPlay do it. It verifies the new APK's signature against its own before
-installing, so it cannot hand you a build Android would refuse.
+For same-key updates, **Settings → Updates → Check for updates** verifies the downloaded APK
+before installing it. A different-key APK is never passed to Android's installer.
 
 **`INSTALL_FAILED_UPDATE_INCOMPATIBLE` / signature mismatch**
 - Same cause and same fix as above.
