@@ -24,6 +24,8 @@ import com.phairplay.service.ProtocolState
 import com.phairplay.service.ServiceController
 import com.phairplay.service.ServiceState
 import com.phairplay.util.Logger
+import com.phairplay.util.NetworkUtils
+import com.phairplay.update.UpdateManager
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -63,6 +65,8 @@ class HomeFragment : Fragment() {
 
     // View references — bound in onViewCreated
     private lateinit var textDeviceName: TextView
+    private lateinit var textNetwork: TextView
+    private lateinit var textUpdate: TextView
     private lateinit var textServiceState: TextView
     private lateinit var dotServiceState: View
     private lateinit var cardAirPlay: View
@@ -85,6 +89,9 @@ class HomeFragment : Fragment() {
     /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
     private var lastRequestedName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME
 
+    /** Honest explanation of the Cast card's state, published by PhairPlayService. */
+    private var castDetail: String? = null
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_home, container, false)
 
@@ -94,10 +101,16 @@ class HomeFragment : Fragment() {
         configureProtocolCards()
         configureButtons()
         showDeviceName()
+        showNetwork()
+        showUpdateBadge()
     }
 
     override fun onStart() {
         super.onStart()
+        // The IP/interface can change while the app is in the background (Wi-Fi ↔ Ethernet),
+        // so re-read it every time the Home screen is shown.
+        showNetwork()
+        showUpdateBadge()
         // Bind to the service so we can observe its StateFlows
         val intent = Intent(requireContext(), PhairPlayService::class.java)
         requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
@@ -115,6 +128,8 @@ class HomeFragment : Fragment() {
 
     private fun bindViews(view: View) {
         textDeviceName   = view.findViewById(R.id.text_device_name)
+        textNetwork      = view.findViewById(R.id.text_network)
+        textUpdate       = view.findViewById(R.id.text_update)
         textServiceState = view.findViewById(R.id.text_service_state)
         dotServiceState  = view.findViewById(R.id.dot_service_state)
         cardAirPlay      = view.findViewById(R.id.card_airplay)
@@ -193,6 +208,41 @@ class HomeFragment : Fragment() {
         textDeviceName.text = getString(R.string.home_device_visible_as, nameToShow)
     }
 
+    /**
+     * Shows which network PhairPlay is advertising on.
+     *
+     * WHY: "my iPhone cannot see the TV" is nearly always a network question. On a wired
+     * Google TV the phone has to be on the same network as the *Ethernet* address shown
+     * here — if the TV is also joined to a Wi-Fi network, that Wi-Fi address is irrelevant
+     * to discovery, and without this line there is no way to tell them apart from the TV.
+     */
+    private fun showNetwork() {
+        if (!::textNetwork.isInitialized) return
+        val summary = NetworkUtils.getNetworkSummary(requireContext())
+        textNetwork.text = if (summary.ipAddress.isNullOrBlank()) {
+            getString(R.string.home_network_unknown)
+        } else {
+            getString(R.string.home_network, summary.label())
+        }
+    }
+
+    /**
+     * Shows a one-line hint when a newer PhairPlay build is already downloaded and waiting,
+     * or has been published but not downloaded. Tapping is not needed — Settings →
+     * "Check for updates" drives it — but silently sitting on an update is worse than a line
+     * of text on the Home screen.
+     */
+    private fun showUpdateBadge() {
+        if (!::textUpdate.isInitialized) return
+        val staged = UpdateManager.get(requireContext()).stagedUpdate()
+        if (staged == null) {
+            textUpdate.visibility = View.GONE
+            return
+        }
+        textUpdate.text = getString(R.string.home_update_available, staged.info.shortLabel())
+        textUpdate.visibility = View.VISIBLE
+    }
+
     // ─── State Observation ───────────────────────────────────────────────────
 
     /**
@@ -235,10 +285,15 @@ class HomeFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             svc.castState.collectLatest { state ->
                 castState = state
-                updateProtocolCard(
-                    cardCast, state,
-                    R.string.protocol_detail_error_cast, Protocol.CAST
-                )
+                updateCastCard()
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            // "Ports 8008/8009 are in use — the built-in Chromecast is already serving Cast"
+            // is a far more useful Cast card than a bare "Error".
+            svc.castDetail.collectLatest { detail ->
+                castDetail = detail
+                updateCastCard()
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -259,9 +314,17 @@ class HomeFragment : Fragment() {
             cardMiracast, miracastState,
             R.string.protocol_detail_error_miracast, Protocol.MIRACAST
         )
+        updateCastCard()
+    }
+
+    /** Re-renders the Cast card, preferring the service's own explanation when it has one. */
+    private fun updateCastCard() {
         updateProtocolCard(
-            cardCast, castState,
-            R.string.protocol_detail_error_cast, Protocol.CAST
+            card = cardCast,
+            state = castState,
+            errorDetailRes = R.string.protocol_detail_error_cast,
+            protocol = Protocol.CAST,
+            detailOverride = castDetail
         )
     }
 
@@ -294,7 +357,9 @@ class HomeFragment : Fragment() {
         card: View,
         state: ProtocolState,
         errorDetailRes: Int,
-        protocol: Protocol
+        protocol: Protocol,
+        /** Replaces the ADVERTISING/ERROR detail when the service has a better explanation. */
+        detailOverride: String? = null
     ) {
         val dot    = card.findViewById<View>(R.id.dot_protocol_status)
         val stateText = card.findViewById<TextView>(R.id.text_protocol_state)
@@ -308,7 +373,7 @@ class HomeFragment : Fragment() {
         }
 
         stateText.setText(stateRes)
-        detail.text = detailText(state, protocol, errorDetailRes)
+        detail.text = detailText(state, protocol, errorDetailRes, detailOverride)
         dot.background.setTint(requireContext().getColor(colorRes))
     }
 
@@ -317,7 +382,12 @@ class HomeFragment : Fragment() {
      * shows the actual sender name (the previous implementation rendered the raw
      * "%1$s" format placeholder); ERROR cards show the real reason for that protocol.
      */
-    private fun detailText(state: ProtocolState, protocol: Protocol, errorDetailRes: Int): String =
+    private fun detailText(
+        state: ProtocolState,
+        protocol: Protocol,
+        errorDetailRes: Int,
+        detailOverride: String? = null
+    ): String =
         when {
             state == ProtocolState.CONNECTED -> {
                 val connection = activeConnection
@@ -327,8 +397,8 @@ class HomeFragment : Fragment() {
                     getString(R.string.protocol_detail_connected_fallback)
                 }
             }
-            state == ProtocolState.ERROR       -> getString(errorDetailRes)
-            state == ProtocolState.ADVERTISING -> getString(R.string.protocol_detail_waiting)
+            state == ProtocolState.ERROR       -> detailOverride ?: getString(errorDetailRes)
+            state == ProtocolState.ADVERTISING -> detailOverride ?: getString(R.string.protocol_detail_waiting)
             else                               -> getString(R.string.protocol_detail_disabled)
         }
 }

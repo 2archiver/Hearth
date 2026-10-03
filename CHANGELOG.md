@@ -7,11 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4] - 2026-10-03
+
+### Fixed
+
+**Updating no longer fails with "App not installed as package conflicts with an existing package"**
+
+That message means *the APK is signed with a different key than the installed app* — never a
+version problem. PhairPlay is sideloaded, so every build that did not carry a maintainer's
+signing secrets fell back to a throw-away debug key that differed on **every CI run**, which
+meant every update had to be preceded by an uninstall.
+
+- **One key for every build.** `app/signing/phairplay.p12`, a public "community build" key, is
+  committed to the repository and used by `debug` **and** `release`, on CI **and** in local
+  clones. A debug APK from a CI run and a release APK from the release workflow now also replace
+  each other. Supply `KEYSTORE_PATH` (or the `phairplay.keystore*` Gradle properties) to sign
+  with your own key instead — `tools/make-signing-key.sh` writes one.
+- **The in-app updater refuses an APK it could not install.** Before handing anything to
+  Android it reads the downloaded APK's signing certificate and compares it with PhairPlay's
+  own; a mismatch is reported with an explanation instead of reproducing the error.
+- **CI proves the signature.** `apksigner verify` runs on every published APK and prints the
+  certificate SHA-256. Set the repository variable `EXPECTED_APK_CERT_SHA256` and a build signed
+  with an unexpected key fails the release instead of shipping.
+
+The trade-off is documented rather than hidden: a committed private key is public, so anyone
+could ship an APK signed with it. See [docs/RELEASING.md](docs/RELEASING.md#signing-why-updates-install-in-place).
+
+### Added
+
+**Update checker and self-updater** — **Settings → Updates**
+
+- *Check for updates* asks GitHub what the newest published build is and compares
+  **versionCode** (a number, so `1.10.0` no longer sorts before `1.9.0`), reading the
+  `version.json` the release workflow now publishes with every release. Releases that predate it
+  fall back to the `versionCode` in their notes.
+- *Check automatically* (on) — looks in the background a few times a day and posts a
+  notification; *Download automatically* (on) fetches and verifies the APK as soon as one is
+  found; *Install automatically* (off) installs a verified update without another prompt. On
+  Android 12+ a package replacing **itself** needs no confirmation dialog, so with all three on
+  the update is genuinely hands-off.
+- The download is checked against the published **SHA-256** while it streams, and against
+  PhairPlay's own **signing certificate** before it is installed.
+- Installs go through `PackageInstaller` (not the deprecated `ACTION_INSTALL_PACKAGE`), and the
+  install *result* is now received and logged instead of the app optimistically claiming success.
+- Forks: set `phairplay.updateRepo` in `gradle.properties` so the app checks your releases.
+
+**Google Cast works without registering anything with Google** — **Settings → Built-in Cast bridge**
+
+PhairPlay now serves Cast itself — the same wire protocol a Chromecast speaks — because Google's
+Cast Connect SDK refuses to start without a Cast Application ID issued after registering the
+package in the Cast SDK Developer Console. Until someone does that, the Cast card could only
+ever show an error (which is what 1.2 showed).
+
+- **mDNS** `_googlecast._tcp`, so an iPhone's Cast picker finds the TV.
+- **DIAL** over HTTP on 8008 (`/ssdp/device-desc.xml`, `GET`/`POST`/`DELETE /apps/<id>`).
+- **castv2** over TLS on 8009: `CONNECT → GET_STATUS → LAUNCH → LOAD <url> → PLAY/PAUSE/SEEK/STOP`,
+  with the protobuf framing implemented directly.
+- Any requested app ID is accepted, so senders that cast a media URL (VLC, Plex, Infuse, photo
+  and file apps, Chrome, the Default Media Receiver) work as-is. Apps that need their own
+  registered receiver with a private protocol — YouTube, Netflix, Spotify — can launch but
+  cannot be decoded, by design; [docs/guides/CAST.md](docs/guides/CAST.md) says so plainly.
+- If the TV's **built-in** Chromecast already owns ports 8008/8009 (which it does on a
+  Chromecast with Google TV) the bridge says exactly that instead of failing silently.
+- A build carrying `-Pphairplay.castAppId=…` still uses the official SDK, and the bridge stays
+  off — two receivers advertising one IP would show duplicates in every picker.
+
+**The Home screen now names the network PhairPlay is advertising on**
+
+`Network: Ethernet · 192.168.1.42`. "My iPhone can't see the TV" is nearly always a network
+question, and on a wired Google TV it was previously invisible which interface PhairPlay was
+using. This is the first thing to check, and it is documented in
+[docs/guides/CAST.md → Ethernet](docs/guides/CAST.md#ethernet-wired-google-tv).
+
+**The Cast card explains itself**
+
+Instead of one generic error, the card now reports which back-end is running, that the Cast
+ports are already taken by the TV's own receiver, or that both back-ends are unavailable.
+
+### Changed
+
+- **Stable AirPlay `deviceid` on wired (Ethernet) Google TVs.** `NetworkUtils.getMacAddress()`
+  took the first interface Java handed back, and on an Ethernet-connected TV that is commonly
+  `wlan0` even when Wi-Fi is disconnected — so the `deviceid` (and the `_raop._tcp` service
+  name) changed between reboots, which shows up as an iPhone that refuses to reconnect, asks to
+  re-pair, or lists the same TV twice. Interfaces are now ranked Ethernet → Wi-Fi → other, with
+  one that has an IPv4 address preferred over one that does not.
+- **iOS AirPlay discovery: the `pk` TXT record is now advertised.** A real Apple TV publishes its
+  Ed25519 public key in the `_airplay._tcp` TXT record and iOS reads it *while browsing*, before
+  opening a connection. `NsdServiceInfo` only grew `setAttribute(String, byte[])` in Android 12,
+  so it is published on 12+ (resolved reflectively, so the compile SDK does not decide) and
+  skipped below that, where — as before — `GET /info` carries the key. This reverses the
+  "deliberately not shipped" note in the 1.3 changelog.
+- `version.json` is published with every release, so the app — and anyone scripting an update
+  check — has the versionCode without parsing release titles.
+- The release workflow fails a rolling build whose `versionCode` does not exceed the published
+  one; a code that stops growing is how an update quietly stops being installable.
+
+---
+
 ## [Unreleased]
 
 Nothing yet — changes collect here until the next version is cut.
-
----
 
 ## [1.3] - 2026-10-02
 

@@ -12,13 +12,20 @@
 #   https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-googletv.apk
 #
 # versionCode = minutes since 2024-01-01 UTC, so it grows with every build and a new APK
-# installs straight over the old one. That only holds while the signing key stays the same,
-# so add the signing secrets below — otherwise the debug key differs on every runner and the
-# TV asks you to uninstall first.
+# installs straight over the old one.
 #
-# Signing secrets (Settings → Secrets and variables → Actions):
-#   KEYSTORE_BASE64   base64 of your .jks   (base64 -w0 phairplay-release.jks)
+# SIGNING: builds are signed with app/signing/phairplay.p12, the public "community build"
+# key committed to this repository. Because every runner and every local clone signs with
+# the same key, installing a new APK updates the old one in place — no uninstall, and no
+# "App not installed as package conflicts with an existing package".
+# The in-app updater refuses any APK whose certificate does not match the installed one,
+# so it can never hand a TV a build that Android would reject.
+#
+# Optional override (Settings → Secrets and variables → Actions) — use your own private key
+# if you publish builds to other people:
+#   KEYSTORE_BASE64      base64 of your keystore (base64 -w0 phairplay.p12)
 #   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+#   KEYSTORE_TYPE        optional, defaults to pkcs12 for .p12/.pfx, otherwise jks
 
 name: Release
 
@@ -139,6 +146,8 @@ jobs:
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      # Optional: a maintainer's own private key. When absent the committed
+      # app/signing/phairplay.p12 is used, which is what makes updates install in place.
       - name: Restore release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -158,8 +167,8 @@ jobs:
             echo "Signing with the release keystore — updates install over previous builds."
             echo "Signing: release keystore" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::No KEYSTORE_BASE64 secret — signing with a throw-away debug key. Add the signing secrets (docs/RELEASING.md) so a new APK updates the old one without uninstalling."
-            echo "Signing: **debug key** (add \`KEYSTORE_BASE64\` for update-safe releases)" >> "$GITHUB_STEP_SUMMARY"
+            echo "No KEYSTORE_BASE64 secret — using the repository's public community-build key (app/signing/phairplay.p12), the default."
+            echo "Signing: **public community key** (updates install in place; set \`KEYSTORE_BASE64\` to sign with your own)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # ── Build ──────────────────────────────────────────────────────────────
@@ -179,6 +188,8 @@ jobs:
         env:
           MODE: ${{ steps.meta.outputs.mode }}
           TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CODE: ${{ steps.meta.outputs.code }}
         shell: bash
         run: |
           set -euo pipefail
@@ -189,9 +200,78 @@ jobs:
             cp "$src" "dist/PhairPlay-${TAG}-googletv.apk"
           fi
           (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          echo "sha256=$(sha256sum dist/PhairPlay-googletv.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+          apk_sha256=$(sha256sum dist/PhairPlay-googletv.apk | cut -d' ' -f1)
+          apk_size=$(stat -c%s dist/PhairPlay-googletv.apk)
+
+          # version.json is what PhairPlay's in-app updater reads: it carries the
+          # versionCode, so the TV compares numbers instead of parsing release titles.
+          cat > dist/version.json <<JSON
+          {
+            "versionName": "$VERSION",
+            "versionCode": $CODE,
+            "apk": "PhairPlay-googletv.apk",
+            "sha256": "$apk_sha256",
+            "size": $apk_size,
+            "tag": "$TAG",
+            "commit": "$GITHUB_SHA",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          JSON
+          python3 -c "import json,sys; json.load(open('dist/version.json'))"   # fail fast on malformed JSON
+
+          echo "sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
           echo "size_mb=$(du -m dist/PhairPlay-googletv.apk | cut -f1)" >> "$GITHUB_OUTPUT"
           echo "APK: \`$(basename "$src")\` → \`dist/PhairPlay-googletv.apk\` ($(du -h dist/PhairPlay-googletv.apk | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
+          echo "version.json: \`$VERSION\` · versionCode \`$CODE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Guard against shipping an APK signed with an unexpected key: that is precisely the
+      # situation that makes a TV refuse an update with "package conflicts with an existing
+      # package". Verify the signature and print the certificate fingerprint.
+      - name: Verify the APK signature and print the signing fingerprint
+        shell: bash
+        env:
+          EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          # Pick whatever build-tools revision is installed rather than hard-coding one.
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::apksigner not found under $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+          "$apksigner" verify --verbose dist/PhairPlay-googletv.apk
+          fingerprint=$("$apksigner" verify --print-certs dist/PhairPlay-googletv.apk \
+            | grep -m1 'SHA-256' | sed -E 's/.*SHA-256 digest: *//')
+          echo "APK signing certificate SHA-256: $fingerprint"
+          echo "Signing certificate SHA-256: \`$fingerprint\`" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "${EXPECTED_FINGERPRINT:-}" && "$fingerprint" != "$EXPECTED_FINGERPRINT" ]]; then
+            echo "::error::APK was signed with an unexpected certificate. Expected $EXPECTED_FINGERPRINT but got $fingerprint. Publishing this would break in-place updates."
+            exit 1
+          fi
+
+      # A versionCode that does not grow is how an update silently stops being an update.
+      # Rolling builds only: a tagged release may be re-published, and its own previous body
+      # is what "latest" would report back.
+      - name: Sanity-check that versionCode beats the current release
+        if: steps.meta.outputs.mode == 'rolling'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CODE: ${{ steps.meta.outputs.code }}
+        run: |
+          set -euo pipefail
+          previous=$(gh api "repos/$REPO/releases/latest" --jq '.body' 2>/dev/null \
+            | grep -oE 'versionCode [0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+          if [[ -z "${previous:-}" ]]; then
+            echo "No previous versionCode found — this is the first release with a version.json."
+          elif (( CODE <= previous )); then
+            echo "::error::versionCode $CODE does not exceed the published $previous — TVs would refuse this as a downgrade."
+            exit 1
+          else
+            echo "versionCode $CODE > published $previous — updates will install in place."
+          fi
 
       # ── Publish: rolling `latest` release (every merge to main) ─────────────
       - name: Point the `latest` tag at this commit
@@ -236,8 +316,10 @@ jobs:
           \`adb install -r PhairPlay-googletv.apk\` —
           [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
 
-          Updating over an existing install works when the signing key matches. If the TV
-          refuses the update, uninstall PhairPlay once and install this APK.
+          **Updating:** install this APK straight over the old one — it is signed with the
+          same key as every other PhairPlay build, so Android treats it as an update and
+          nothing needs uninstalling. Or let the TV do it: PhairPlay 1.4+ checks GitHub
+          itself in **Settings → Check for updates**.
 
           Numbered releases (\`v1.2.0\`, …) stay available under
           [All releases](https://github.com/${REPO}/releases).

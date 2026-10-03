@@ -22,7 +22,7 @@ out/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 
-# Signing configs and keystores — NEVER commit these
+# Private signing keys — NEVER commit these (use secrets/keystore.properties instead)
 *.jks
 *.keystore
 keystore.properties
@@ -30,11 +30,17 @@ release.properties
 release.env
 .release.env
 
+# EXCEPTION: app/signing/phairplay.p12 is a PUBLIC "community build" key, committed on
+# purpose so every CI run and every local build signs identically and installing a new
+# APK updates the old one instead of failing with "package conflicts with an existing
+# package". It is not a secret. To use your own private key instead, see docs/RELEASING.md.
+
 # Local configuration files
 local.defaults.properties
 
-# Generated files
-app/src/main/assets/
+# Generated files (the Cast bridge's TLS keystore below is a committed source file)
+app/src/main/assets/*
+!app/src/main/assets/castv2-server.p12
 
 # macOS
 .DS_Store

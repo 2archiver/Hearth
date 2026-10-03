@@ -130,4 +130,65 @@
     <string name="content_desc_cast_icon">Google Cast protocol icon</string>
     <string name="content_desc_status_dot">Status indicator</string>
 
+    <!-- ── Google Cast (built-in receiver) ──────────────────────── -->
+    <!-- The Cast protocol does not expose a sender name for plain media casting -->
+    <string name="cast_sender_name">Cast Sender</string>
+    <!-- Shown on the Cast card when Cast is enabled but neither back-end can run -->
+    <string name="cast_detail_disabled">No Cast app ID is configured and the built-in bridge is turned off</string>
+    <!-- Shown on the Cast card when the bridge could not start -->
+    <string name="cast_detail_error">Cast receiver error — another app may be using ports 8008/8009</string>
+    <!-- Shown on the Cast card when PhairPlay is serving Cast itself -->
+    <string name="cast_detail_bridge_advertising">PhairPlay is serving Cast — no Google registration needed</string>
+    <!-- Shown on the Cast card when a build carries an official Cast App ID -->
+    <string name="cast_detail_connect_advertising">Using the official Cast SDK with a registered app ID</string>
+    <string name="setting_cast_bridge">Built-in Cast bridge</string>
+    <string name="setting_cast_bridge_subtitle">Serve Google Cast from PhairPlay itself, with no Google app ID</string>
+
+    <!-- ── Home screen ─────────────────────────────────────────── -->
+    <!-- %1$s = network summary, e.g. "Ethernet · 192.168.1.42" -->
+    <string name="home_network">Network: %1$s</string>
+    <string name="home_network_unknown">Not connected to a network</string>
+    <!-- %1$s = version of the newer build, e.g. "1.4.0-main.131 (20432100)" -->
+    <string name="home_update_available">Update available: %1$s</string>
+
+    <!-- ── Updates ─────────────────────────────────────────────── -->
+    <string name="settings_section_updates">Updates</string>
+    <string name="setting_check_updates">Check for updates</string>
+    <string name="setting_check_updates_subtitle">Look for a newer PhairPlay build on GitHub</string>
+    <string name="setting_auto_check_updates">Check automatically</string>
+    <string name="setting_auto_check_updates_subtitle">Look for updates in the background, a few times a day</string>
+    <string name="setting_auto_download_updates">Download automatically</string>
+    <string name="setting_auto_download_updates_subtitle">Fetch and verify the APK as soon as one is found</string>
+    <string name="setting_auto_install_updates">Install automatically</string>
+    <string name="setting_auto_install_updates_subtitle">Install a verified update without asking again</string>
+
+    <string name="update_notification_title">PhairPlay update</string>
+    <!-- %1$s = version of the newer build -->
+    <string name="update_notification_available">Version %1$s is available</string>
+    <string name="update_notification_ready">Version %1$s is downloaded and ready to install</string>
+
+    <string name="update_dialog_title">PhairPlay update</string>
+    <string name="update_checking">Checking GitHub for a newer build…</string>
+    <!-- %1$s = installed version, e.g. "1.4.0-main.131 (20432100)" -->
+    <string name="update_up_to_date">You are up to date — %1$s is the current build.</string>
+    <string name="update_up_to_date_ahead">You already have %1$s. The newest published build is %2$s, which is older — usual for a build made on this computer.</string>
+    <!-- %1$s = new version, %2$s = installed version -->
+    <string name="update_available_message">Version %1$s is available. You have %2$s.</string>
+    <string name="update_downloading">Downloading update…</string>
+    <!-- %1$s = version -->
+    <string name="update_ready_title">Update ready</string>
+    <string name="update_ready_message">Version %1$s is downloaded and verified. Install it now?</string>
+    <string name="update_install_started">Installing… PhairPlay will restart when it is done.</string>
+    <string name="update_action_download">Download</string>
+    <string name="update_action_install">Install now</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_action_close">Close</string>
+    <string name="update_action_retry">Try again</string>
+    <!-- %1$s = versionName, %2$d = versionCode -->
+    <string name="update_version_value">%1$s (%2$d)</string>
+    <!-- %1$s = version of a downloaded update waiting to be installed -->
+    <string name="update_ready_message_short">Version %1$s is ready to install</string>
+    <string name="update_install_failed">The update could not be installed. Android refused it — check that the TV allows installing unknown apps for PhairPlay.</string>
+    <string name="update_error_title">Update check failed</string>
+    <string name="update_no_updates_yet">No releases have been published yet.</string>
 </resources>

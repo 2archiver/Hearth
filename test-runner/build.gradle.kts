@@ -55,7 +55,14 @@ sourceSets {
                 // VideoDecoder is shadowed by src/stubs/VideoDecoder.kt which has no
                 // MediaCodec/Surface dependencies but exposes the companion-object
                 // members (parseSpsResolution, SpsBitReader) needed by VideoDecoderSpsTest.
-                "**/airplay/VideoDecoder.kt"
+                "**/airplay/VideoDecoder.kt",
+                // com.phairplay.update (FileProvider) and com.phairplay.cast.bridge
+                // (ContextCompat, PhairPlayService) reach into AndroidX and into the
+                // excluded service/ package, neither of which this AGP-free module has.
+                // Their unit tests run under `:app:testGoogleTvDebugUnitTest`, where
+                // Robolectric and androidx.core are on the classpath.
+                "**/update/**",
+                "**/cast/**"
             )
         }
     }

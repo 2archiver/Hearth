@@ -3,7 +3,6 @@ package com.phairplay.util
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.provider.Settings
-import timber.log.Timber
 import java.net.NetworkInterface
 import java.util.UUID
 
@@ -53,11 +52,19 @@ object NetworkUtils {
     /**
      * Returns the device's Wi-Fi or Ethernet MAC address.
      *
-     * The MAC address is used as the `deviceid` in AirPlay mDNS TXT records.
-     * It uniquely identifies this receiver to macOS senders.
+     * The MAC address is the AirPlay `deviceid` (mDNS TXT, `GET /info`) and the prefix of
+     * the `_raop._tcp` service name. Senders — iOS especially — remember a receiver by it,
+     * so it has to be *stable* across reboots, not merely valid.
      *
-     * Tries Wi-Fi first (most TVs are Wi-Fi), then falls back to any available
-     * non-loopback interface, then uses a fake address as last resort.
+     * That is why the interfaces are ranked instead of taking the first one Java hands back:
+     * `NetworkInterface.getNetworkInterfaces()` order is not guaranteed, and on a Google TV
+     * with **Ethernet** plugged in it commonly lists `wlan0` first even when Wi-Fi is
+     * disconnected. Picking that made the `deviceid` change between reboots, which shows up
+     * as an iPhone that refuses to reconnect, offers to re-pair, or lists the same TV twice.
+     *
+     * Ranking: Ethernet (`eth*`) → Wi-Fi (`wlan*`) → anything else that is up. An interface
+     * with no IPv4 address is skipped in the first pass, because a down interface still
+     * reports a hardware address.
      *
      * NOTE: On Android 10+, direct MAC access is restricted. We use NetworkInterface
      * instead of WifiManager.getConnectionInfo() which is deprecated.
@@ -66,24 +73,149 @@ object NetworkUtils {
      */
     fun getMacAddress(): String {
         return try {
-            // Iterate all network interfaces to find the Wi-Fi or Ethernet interface
             val interfaces = NetworkInterface.getNetworkInterfaces()?.toList() ?: emptyList()
-
-            val mac = interfaces
-                .filter { !it.isLoopback && it.isUp && it.hardwareAddress != null }
-                .mapNotNull { iface ->
-                    iface.hardwareAddress?.let { hwAddr ->
-                        hwAddr.joinToString(":") { byte -> "%02x".format(byte) }
-                    }
+            val candidates = interfaces.filter {
+                !it.isLoopback && it.isUp && it.hardwareAddress != null && it.hardwareAddress.size == 6
+            }
+            val ranked = candidates.sortedByDescending { iface ->
+                when {
+                    iface.name.startsWith("eth", ignoreCase = true) -> 3
+                    iface.name.startsWith("wlan", ignoreCase = true) -> 2
+                    else -> 1
                 }
-                .firstOrNull()
-
-            mac ?: FALLBACK_MAC_ADDRESS
+            }
+            val withAddress = ranked.firstOrNull { iface -> iface.hasIpv4Address() }
+                ?: ranked.firstOrNull()
+            withAddress?.hardwareAddress
+                ?.joinToString(":") { byte -> "%02x".format(byte) }
+                ?: FALLBACK_MAC_ADDRESS
         } catch (e: Exception) {
-            Timber.w(e, "Could not read MAC address — using fallback")
             FALLBACK_MAC_ADDRESS
         }
     }
+
+    /**
+     * Returns this device's IPv4 address, or null when it has none.
+     *
+     * Used for the DIAL `URLBase`/`Location` headers the Cast bridge sends, and for the
+     * network summary on the Home screen. Ethernet is preferred over Wi-Fi for the same
+     * stability reason as [getMacAddress].
+     */
+    fun getLocalIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()?.toList() ?: emptyList()
+            val ranked = interfaces
+                .filter { !it.isLoopback && it.isUp }
+                .sortedByDescending { iface ->
+                    when {
+                        iface.name.startsWith("eth", ignoreCase = true) -> 3
+                        iface.name.startsWith("wlan", ignoreCase = true) -> 2
+                        else -> 1
+                    }
+                }
+            for (iface in ranked) {
+                val address = iface.inetAddresses?.toList().orEmpty()
+                    .firstOrNull { addr ->
+                        !addr.isLoopbackAddress &&
+                            !addr.isLinkLocalAddress &&
+                            addr is java.net.Inet4Address
+                    }
+                if (address != null) return address.hostAddress
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * A description of the network PhairPlay is currently advertising on.
+     *
+     * WHY: "my iPhone cannot see the TV" is almost always a network question — the phone is
+     * on Wi-Fi while the TV is wired, or the two are on different subnets, or multicast does
+     * not cross the router. Naming the interface and address here turns that into something
+     * the user can check instead of a mystery.
+     */
+    data class NetworkSummary(
+        /** Interface name, e.g. `eth0`, `wlan0`. */
+        val interfaceName: String?,
+        /** IPv4 address, e.g. `192.168.1.42`. */
+        val ipAddress: String?,
+        /** Wi-Fi SSID when the active interface is Wi-Fi and the SSID is readable. */
+        val ssid: String?,
+        /** True when the interface looks like wired Ethernet. */
+        val isEthernet: Boolean,
+        /** True when the interface looks like Wi-Fi. */
+        val isWifi: Boolean
+    ) {
+        /** Short human label, e.g. `Ethernet · 192.168.1.42` or `Wi-Fi "Home" · 192.168.1.7`. */
+        fun label(): String {
+            val medium = when {
+                isEthernet -> "Ethernet"
+                isWifi -> if (!ssid.isNullOrBlank()) "Wi-Fi \"$ssid\"" else "Wi-Fi"
+                else -> interfaceName ?: "Unknown network"
+            }
+            return if (ipAddress.isNullOrBlank()) medium else "$medium · $ipAddress"
+        }
+    }
+
+    /**
+     * Summarises the network PhairPlay is on, for the Home screen and for diagnosing
+     * discovery problems on wired (Ethernet) Google TVs.
+     *
+     * Never throws — if the platform refuses to answer, the summary is simply empty and the
+     * UI shows nothing rather than crashing the Home screen.
+     */
+    @Suppress("DEPRECATION")   // WifiManager.getConnectionInfo() — no non-deprecated equivalent
+    fun getNetworkSummary(context: Context): NetworkSummary {
+        val ip = getLocalIpAddress()
+        var interfaceName: String? = null
+        var ssid: String? = null
+
+        // Which interface owns the address we advertise?
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            val match = interfaces.firstOrNull { iface ->
+                !iface.isLoopback && iface.isUp &&
+                    iface.inetAddresses?.toList().orEmpty().any { it.hostAddress == ip }
+            }
+            interfaceName = match?.name
+        } catch (e: Exception) {
+            // leave interfaceName null
+        }
+
+        // Wi-Fi SSID needs WifiManager; it throws SecurityException on some builds and is
+        // unavailable without location on Android 9+, so never let it break the summary.
+        val wifiManager = try {
+            context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        } catch (e: Exception) {
+            null
+        }
+        try {
+            val raw = wifiManager?.connectionInfo?.ssid?.trim('"')
+            if (!raw.isNullOrBlank() && raw != UNKNOWN_SSID) {
+                ssid = raw
+            }
+        } catch (e: Exception) {
+            // SSID simply unavailable (missing location permission, or Wi-Fi off)
+        }
+
+        val isEthernet = interfaceName?.startsWith("eth", ignoreCase = true) == true
+        val isWifi = interfaceName?.startsWith("wlan", ignoreCase = true) == true ||
+            (!isEthernet && ssid != null)
+        return NetworkSummary(
+            interfaceName = interfaceName,
+            ipAddress = ip,
+            ssid = if (isWifi) ssid else null,
+            isEthernet = isEthernet,
+            isWifi = isWifi
+        )
+    }
+
+    private fun NetworkInterface.hasIpv4Address(): Boolean =
+        inetAddresses?.toList().orEmpty().any { addr ->
+            !addr.isLoopbackAddress && !addr.isLinkLocalAddress && addr is java.net.Inet4Address
+        }
 
     /**
      * Returns a stable, device-specific UUID for use in AirPlay's `pi` TXT record.
@@ -124,6 +256,8 @@ object NetworkUtils {
     // NOTE: the device-name fallback lives in MdnsNames.DEFAULT_DISPLAY_NAME so that every
     // place that needs "the name we show when nothing is configured" agrees on one value.
     private const val FALLBACK_MAC_ADDRESS = "aa:bb:cc:dd:ee:ff"
+    /** What Android reports instead of an SSID when it is not allowed to know it. */
+    private const val UNKNOWN_SSID = "<unknown ssid>"
     private const val PREFS_NAME = "phairplay_prefs"
     private const val PREF_KEY_DEVICE_UUID = "phairplay_device_uuid"
 }

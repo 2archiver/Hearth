@@ -1,0 +1,70 @@
+package com.phairplay.update
+
+import android.content.Context
+import com.phairplay.util.Logger
+
+/**
+ * UpdateFlow — the one place that decides what "check for updates" means.
+ *
+ * WHY: the Settings screen, the background service and the Home-screen badge all need the
+ * same sequence and the same rules, and a rule expressed twice is a rule that drifts — one
+ * caller would end up installing without verifying while the other verified without
+ * installing. Keeping the policy here means every entry point behaves identically.
+ *
+ * The rules:
+ *   1. Ask GitHub whether a newer build exists.
+ *   2. Download it only if [autoDownload] is on (otherwise just announce it).
+ *   3. Verify the download against the published SHA-256 *and* against this app's own
+ *      signing certificate — an APK signed with a different key is refused, because that is
+ *      exactly what "App not installed as package conflicts with an existing package" means.
+ *   4. Install immediately if [autoInstall] is on, otherwise leave it staged and announce it.
+ */
+object UpdateFlow {
+
+    /**
+     * Runs the whole flow.
+     *
+     * @param context      any context; the application context is used internally
+     * @param autoDownload download the APK without waiting for the user to say so
+     * @param autoInstall  install a verified APK without waiting for the user to say so
+     * @param onNotifyAvailable called when an update exists but was not downloaded
+     * @param onNotifyReady     called when an update is downloaded and waiting to install
+     * @return what the check found, so the caller can render it
+     */
+    suspend fun run(
+        context: Context,
+        autoDownload: Boolean,
+        autoInstall: Boolean,
+        onNotifyAvailable: (UpdateInfo) -> Unit = {},
+        onNotifyReady: (UpdateInfo) -> Unit = {}
+    ): UpdateCheck {
+        val manager = UpdateManager.get(context)
+        val result = manager.check(force = true)
+        if (result !is UpdateCheck.Available) return result
+        val info = result.info
+
+        if (!autoDownload) {
+            Logger.i("Update ${info.versionName} available — announcing, auto-download is off")
+            onNotifyAvailable(info)
+            return result
+        }
+
+        return when (val staged = manager.downloadAndStage(info)) {
+            is StageResult.Staged -> {
+                Logger.i("Update ${info.versionName} downloaded and verified")
+                if (autoInstall) {
+                    manager.installStaged()
+                } else {
+                    onNotifyReady(info)
+                }
+                result
+            }
+
+            is StageResult.Failed -> {
+                Logger.w("Update download failed: ${staged.message}")
+                onNotifyAvailable(info)
+                UpdateCheck.Failed(staged.message)
+            }
+        }
+    }
+}

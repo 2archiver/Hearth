@@ -62,6 +62,26 @@
                     android:layout_marginTop="4dp"
                     android:textColor="@color/text_secondary"
                     android:textSize="16sp" />
+
+                <!-- Which network PhairPlay is advertising on. This is the first thing to
+                     check when a phone cannot see the TV, especially on a wired (Ethernet)
+                     Google TV: the phone must be on the same network as *this* address. -->
+                <TextView
+                    android:id="@+id/text_network"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/text_update"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/accent_blue"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!-- Global service state badge -->

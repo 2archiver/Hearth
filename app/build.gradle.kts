@@ -34,6 +34,112 @@ val castAppId: String =
         ?: providers.environmentVariable("PHAIRPLAY_CAST_APP_ID").orNull
         ?: "").trim()
 
+/**
+ * GitHub repo the in-app update checker polls, as "owner/name".
+ *
+ * Override per fork with `-Pphairplay.updateRepo=you/your-fork` (or the
+ * PHAIRPLAY_UPDATE_REPO environment variable) so a fork's APK checks its own releases
+ * instead of upstream's.
+ */
+val updateRepo: String =
+    (providers.gradleProperty("phairplay.updateRepo").orNull
+        ?: providers.environmentVariable("PHAIRPLAY_UPDATE_REPO").orNull
+        ?: "2archiver/phairplay-archiver-fork-").trim()
+
+/**
+ * Describes the key a build signs with.
+ *
+ * @see signingKeySpec for how one of these is chosen.
+ */
+data class SigningKeySpec(
+    val store: java.io.File,
+    val storeType: String,
+    val storePassword: String,
+    val keyAlias: String,
+    val keyPassword: String
+)
+
+/**
+ * True when [spec] can actually be opened and its key read with the given passwords.
+ *
+ * WHY BOTHER: if the toolchain ever stops reading this keystore format, we would rather
+ * fall back to the debug key with a loud warning than fail the build — and the warning is
+ * what tells a maintainer that published APKs will no longer update each other in place.
+ */
+fun SigningKeySpec.canLoad(): Boolean = try {
+    val store = java.security.KeyStore.getInstance(storeType)
+    this.store.inputStream().use { store.load(it, storePassword.toCharArray()) }
+    store.containsAlias(keyAlias) && store.getKey(keyAlias, keyPassword.toCharArray()) != null
+} catch (e: Exception) {
+    false
+}
+
+/**
+ * The signing key this build uses — the fix for "App not installed as package conflicts
+ * with an existing package".
+ *
+ * WHY: Android refuses to install an APK over an installed one when the two are signed
+ * with different keys, and reports exactly that error. PhairPlay is sideloaded (no Play
+ * Store), so until now every build that did not carry the maintainer's private keystore
+ * secrets fell back to a throw-away debug key that differed per run — meaning every
+ * update had to be preceded by an uninstall.
+ *
+ * Order of preference:
+ *   1. Your own key — KEYSTORE_PATH (+ KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD)
+ *      environment variables, or the matching `phairplay.keystore*` Gradle properties.
+ *      Use this for anything you publish to other people.
+ *   2. app/signing/phairplay.p12 — the public "community build" key committed to this
+ *      repository. It is published on purpose (see docs/RELEASING.md) so that CI runs,
+ *      tag releases and local clones all produce APKs that update each other in place.
+ *
+ * Both `debug` and `release` use whichever key is chosen, so a debug APK from CI and a
+ * release APK from the release workflow can also replace each other.
+ */
+val signingKeySpec: SigningKeySpec? = run {
+    val customPath = System.getenv("KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+        ?: providers.gradleProperty("phairplay.keystorePath").orNull?.takeIf { it.isNotBlank() }
+    if (customPath != null) {
+        SigningKeySpec(
+            store = file(customPath),
+            // PKCS12 is what openssl/keytool write today; a .jks needs the legacy type.
+            storeType = System.getenv("KEYSTORE_TYPE")?.takeIf { it.isNotBlank() }
+                ?: providers.gradleProperty("phairplay.keystoreType").orNull?.takeIf { it.isNotBlank() }
+                ?: if (customPath.endsWith(".p12", ignoreCase = true) ||
+                    customPath.endsWith(".pfx", ignoreCase = true)
+                ) "pkcs12" else "jks",
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+                ?: providers.gradleProperty("phairplay.keystorePassword").orNull ?: "",
+            keyAlias = System.getenv("KEY_ALIAS")
+                ?: providers.gradleProperty("phairplay.keyAlias").orNull ?: "",
+            keyPassword = System.getenv("KEY_PASSWORD")
+                ?: providers.gradleProperty("phairplay.keyPassword").orNull ?: ""
+        )
+    } else {
+        val communityKey = file("signing/phairplay.p12")
+        val community = if (communityKey.isFile) {
+            SigningKeySpec(
+                store = communityKey,
+                storeType = "pkcs12",
+                storePassword = "phairplay",
+                keyAlias = "phairplay",
+                keyPassword = "phairplay"
+            )
+        } else {
+            null
+        }
+        if (community != null && !community.canLoad()) {
+            // Do not fail the build over this — but make it impossible to miss.
+            logger.warn(
+                "PhairPlay: app/signing/phairplay.p12 could not be read with this JDK, so " +
+                    "this APK will NOT update an existing install. Regenerate it with " +
+                    "tools/make-signing-key.sh, or point KEYSTORE_PATH at your own key."
+            )
+        }
+        community
+    }
+}
+
+
 android {
     namespace = "com.phairplay"
     compileSdk = 35
@@ -54,6 +160,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")
+        buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")
 
         // Native code (libplayfair.so, libalac) — Google TV hardware is ARM only
         // (Chromecast with Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs),
@@ -85,17 +192,22 @@ android {
         }
     }
 
-    // Release signing: credentials are injected via environment variables in CI.
-    // Set KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD to enable.
-    // Local builds without these vars are signed with the debug key (fine for dev/test).
-    val keystorePath = System.getenv("KEYSTORE_PATH")
-    if (keystorePath != null) {
-        signingConfigs {
-            create("release") {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+    // Signing: one key for every build type, chosen by [signingKeySpec].
+    //
+    // Sharing the key between `debug` and `release` is deliberate: it means a debug APK
+    // downloaded from a CI run and a release APK from the release workflow install over
+    // each other, instead of Android rejecting the second one.
+    signingConfigs {
+        val spec = signingKeySpec
+        if (spec != null) {
+            // Re-bound after the null check so the properties below are non-null.
+            val key = spec
+            create("phairplay") {
+                storeFile = key.store
+                storeType = key.storeType
+                storePassword = key.storePassword
+                keyAlias = key.keyAlias
+                keyPassword = key.keyPassword
             }
         }
     }
@@ -103,6 +215,12 @@ android {
     buildTypes {
         debug {
             isDebuggable = true
+            // Same key as release so debug ↔ release are interchangeable on the TV.
+            // Left unset when no key is configured, so AGP keeps its own debug key.
+            val key = signingConfigs.findByName("phairplay")
+            if (key != null) {
+                signingConfig = key
+            }
         }
         release {
             isMinifyEnabled = true
@@ -111,11 +229,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Use the release key when provided; otherwise fall back to the auto-generated
-            // debug key so a locally built release APK is still installable on a TV
-            // (an unsigned APK is rejected by Android). Updates only work across builds
-            // signed with the same key, so use a real keystore for published releases.
-            signingConfig = signingConfigs.findByName("release")
+            // Fall back to the auto-generated debug key only if no key at all is available
+            // (e.g. a fork that deleted app/signing/phairplay.p12). Android rejects an
+            // unsigned APK, so never leave this build type unsigned.
+            signingConfig = signingConfigs.findByName("phairplay")
                 ?: signingConfigs.getByName("debug")
         }
     }
@@ -217,6 +334,19 @@ android {
         }
     }
 }
+
+// Say which key the build is using: a release that silently falls back to the debug key is
+// exactly how the "package conflicts with an existing package" error used to ship.
+val signingKeyForLog = signingKeySpec
+logger.lifecycle(
+    if (signingKeyForLog == null) {
+        "PhairPlay signing: NO KEY FOUND — falling back to the Gradle debug key. " +
+            "Add app/signing/phairplay.p12 or set KEYSTORE_PATH (see docs/RELEASING.md)."
+    } else {
+        "PhairPlay signing: ${signingKeyForLog.store.name} " +
+            "(${signingKeyForLog.storeType}, alias '${signingKeyForLog.keyAlias}')"
+    }
+)
 
 dependencies {
     // AndroidX UI (View-based, for maximum TV compatibility)
