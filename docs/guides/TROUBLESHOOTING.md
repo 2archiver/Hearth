@@ -82,11 +82,11 @@ and no Screen Mirroring, its video reaches the TV through Google's receiver or n
 [CAST.md](CAST.md) explains the boundary. Screen Mirroring is the route that always works, because
 it is AirPlay, and AirPlay is what PhairPlay advertises.
 
-**Apple Casting (screen mirroring)** — see [APPLE_CASTING.md](APPLE_CASTING.md). Note the platform ceiling: Android's public
-Wi-Fi P2P APIs can advertise a WFD service and run discovery, but a third-party app cannot
-silently accept an incoming Wi-Fi Direct connection the way the system's own wireless-display
-feature can. If your TV already ships a "Screen mirroring" feature, prefer it. Miracast video
-works; **WFD audio is not decoded** (it is carried in an MPEG-2 transport stream).
+**Apple Casting (screen mirroring)** — the card on PhairPlay's Home screen of the same name; it
+mirrors the whole screen (video and audio) from an iPhone, iPad or Mac and is what
+[APPLE_CASTING.md](APPLE_CASTING.md) covers. If the card says **Waiting**, the receiver is up and
+the sender has not started a mirroring session yet — compare the card's line with the step list
+in that guide.
 
 Anything mentioning **8008/8009** means an old build is still installed: 1.6 removed PhairPlay's
 Cast bridge, so those ports are never bound and that conflict cannot be reported. Reinstall the

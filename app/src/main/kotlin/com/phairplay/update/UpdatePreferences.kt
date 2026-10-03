@@ -81,10 +81,6 @@ internal class UpdatePreferences(context: Context) {
             .apply()
     }
 
-    /** True when [versionCode] is newer than the installed build and was not dismissed. */
-    fun isInteresting(versionCode: Int, installedVersionCode: Int): Boolean =
-        versionCode > installedVersionCode && versionCode != skippedVersionCode
-
     companion object {
         private const val PREFS_NAME = "phairplay_updates"
         private const val KEY_LAST_CHECK = "last_check_millis"

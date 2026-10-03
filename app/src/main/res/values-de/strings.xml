@@ -91,7 +91,7 @@
     <string name="update_status_current">AKTUELL</string>
     <string name="update_status_action_needed">AKTION ERFORDERLICH</string>
     <string name="update_status_error">PRÜFUNG FEHLGESCHLAGEN</string>
-    <string name="update_current_version">Aktuelle Version %1$s</string>
+    <string name="update_current_version">Installiert %1$s (Build %2$d) — die neueste veröffentlichte Version</string>
     <string name="update_key_mismatch_card">Einmalige Neuinstallation zum Wechsel des Signaturschlüssels erforderlich</string>
     <string name="update_download_progress">Update wird heruntergeladen… %1$d%%</string>
     <string name="update_key_mismatch_title">Einmalige Neuinstallation erforderlich</string>

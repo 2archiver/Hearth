@@ -16,6 +16,14 @@ downloads it and offers to install.
 | **Download automatically** | on | Fetch and verify the APK as soon as one is found, so installing is one tap |
 | **Install automatically** | off | Install a verified update without another prompt. Turn this on for zero-tap updates |
 
+The update card always shows **both builds** — what is installed and what is on offer — so
+"update" never means "something changed, I don't know what". While an update is on offer there are
+two dismissals, and they mean different things:
+
+- **Later** — ask me again; the card keeps the offer.
+- **Skip this version** — do not offer *this* build again. The next release is still offered
+  normally; skipping is remembered on the TV and survives restarts.
+
 When the signing key matches, Android 12+ normally lets an app replace **itself** without a
 confirmation dialog, so with all three on the update is hands-off. On older Android, or if the
 TV's policy disagrees, the standard "Install?" confirmation is shown. A different signing key
@@ -84,13 +92,26 @@ in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
    version name from the asset's file name, `PhairPlay-1.6.0-main.43-googletv.apk`. A release that
    still publishes a `version.json` descriptor (anything before 1.6) is read from that instead,
    because a descriptor beats a scrape.
-3. Compare with the installed `BuildConfig.VERSION_CODE`. Higher = update available.
+3. Compare with the installed `BuildConfig.VERSION_CODE` — a strictly higher number is the *only*
+   thing that counts as an update:
+   | Published vs installed | What the card says |
+   |---|---|
+   | published **newer** | **Update available** (with both build numbers) |
+   | equal | **Up to date** — the release matches this install |
+   | published **older** | **Up to date**, and says the published build is older than this install |
+   | version number missing from the notes | **Up to date (could not identify the published build)** — never a guess |
+   Nothing that is not strictly newer is ever offered, announced, or downloaded. This is what
+   stops the "update" that would actually have been a downgrade: installing an older code over a
+   newer one is rejected by Android (`INSTALL_FAILED_VERSION_DOWNGRADE`) even after the download.
 4. Download the APK, checking it against the SHA-256 in the release body as it streams. The digest
    must be a full 64 hex characters to be trusted; a release whose notes carry none is installed
    after a size check only, and says so.
-5. Read the downloaded APK's signing certificate and compare it with PhairPlay's own.
+5. **Read the downloaded APK's own `versionCode`.** If it is not strictly newer than the installed
+   build — a mislabelled release, a stale asset on the `latest` tag — the download is discarded and
+   the card explains why. This is the last line of defence before Android's installer.
+6. Read the downloaded APK's signing certificate and compare it with PhairPlay's own.
    **Mismatch → refuse**, because that is exactly the "package conflicts" case.
-6. Hand it to `PackageInstaller`.
+7. Hand it to `PackageInstaller`.
 
 Forks: set `phairplay.updateRepo` in `gradle.properties` (or pass
 `-Pphairplay.updateRepo=you/your-fork`) so the app checks *your* releases, not upstream's.

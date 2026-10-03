@@ -30,7 +30,7 @@ card on Home.
 | Play a URL/audio from an iOS app on the TV | AirPlay audio (the same picker, or the app's AirPlay button) |
 | Cast from an Android phone or a Chrome "cast" button | the TV's **built-in Chromecast** — it is already a Cast target; PhairPlay stays out of the way |
 | Netflix/YouTube/Disney+ on the big screen | the **app installed on the TV**, or its own cast button → the built-in receiver |
-| Mirror an Android device's screen over Wi-Fi Direct | **Miracast** — [MIRACAST.md](MIRACAST.md), noting that most Google TVs refuse Wi-Fi Direct to apps |
+| Mirror an iPhone/iPad/Mac screen *and* keep using the TV | **Apple Casting** — the same AirPlay mirroring session, reported by its own card. [APPLE_CASTING.md](APPLE_CASTING.md) |
 
 The one thing PhairPlay cannot do is appear inside another app's cast button: that button searches
 for the TV's Chromecast, not for PhairPlay. Any app that offers a cast icon is therefore aimed at

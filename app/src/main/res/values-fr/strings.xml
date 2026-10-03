@@ -59,7 +59,7 @@
     <string name="update_status_current">À JOUR</string>
     <string name="update_status_action_needed">ACTION REQUISE</string>
     <string name="update_status_error">ÉCHEC DE LA VÉRIFICATION</string>
-    <string name="update_current_version">Version actuelle : %1$s</string>
+    <string name="update_current_version">Installée : %1$s (build %2$d) — la version publiée la plus récente</string>
     <string name="update_key_mismatch_card">Réinstallation unique nécessaire pour changer de clé de signature</string>
     <string name="update_download_progress">Téléchargement de la mise à jour… %1$d%%</string>
     <string name="update_key_mismatch_title">Réinstallation unique nécessaire</string>

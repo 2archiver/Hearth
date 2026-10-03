@@ -50,8 +50,12 @@ class AppSettingsTest {
     }
 
     @Test
-    fun `default settings have pin auth disabled`() {
-        assertFalse(AppSettings.DEFAULT.airPlayPinAuthEnabled)
+    fun `updates check and download by default but never install silently`() {
+        // AirPlay has no pairing code to configure any more (see docs/guides/APPLE_CASTING.md),
+        // so these are the settings a TV user actually decides about.
+        assertTrue(AppSettings.DEFAULT.autoCheckForUpdates)
+        assertTrue(AppSettings.DEFAULT.autoDownloadUpdates)
+        assertFalse(AppSettings.DEFAULT.autoInstallUpdates)
     }
 
     @Test
