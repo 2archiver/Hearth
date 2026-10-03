@@ -124,7 +124,8 @@ class UpdateInfoTest {
 
     @Test
     fun `a release without an APK cannot produce an update`() {
-        val json = releaseJson.replace("Hearth-googletv.apk", "notes.txt")
+        // The fixture is a pre-rename release, so the asset it publishes is PhairPlay-*.
+        val json = releaseJson.replace("PhairPlay-googletv.apk", "notes.txt")
         val release = requireNotNull(ReleaseParser.parseRelease(json))
         assertNull(ReleaseParser.buildUpdateInfo(release, null))
     }
