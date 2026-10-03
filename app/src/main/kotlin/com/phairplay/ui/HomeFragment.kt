@@ -92,8 +92,8 @@ class HomeFragment : Fragment() {
 
     /**
      * Honest explanations of each card's state, published by [PhairPlayService] — which address
-     * the TV is advertising on, which record the mDNS responder refused, whether this set has a
-     * Wi-Fi Direct radio at all.
+     * the TV is advertising on, which record the mDNS responder refused, and — on the mirroring
+     * card — what the sender is doing.
      */
     private var airPlayDetail: String? = null
     private var appleCastingDetail: String? = null

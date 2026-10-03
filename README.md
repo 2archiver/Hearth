@@ -22,7 +22,7 @@ the in-app updater verifies against.
 
 **Install:** open the release link above, copy the APK's URL (or open the [download page](https://2archiver.github.io/phairplay-archiver-fork-/) from the TV), paste it into *Downloader* on the TV and choose **Install**. From a computer, use `adb install -r PhairPlay-<version>-googletv.apk`. See the [installation guide](docs/guides/INSTALLATION.md).
 
-**Update:** on the TV, choose **Settings → Updates → Check for updates**. PhairPlay reads the latest release in one request, checks the download against the SHA-256 published in that release's notes, and offers to install it. Builds signed with this repository's key install over the existing app; older or differently signed builds may need a one-time reinstall. See [keeping PhairPlay up to date](docs/UPDATES.md).
+**Update:** on the TV, choose **Settings → Updates → Check for updates**. PhairPlay reads the latest release in one request and offers it only when it is **strictly newer** than the installed build — a release that is the same or older is reported as such rather than offered, and the downloaded APK's own `versionCode` is checked before anything is installed. The card shows both builds, **Skip this version** silences one release without disabling updates, and the download is verified against the SHA-256 in the release notes. Builds signed with this repository's key install over the existing app; older or differently signed builds may need a one-time reinstall. See [keeping PhairPlay up to date](docs/UPDATES.md).
 
 **Help:** [Troubleshooting](docs/guides/TROUBLESHOOTING.md) · [Apple Casting (screen mirroring)](docs/guides/APPLE_CASTING.md) · [Why there is no Google Cast receiver](docs/guides/CAST.md) · [Rename ideas](docs/RENAME_IDEAS.md).
 

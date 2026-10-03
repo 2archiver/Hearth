@@ -241,7 +241,7 @@ class UpdateChecker(
  * wrong in one direction nags about a build that is already installed; in the other it offers a
  * *downgrade*, which Android then refuses to install (`INSTALL_FAILED_VERSION_DOWNGRADE`) after
  * the download has already happened. Pulling the comparison out of the network code makes the
- * rule directly unit-testable — see UpdateInfoTest.
+ * rule directly unit-testable — see UpdateDecisionTest and UpdateInfoTest.
  */
 object UpdateDecision {
 

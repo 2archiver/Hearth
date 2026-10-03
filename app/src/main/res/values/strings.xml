@@ -31,8 +31,8 @@
     <string name="protocol_state_disabled">Disabled</string>
     <string name="protocol_state_advertising">Advertising</string>
     <string name="protocol_state_connected">Connected</string>
-    <!-- Enabled in Settings, but this TV cannot do it (no Wi-Fi Direct, for instance). Grey,
-         not red: nothing is broken and there is nothing to fix. -->
+    <!-- Enabled in Settings, but this set cannot run the receiver (no usable network, for
+         instance). Grey, not red: nothing is broken and there is nothing to fix. -->
     <string name="protocol_state_unavailable">Not available</string>
     <string name="protocol_state_error">Error</string>
 

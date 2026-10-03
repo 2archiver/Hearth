@@ -124,7 +124,7 @@ class PhairPlayService : Service() {
 
     /**
      * Why each card is in the state it is in — the address the TV is advertising on, a
-     * refused mDNS record, a TV with no Wi-Fi Direct.
+     * refused mDNS record, a TV whose Wi-Fi radio is off.
      *
      * WHY: a bare "Advertising"/"Disabled" line is what made "AirPlay does not work on my
      * wired TV" impossible to answer. The receivers already know the real reason; the Home

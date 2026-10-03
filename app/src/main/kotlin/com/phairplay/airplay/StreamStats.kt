@@ -72,7 +72,7 @@ object StreamStats {
     @Volatile var videoWidth = 0
     @Volatile var videoHeight = 0
 
-    // ─── Audio (AirPlay audio + WFD audio) ──────────────────────────────────
+    // ─── Audio (mirror audio + buffered/RAOP audio) ─────────────────────────
     @Volatile var audioActive = false  // true while an audio stream is running
     @Volatile var audioQueue = 0       // current playback-queue depth
     @Volatile var audioDupPct = 0      // % of RTP packets that were redundant duplicates
@@ -127,7 +127,7 @@ object StreamStats {
     }
 
     /**
-     * Records one video payload (an AirPlay mirror packet or a WFD RTP packet) and refreshes
+     * Records one video payload (an AirPlay mirror RTP packet) and refreshes
      * [videoFps] / [videoBitrateKbps] once per [SAMPLE_WINDOW_MS].
      *
      * Called from the socket reader thread, so it must stay cheap — that is why the window is

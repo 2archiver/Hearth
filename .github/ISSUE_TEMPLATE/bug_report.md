@@ -38,7 +38,8 @@ assignees: ''
 - Network is [ ] wired only (TV Wi-Fi off)  [ ] Wi-Fi  [ ] both
 
 **Sender device:**
-- Type: [ ] iPhone  [ ] iPad  [ ] Mac  [ ] Windows (Miracast)  [ ] Android (Miracast)
+- Type: [ ] iPhone  [ ] iPad  [ ] Mac
+- AirPlay or Apple Casting (screen mirroring): 
 - Model and OS version: (e.g., iPhone 14, iOS 27.0.1 · MacBook Pro, macOS 15.3)
 - What you were doing: [ ] screen mirroring  [ ] photos  [ ] audio only
 - Same subnet as the address on the TV's card? [ ] yes  [ ] no  [ ] don't know
