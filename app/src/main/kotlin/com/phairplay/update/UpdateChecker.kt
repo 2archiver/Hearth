@@ -17,10 +17,17 @@ import java.security.MessageDigest
  * removes the whole ritual — and because the app knows its own versionCode it can tell
  * the difference between "nothing new" and "new build" without parsing release titles.
  *
- * HOW: two plain HTTPS calls — no SDK, no dependency:
- *   1. `GET https://api.github.com/repos/{repo}/releases/latest` → the release JSON.
- *   2. optionally `GET .../version.json` from that release → authoritative versionCode.
- * Then [download] streams the APK asset to a file, checking its SHA-256 on the way.
+ * HOW: ONE plain HTTPS call — no SDK, no dependency, and deliberately no second round trip:
+ *   `GET https://api.github.com/repos/{repo}/releases/latest` → the release JSON.
+ * A PhairPlay release carries exactly one asset, the version-named APK, so that response is the
+ * entire protocol: the version name comes from the asset's file name, the versionCode and the
+ * APK's SHA-256 are scraped out of the release body the workflow writes. [download] then streams
+ * that one asset to a file, checking its SHA-256 on the way.
+ *
+ * (Releases published before "one APK only" also carried `version.json` and `SHA256SUMS.txt`.
+ * Those parsers still exist in [ReleaseParser] and `buildUpdateInfo` still prefers them when a
+ * descriptor is handed in — but nothing here fetches them any more, so an old release simply
+ * resolves from its notes and a new one never spends a request on a side file.)
  *
  * Every method does blocking I/O: call them from `Dispatchers.IO`, never from the main
  * thread. Nothing here touches the UI.
@@ -53,15 +60,10 @@ class UpdateChecker(
             val release = ReleaseParser.parseRelease(releaseJson)
                 ?: return UpdateCheck.Failed("Could not read the release published by $repo.")
 
-            val descriptor = release.asset(UpdateInfo.DESCRIPTOR_ASSET)
-                ?.let { runCatching { getText(URL(it.url)) }.getOrNull() }
-                ?.let { ReleaseParser.parseDescriptor(it) }
-
-            val checksums = release.asset(UpdateInfo.CHECKSUM_ASSET)
-                ?.let { runCatching { getText(URL(it.url)) }.getOrNull() }
-                ?.let { ReleaseParser.parseSha256Sums(it) }
-
-            val info = ReleaseParser.buildUpdateInfo(release, descriptor, checksums)
+            // One release, one asset: everything is derived from the JSON above. The release's
+            // only APK asset is what gets installed, its file name is the version, and the body
+            // carries the versionCode and the checksum to verify the download against.
+            val info = ReleaseParser.buildUpdateInfo(release, descriptor = null)
                 ?: return UpdateCheck.Failed("That release has no APK to install.")
 
             val installed = installedVersionCode()
@@ -89,8 +91,9 @@ class UpdateChecker(
     }
 
     /**
-     * Downloads [info]'s APK to [destination], verifying the SHA-256 published with the
-     * release when there is one.
+     * Downloads [info]'s APK to [destination], verifying it against the SHA-256 written in the
+     * release body. A release whose notes carry no digest cannot be verified — [UpdateInfo.sha256]
+     * is null there and the install proceeds after a length check only.
      *
      * @param onProgress called with 0..100 (coarsely — a few times per megabyte).
      * @return the downloaded file, or null when the download or the checksum failed. A

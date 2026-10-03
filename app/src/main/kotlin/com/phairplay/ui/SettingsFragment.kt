@@ -61,8 +61,6 @@ class SettingsFragment : Fragment() {
     private lateinit var textDisplayNameValue: TextView
     private lateinit var rowAirPlay: View
     private lateinit var rowMiracast: View
-    private lateinit var rowCast: View
-    private lateinit var rowCastBridge: View
     private lateinit var rowMirrorAudio: View
     private lateinit var rowPinAuth: View
     private lateinit var rowStartOnBoot: View
@@ -121,8 +119,6 @@ class SettingsFragment : Fragment() {
         textDisplayNameValue = view.findViewById(R.id.text_display_name_value)
         rowAirPlay          = view.findViewById(R.id.row_airplay)
         rowMiracast         = view.findViewById(R.id.row_miracast)
-        rowCast             = view.findViewById(R.id.row_cast)
-        rowCastBridge       = view.findViewById(R.id.row_cast_bridge)
         rowMirrorAudio      = view.findViewById(R.id.row_mirror_audio)
         rowPinAuth          = view.findViewById(R.id.row_pin_auth)
         rowStartOnBoot      = view.findViewById(R.id.row_start_on_boot)
@@ -155,8 +151,6 @@ class SettingsFragment : Fragment() {
     private fun setRowLabels() {
         configureToggleRow(rowAirPlay,      R.string.setting_airplay_enabled,    R.string.setting_airplay_subtitle)
         configureToggleRow(rowMiracast,     R.string.setting_miracast_enabled,   R.string.setting_miracast_subtitle)
-        configureToggleRow(rowCast,         R.string.setting_cast_enabled,       R.string.setting_cast_subtitle)
-        configureToggleRow(rowCastBridge,   R.string.setting_cast_bridge,        R.string.setting_cast_bridge_subtitle)
         configureToggleRow(rowMirrorAudio,  R.string.setting_mirror_audio,       R.string.setting_mirror_audio_subtitle)
         configureToggleRow(rowPinAuth,      R.string.setting_pin_auth,           R.string.setting_pin_auth_subtitle)
         configureToggleRow(rowStartOnBoot,  R.string.setting_start_on_boot,      0)
@@ -212,8 +206,6 @@ class SettingsFragment : Fragment() {
         textDisplayNameValue.text = settings.effectiveDisplayName
         setToggle(rowAirPlay,      settings.airPlayEnabled)
         setToggle(rowMiracast,     settings.miracastEnabled)
-        setToggle(rowCast,         settings.castEnabled)
-        setToggle(rowCastBridge,   settings.castBridgeEnabled)
         setToggle(rowMirrorAudio,  settings.mirrorAudioEnabled)
         setToggle(rowPinAuth,      settings.airPlayPinAuthEnabled)
         setToggle(rowStartOnBoot,  settings.startOnBoot)
@@ -298,14 +290,17 @@ class SettingsFragment : Fragment() {
         rowDisplayName.setOnClickListener { showDisplayNameDialog() }
 
         setToggleListener(rowAirPlay)      { enabled -> save { it.copy(airPlayEnabled = enabled) } }
-        setToggleListener(rowMiracast)     { enabled -> save { it.copy(miracastEnabled = enabled) } }
-        setToggleListener(rowCast)         { enabled -> saveAndRestart { it.copy(castEnabled = enabled) } }
-        setToggleListener(rowCastBridge)   { enabled -> saveAndRestart { it.copy(castBridgeEnabled = enabled) } }
+        // Restart, not just save: the Miracast receiver is only created while the service
+        // starts, so an "enable" that did not restart left the card at Disabled until the user
+        // happened to press Restart on the Home screen.
+        setToggleListener(rowMiracast)     { enabled -> saveAndRestart { it.copy(miracastEnabled = enabled) } }
         setToggleListener(rowMirrorAudio)  { enabled -> saveAndRestart { it.copy(mirrorAudioEnabled = enabled) } }
         setToggleListener(rowPinAuth)      { enabled -> saveAndRestart { it.copy(airPlayPinAuthEnabled = enabled) } }
         setToggleListener(rowStartOnBoot)  { enabled -> save { it.copy(startOnBoot = enabled) } }
         setToggleListener(rowDebugOverlay) { enabled -> save { it.copy(showDebugOverlay = enabled) } }
-        setToggleListener(rowForceHighRes) { enabled -> save { it.copy(forceHighResolution = enabled) } }
+        // The mirror size is part of the `GET /info` capability record, which is built when the
+        // receiver starts — so a resolution change needs a restart to reach the sender.
+        setToggleListener(rowForceHighRes) { enabled -> saveAndRestart { it.copy(forceHighResolution = enabled) } }
         setToggleListener(rowAutoCheckUpdates)    { enabled -> save { it.copy(autoCheckForUpdates = enabled) } }
         setToggleListener(rowAutoDownloadUpdates) { enabled -> save { it.copy(autoDownloadUpdates = enabled) } }
         setToggleListener(rowAutoInstallUpdates)  { enabled -> save { it.copy(autoInstallUpdates = enabled) } }

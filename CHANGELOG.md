@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6] - 2026-10-03
+
+Built for the TV in front of it: a Google TV 4K on Ethernet. Everything that only worked on a
+Wi-Fi test set — or only worked in the changelog — has been taken out or fixed.
+
+### Removed — the built-in Google Cast bridge
+
+**PhairPlay no longer receives Cast at all, and that is the fix.** The Home screen carried a
+permanent red card: *"Ports 8008, 8009 are already in use — this TV's built-in Chromecast is
+handling Cast, so PhairPlay's receiver stays off."* That was not a fault to work around. Every
+Google TV already runs its own Cast receiver, and it owns TCP 8008/8009 and the
+`_googlecast._tcp` record before any app starts. A second receiver inside PhairPlay could only
+ever lose that argument, and while losing it it took AirPlay down with it: the same process was
+asking `NsdManager` to advertise a second Cast service and binding ports the system had claimed.
+
+Removed with it: `com.phairplay.cast.*` (castv2 DIAL server, `SsdpResponder`, the receiver
+bridge), the Cast Connect receiver and `ReceiverOptionsProvider` from the Google TV manifest, the
+`play-services-cast-tv` dependency, the `CAST_APP_ID` build config (and with it the
+`PHAIRPLAY_CAST_APP_ID` / `phairplay.castAppId` build inputs), the Cast toggle and Cast bridge
+toggle in Settings, the third card on Home, `Protocol.CAST`, and the Cast source row on the stream
+HUD. An installed TV's `cast_enabled` / `cast_bridge_enabled` preference keys are simply ignored
+now; nothing has to migrate.
+
+The Cast work described in [1.5] is therefore reverted rather than fixed — it is the entry that
+documents the regression. Screen mirroring from Android devices is Miracast's job (below), and Air
+Play-to-audio and Cast-style app hand-off are the TV's own.
+
+### Fixed — AirPlay discovery on a wired TV
+
+**An advertisement nobody could hear.** `MdnsService` registered `_airplay._tcp` from a pooled
+worker on `Dispatchers.IO`. `NsdManager` dispatches its `RegistrationListener` callbacks on the
+calling thread's Looper, and a background worker thread has none — so on a real TV registration
+either never completed or failed, and the iPhone on the other end just said "no devices found".
+Both registrations now happen on the main Looper, where the platform expects them, with a bounded
+retry (four seconds apart, five attempts) if the TV's mDNS daemon says no the first time.
+
+**Multicast was not ours to receive.** Android drops incoming multicast unless the app holds a
+`WifiManager.MulticastLock`, and an mDNS *advertisement* is nothing but answers to multicast
+queries. PhairPlay now takes the lock for exactly as long as it advertises — the same window the
+Cast bridge used to hold it in, so removing Cast would otherwise have cost AirPlay its discovery.
+
+**A network change ended the advertisement.** DHCP renewals and Ethernet/Wi-Fi handovers on a TV
+are routine. `MdnsService` watches the default network with `ConnectivityManager` and re-advertises
+(with a five-second cooldown) when it changes, instead of staying registered on an interface that
+no longer exists.
+
+**Nothing told you what was happening.** Home's AirPlay card now shows the interface and address
+the advertisement is live on — `Advertising on Ethernet · 192.168.1.42` — which is how you can see
+in one glance that the TV is reachable on the network your iPhone is joined to. A failed
+registration is an error state with a message rather than an eternal "advertising…".
+
+### Fixed — Miracast reported a permission problem it could not cause
+
+*"Wi-Fi Direct unavailable or permission denied"* was shown on TVs where Miracast was never going
+to run, which read as a PhairPlay bug. Google TV does not let third-party apps open a Wi-Fi Direct
+group at all (and a set on Ethernet has no usable Wi-Fi radio to open one with), so the outcome is
+"this TV cannot do it", not "you did it wrong". There is a new protocol state for that
+(`ProtocolState.UNAVAILABLE`): grey, worded as a limitation, with the actual reason — no Wi-Fi
+Direct feature on the build, radio off, permission not granted, or the Wi-Fi P2p stack refusing the
+service (`reason N`). Genuine failures are still red. Miracast also now defaults to off instead of
+prompting every wired TV for nearby-Wi-Fi and location permissions on first launch; enabling it in
+Settings asks for those, and restarting is offered for the toggle to take effect.
+
+### Fixed — audio dropped out during video
+
+The RTSP keep-alive path could desync the interleaved RTP channel, which surfaced as audio
+silently stopping a few minutes into a mirror. The interleaved framing now resynchronises on the
+keep-alive boundary (this is the one piece of the reverted Cast branch that was worth keeping).
+
+### Changed — releases carry one file
+
+A PhairPlay release used to publish `PhairPlay-googletv.apk`, `SHA256SUMS.txt` and `version.json`.
+It now publishes exactly one asset: the APK, named after its version —
+`PhairPlay-1.6.0-main.43-googletv.apk`. The version name is read from that file name, and the
+version code and SHA-256 are written into the release notes, so the in-app updater needs a single
+HTTPS request instead of three, and a TV or Downloader session can no longer grab the wrong file.
+Older releases, which do have the side files, still resolve.
+
+### Changed — defaults
+
+- AirPlay on, Miracast off, 4K mirroring offered on capable panels (`forceHighResolution` now
+  defaults on: a 4K Google TV was being told to mirror at 1080p, which is why a wired 4K set
+  looked soft).
+- Settings → Update now restarts the receiver when a toggle needs it, rather than asking for a
+  manual relaunch.
+- Home shows two protocol cards, each with its own one-line detail; the layout no longer reserves a
+  third slot that could only ever say "off".
+
 ## [1.5] - 2026-10-03
 
 Casting and Miracast both worked end-to-end on paper and neither worked in practice, and the

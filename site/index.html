@@ -63,22 +63,24 @@
 <main>
   <span class="badge">Google TV · Android TV OS 10+</span>
   <h1>PhairPlay for Google TV</h1>
-  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your TV. One APK, one current release, and clear notes about what changed.</p>
+  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your TV. One
+  release, one file, and notes that say what changed. Works over Ethernet — a wired Google TV 4K is
+  the tested target.</p>
 
   <section class="download" aria-labelledby="download-heading">
     <div>
       <h2 id="download-heading">Get the latest APK</h2>
-      <a id="dl-btn" class="btn" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk">
+      <a id="dl-btn" class="btn" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/latest">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
         <span>Download APK</span>
       </a>
     </div>
     <div class="meta">
       <p><strong id="release-name" aria-live="polite">Latest successful build</strong></p>
-      <p><span class="file">PhairPlay-googletv.apk</span></p>
-      <p id="dl-meta" role="status" aria-live="polite">The direct download works even if release details are unavailable.</p>
+      <p><span class="file" id="asset-name">PhairPlay-&lt;version&gt;-googletv.apk</span></p>
+      <p id="dl-meta" role="status" aria-live="polite">The release carries this one file and nothing else, so there is nothing to choose.</p>
       <p id="dl-sha"></p>
-      <p class="subtle">Google TV / Android TV OS 10+ · tested on Google TV 4K (Android TV OS 14)</p>
+      <p class="subtle">Google TV / Android TV OS 10+ · tested on a Google TV 4K on Ethernet (Android TV OS 14)</p>
       <a id="release-page" class="release-link" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Read the current release notes</a>
     </div>
   </section>
@@ -99,7 +101,10 @@
         <li>Install <strong>Downloader</strong> (by AFTVnews) from the Google Play Store on your TV.</li>
         <li>Allow Downloader to install apps: Settings → Apps → Security &amp; restrictions → <strong>Install unknown apps</strong>.</li>
         <li>Open Downloader and enter this address, then select <strong>Go</strong>:
-          <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk</pre>
+          <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest</pre>
+          <p class="subtle">The file name carries the version (for example
+          <span class="file">PhairPlay-1.6.0-main.43-googletv.apk</span>), so open the release and
+          select its single APK if Downloader needs the exact address.</p>
         </li>
         <li>When the download finishes, choose <strong>Install</strong>, then <strong>Open</strong>.</li>
       </ol>
@@ -112,7 +117,7 @@
         <li>Enable USB or Wireless debugging, then find the TV's IP address under Settings → Network &amp; Internet.</li>
       </ol>
       <pre>adb connect &lt;TV-IP&gt;:5555
-adb install -r PhairPlay-googletv.apk</pre>
+adb install -r PhairPlay-1.6.0-main.43-googletv.apk</pre>
     </div>
 
     <div class="card">
@@ -140,12 +145,11 @@ adb install -r PhairPlay-googletv.apk</pre>
   "use strict";
   var REPO = "2archiver/phairplay-archiver-fork-";
   var RELEASE_PAGE = "https://github.com/" + REPO + "/releases/tag/latest";
-  var STABLE_DOWNLOAD = "https://github.com/" + REPO + "/releases/download/latest/PhairPlay-googletv.apk";
+  // The release's one asset is named after its version, so there is no stable *file* URL to
+  // hard-code. Everything without JavaScript points at the release page, which always resolves to
+  // the current release and offers exactly one file; the direct .apk URL below is filled in from
+  // the API once it answers.
   var $ = function (id) { return document.getElementById(id); };
-
-  // These links work without JavaScript or when GitHub's API is rate-limited.
-  $("dl-btn").href = STABLE_DOWNLOAD;
-  $("dl-url").textContent = STABLE_DOWNLOAD;
 
   function apk(release) {
     var assets = release.assets || [];
@@ -159,6 +163,13 @@ adb install -r PhairPlay-googletv.apk</pre>
     return isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, {
       year: "numeric", month: "short", day: "numeric"
     });
+  }
+
+  // A one-asset release publishes its checksum in the notes rather than in a SHA256SUMS.txt file.
+  function shaFromNotes(body) {
+    if (!body) return "";
+    var match = body.match(/SHA-?256[^0-9a-fA-F]{0,8}([0-9a-fA-F]{64})/);
+    return match ? match[1].toLowerCase() : "";
   }
 
   function updateSummary(markdown) {
@@ -223,10 +234,14 @@ adb install -r PhairPlay-googletv.apk</pre>
 
       var asset = apk(current);
       var published = dateLabel(current.published_at);
+      $("dl-btn").href = asset.browser_download_url;
+      $("dl-url").textContent = asset.browser_download_url;
+      $("asset-name").textContent = asset.name;
       $("release-name").textContent = current.name || current.tag_name;
       $("dl-meta").textContent = "APK version · " + (asset.size / 1048576).toFixed(1) + " MB" +
         (published ? " · published " + published : "");
-      if (asset.digest) $("dl-sha").textContent = "SHA-256: " + asset.digest.replace(/^sha256:/, "");
+      var digest = asset.digest ? asset.digest.replace(/^sha256:/, "") : shaFromNotes(current.body);
+      if (digest) $("dl-sha").textContent = "SHA-256: " + digest;
       $("update-summary").textContent = updateSummary(current.body);
       $("release-page").href = current.html_url || RELEASE_PAGE;
 

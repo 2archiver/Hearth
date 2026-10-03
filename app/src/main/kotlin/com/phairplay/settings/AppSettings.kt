@@ -48,27 +48,14 @@ data class AppSettings(
 
     /**
      * Whether the Miracast (Wi-Fi Display) receiver is enabled.
-     * When false: Wi-Fi P2P service advertisement is stopped.
-     */
-    val miracastEnabled: Boolean = true,
-
-    /**
-     * Whether the Google Cast receiver is enabled.
-     * When false: neither the Cast Connect SDK nor PhairPlay's built-in Cast bridge runs.
-     */
-    val castEnabled: Boolean = true,
-
-    /**
-     * Whether PhairPlay advertises and serves Google Cast itself (mDNS `_googlecast._tcp`
-     * + DIAL on 8008 + castv2 on 8009) instead of relying on Google's Cast Connect SDK.
      *
-     * WHY: Cast Connect refuses to start without a Cast Application ID issued by Google
-     * after registering the app in the Cast SDK Developer Console. Without one — the default
-     * — the bridge is the only way Cast works at all, so it is on by default. When a build
-     * *does* carry an app ID (`-Pphairplay.castAppId=…`) Cast Connect takes over and the
-     * bridge stays off, because two receivers advertising the same IP confuse senders.
+     * OFF by default, on purpose. Receiving Miracast means owning a Wi-Fi Direct group, and a
+     * Google TV either has no Wi-Fi radio switched on at all (wired sets) or keeps `WifiP2pManager`
+     * for the system. Enabled it used to start at every launch, fail to register, and leave a red
+     * "Wi-Fi Direct unavailable or permission denied" error on the Home screen of every TV where
+     * it can never work. Switch it on if this set genuinely takes Miracast.
      */
-    val castBridgeEnabled: Boolean = true,
+    val miracastEnabled: Boolean = false,
 
     // ─── AirPlay specific ──────────────────────────────────────────────────
     /**
@@ -97,16 +84,18 @@ data class AppSettings(
 
     // ─── Video ─────────────────────────────────────────────────────────────
     /**
-     * When true, advertise a higher mirroring resolution than 1080p in the AirPlay `/info`
-     * `displays` record — up to 4K on a 4K Google TV, 1440p where that is the ceiling — so the
+     * When true (the default), advertise a higher mirroring resolution than 1080p in the AirPlay
+     * `/info` `displays` record — up to 4K on a 4K Google TV, 1440p where that is the ceiling — so the
      * sender renders and encodes a sharper image. Frames are then downscaled to the app surface
-     * (supersampling: sharper text) at the cost of more decode work, which is why this stays
-     * opt-in for low-end SoCs.
+     * (supersampling: sharper text) at the cost of more decode work.
      *
-     * The size actually advertised is always capped by what this TV can show and decode —
-     * see [advertisedMirrorResolution].
+     * It ships ON because the panel is what a wired Google TV 4K owner is looking at: a 1080p
+     * mirror on a 4K set is visibly soft, and every Google TV in PhairPlay's test matrix decodes
+     * 4K. The size actually advertised is still capped by what this TV can show and decode —
+     * see [advertisedMirrorResolution] — so a 1080p or 1440p panel never gets asked to decode 4K,
+     * and a slow SoC can opt out here without touching anything else.
      */
-    val forceHighResolution: Boolean = false,
+    val forceHighResolution: Boolean = true,
 
     /**
      * When true, accept the mirroring audio stream (type 96, AAC-ELD). EXPERIMENTAL: macOS uses
@@ -179,10 +168,10 @@ data class AppSettings(
 
     /**
      * Returns true if at least one protocol is enabled.
-     * If all three are disabled, the service has nothing to do.
+     * If both are disabled, the service has nothing to do.
      */
     val anyProtocolEnabled: Boolean
-        get() = airPlayEnabled || miracastEnabled || castEnabled
+        get() = airPlayEnabled || miracastEnabled
 
     companion object {
         /** The default settings instance used on first launch. */

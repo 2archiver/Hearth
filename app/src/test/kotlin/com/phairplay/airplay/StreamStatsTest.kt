@@ -132,21 +132,16 @@ class StreamStatsTest {
     }
 
     @Test
-    fun `a Cast session reports player state and position instead of frames`() {
+    fun `the HUD names the receiver that owns the session`() {
         StreamStats.resetStreams()
-        StreamStats.beginSession(StreamStats.SOURCE_CAST)
+        StreamStats.beginSession(StreamStats.SOURCE_MIRACAST)
         StreamStats.sessionStartedAtMillis = 0L
-        StreamStats.castState = "PLAYING"
-        StreamStats.castPositionSec = 12.5
-        StreamStats.castDurationSec = 600.0
-        StreamStats.castContentId = "http://192.168.1.9:8080/movie.mp4"
+        StreamStats.videoRes = "1920x1080"
+        StreamStats.noteVideoPayload(4096)
 
-        val text = StreamStats.summary(0L)
-        assertTrue(text.contains(StreamStats.SOURCE_CAST))
-        assertTrue(text.contains("PLAYING"))
-        assertTrue(text.contains("0:12"))         // position
-        assertTrue(text.contains("10:00"))        // duration
-        assertTrue(text.contains("movie.mp4"))
+        val text = StreamStats.summary(1_000L)
+        assertTrue("the source line must say which receiver is streaming", text.contains("Miracast"))
+        assertTrue(text.contains("1920x1080"))
         StreamStats.resetStreams()
     }
 

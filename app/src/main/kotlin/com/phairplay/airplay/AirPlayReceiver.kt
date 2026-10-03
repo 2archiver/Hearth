@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,8 +97,19 @@ class AirPlayReceiver(
      */
     private val onNowPlayingChanged: (NowPlayingInfo?) -> Unit = {},
     /** Pairing PIN to show ([pin]) or hide (null) on the TV during SRP pair-setup. */
-    private val onPinChanged: (pin: String?) -> Unit = {}
+    private val onPinChanged: (pin: String?) -> Unit = {},
+    /**
+     * One-line honesty about the advertisement itself — which interface and address the mDNS
+     * record went out on, or which half of it the TV's responder refused.
+     */
+    private val onAdvertiseNotice: (String?) -> Unit = {}
 ) {
+
+    /** Set by [stop] — cancels retries and any start still queued on the main thread. */
+    @Volatile private var stopped = false
+
+    /** How many times advertising has been retried since it last worked. */
+    @Volatile private var advertiseAttempts = 0
 
     /**
      * The one name this receiver advertises, normalised once so the mDNS record and the
@@ -152,22 +164,92 @@ class AirPlayReceiver(
     /**
      * Starts the AirPlay receiver.
      *
-     * 1. Starts mDNS advertising with the configured display name.
-     * 2. Opens the RTSP server socket (port 7000).
-     * 3. Emits [ProtocolState.ADVERTISING] once both mDNS services are registered.
+     * 1. Opens the NTP timing socket and the RTSP server socket (port 7000).
+     * 2. Registers the mDNS advertisement with the configured display name.
+     * 3. Emits [ProtocolState.ADVERTISING] once `_airplay._tcp` is published.
      *
-     * Non-blocking — all network work runs in background coroutines.
+     * Non-blocking — all network work runs in background coroutines, except the mDNS
+     * registration itself, which hops to the main looper because NsdManager requires one.
      */
     fun start() {
         Logger.i("AirPlayReceiver starting (advertised as '$advertisedName')")
         scope.launch {
-            try {
-                startTimingHandler()
-                startMdnsService()
-                startRtspHandler()
-            } catch (e: Exception) {
-                Logger.e("Failed to start AirPlayReceiver", e)
-                emitState(ProtocolState.ERROR)
+            // The two servers first, advertising second — and never in one try/catch.
+            //
+            // WHY THE ORDER MATTERS: discovery used to run before the RTSP bind, so a failure
+            // in NsdManager (or any hiccup in the mDNS step) aborted start-up with port 7000
+            // still shut. Senders that had the TV cached then connected to nothing. Opening the
+            // servers first means a TV that cannot advertise is still reachable by the senders
+            // that already know it, and a later advertising retry recovers fully.
+            runCatching { startTimingHandler() }
+                .onFailure { Logger.w("AirPlay: NTP timing server failed to start: ${it.message}") }
+            runCatching { startRtspHandler() }
+                .onFailure {
+                    Logger.e("Failed to start the AirPlay RTSP server", it)
+                    emitState(ProtocolState.ERROR)
+                }
+            startMdnsService()
+        }
+    }
+
+    /**
+     * Registers the mDNS advertisement on a thread that owns a Looper.
+     *
+     * [NsdManager] attaches its registration callbacks to the Looper of the calling thread and
+     * refuses to run on a thread that has none — and the receiver's scope is `Dispatchers.IO`,
+     * whose pooled workers have none. Registering from there is what left PhairPlay permanently
+     * in ERROR on a Google TV: the RTSP server was listening, but no Mac or iPhone could ever
+     * find the address to dial. The main looper always exists, and the callback work here is
+     * two flags and a state emit, so it costs that thread nothing.
+     */
+    private fun startMdnsService() {
+        if (stopped) return
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                if (stopped) return@withContext
+                if (mdnsService == null) {
+                    mdnsService = MdnsService(
+                        context = context,
+                        onStateChange = { state -> onAdvertiseState(state) },
+                        onActualNameRegistered = { actualName -> onActualNameRegistered(actualName) },
+                        onAdvertiseNotice = { notice -> onAdvertiseNotice(notice) }
+                    )
+                }
+                mdnsService?.start(advertisedName)
+            }
+        }
+    }
+
+    /**
+     * Mirrors advertisement state to [PhairPlayService] and retries a failed one.
+     *
+     * The retry is what fixes a wired TV that boots before Ethernet has a lease: the first
+     * registration lands on an interface with no address, and nothing in Android republishes
+     * it. Backing off and re-registering does (and [MdnsService] also re-advertises on its own
+     * once the network comes up). Bounded, so a TV with a broken mDNS daemon is not spammed.
+     */
+    private fun onAdvertiseState(state: ProtocolState) {
+        when (state) {
+            ProtocolState.ADVERTISING -> advertiseAttempts = 0
+            ProtocolState.ERROR -> scheduleAdvertiseRetry()
+            else -> Unit
+        }
+        emitState(state)
+    }
+
+    private fun scheduleAdvertiseRetry() {
+        if (stopped || advertiseAttempts >= MAX_ADVERTISE_ATTEMPTS) return
+        val attempt = ++advertiseAttempts
+        Logger.w(
+            "AirPlay: mDNS advertisement failed — retry $attempt/$MAX_ADVERTISE_ATTEMPTS in " +
+                "${ADVERTISE_RETRY_DELAY_MS}ms (wired TVs usually need exactly this after a boot)"
+        )
+        scope.launch {
+            delay(ADVERTISE_RETRY_DELAY_MS)
+            withContext(Dispatchers.Main) {
+                if (stopped) return@withContext
+                runCatching { mdnsService?.readvertise() }
+                    .onFailure { Logger.w("AirPlay: mDNS retry failed: ${it.message}") }
             }
         }
     }
@@ -182,6 +264,9 @@ class AirPlayReceiver(
      */
     fun stop() {
         Logger.i("AirPlayReceiver stopping")
+        // First the flag: a start already queued on the main thread checks it and stands down,
+        // otherwise a stop could register the advertisement right after we tore it down.
+        stopped = true
         try {
             rtspHandler?.stop()
             timingHandler?.stop()
@@ -210,15 +295,6 @@ class AirPlayReceiver(
     private fun startTimingHandler() {
         timingHandler = TimingHandler().also { it.start(scope) }
         Logger.d("Timing handler started on UDP port ${TimingHandler.TIMING_PORT}")
-    }
-
-    private fun startMdnsService() {
-        mdnsService = MdnsService(
-            context = context,
-            onStateChange = { state -> emitState(state) },
-            onActualNameRegistered = { actualName -> onActualNameRegistered(actualName) }
-        ).also { it.start(advertisedName) }
-        Logger.d("mDNS service started (advertising as '$advertisedName')")
     }
 
     private fun startRtspHandler() {
@@ -621,6 +697,10 @@ class AirPlayReceiver(
          * Must not conflict with the RTSP port (7000) or timing port ([TimingHandler.TIMING_PORT]).
          */
         internal const val AUDIO_RTP_PORT = 6001
+
+        /** Backoff for a failed mDNS advertisement, and how many times to try. */
+        private const val ADVERTISE_RETRY_DELAY_MS = 4_000L
+        private const val MAX_ADVERTISE_ATTEMPTS = 5
 
         /**
          * Maximum UDP audio packet size in bytes.

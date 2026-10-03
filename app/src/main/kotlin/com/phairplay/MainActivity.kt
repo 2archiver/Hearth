@@ -20,6 +20,7 @@ import com.phairplay.service.PhairPlayService
 import com.phairplay.service.PhotoFrame
 import com.phairplay.service.ProtocolState
 import com.phairplay.service.ServiceController
+import com.phairplay.settings.SettingsRepository
 import com.phairplay.airplay.NowPlayingInfo
 import com.phairplay.ui.HomeFragment
 import com.phairplay.ui.NowPlayingScreen
@@ -28,6 +29,7 @@ import com.phairplay.ui.PinScreen
 import com.phairplay.ui.SettingsFragment
 import com.phairplay.ui.StreamingScreen
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -68,8 +70,6 @@ class MainActivity : AppCompatActivity() {
     private var isBound = false
     private var currentAirPlayState = ProtocolState.DISABLED
     private var currentMiracastState = ProtocolState.DISABLED
-    /** True once a Cast sender has media loaded — drives the video overlay + debug HUD. */
-    private var currentCastMediaActive = false
     private var currentPhotoFrame: PhotoFrame? = null
     private var currentNowPlaying: NowPlayingInfo? = null
     private var currentPin: String? = null
@@ -114,13 +114,12 @@ class MainActivity : AppCompatActivity() {
         // Start the service immediately so it's running before any sender discovers us
         ServiceController.start(this)
 
-        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS.
-        // Wi-Fi Direct permissions (ACCESS_FINE_LOCATION / NEARBY_WIFI_DEVICES)
-        // must be granted at runtime too — without them addLocalService() failed
-        // and the Miracast card showed a fake "Check Wi-Fi settings" error even
-        // though Wi-Fi was perfectly fine. One combined request avoids the system
-        // dropping a second requestPermissions() call made while a dialog is up.
-        requestRuntimePermissions()
+        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS. Wi-Fi Direct
+        // permissions (ACCESS_FINE_LOCATION / NEARBY_WIFI_DEVICES) are needed too, but only by
+        // Miracast — so they are asked for only while that receiver is switched on in Settings.
+        // Demanding a "nearby devices" permission from a TV owner whose set is wired to Ethernet,
+        // for a receiver that can never run there, was the first thing PhairPlay did on launch.
+        lifecycleScope.launch { requestRuntimePermissions() }
     }
 
     override fun onStart() {
@@ -298,8 +297,7 @@ class MainActivity : AppCompatActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         val overlayActive = currentNowPlaying != null ||
             currentAirPlayState == ProtocolState.CONNECTED ||
-            currentMiracastState == ProtocolState.CONNECTED ||
-            currentCastMediaActive
+            currentMiracastState == ProtocolState.CONNECTED
         if (overlayActive) {
             val command = when (keyCode) {
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -323,17 +321,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Requests every runtime permission the app needs, in a single call:
+     * Requests the runtime permissions this TV actually needs, in a single call:
      * - POST_NOTIFICATIONS (Android 13+) for the foreground-service notification
-     * - ACCESS_FINE_LOCATION (all versions) + NEARYBY_WIFI_DEVICES (Android 13+)
-     *   for Wi-Fi Direct / Miracast
+     * - ACCESS_FINE_LOCATION (all versions) + NEARBY_WIFI_DEVICES (Android 13+) — but only
+     *   while Settings → Miracast is on. The Wi-Fi P2P API refuses `addLocalService` without
+     *   one of them, which is what used to make the Miracast card blame the user's Wi-Fi
+     *   settings; asking for them when Miracast is off buys a permission prompt and nothing else.
      *
-     * All are install-declared but runtime-granted. Until this request existed
-     * the app never held the Wi-Fi Direct permissions, so Miracast service
-     * registration failed on every modern device and the UI blamed the user's
-     * Wi-Fi settings.
+     * Suspending because the Miracast setting has to come from DataStore first. Call it from
+     * [lifecycleScope]. One combined request avoids the system dropping a second
+     * `requestPermissions()` call made while a dialog is already up.
      */
-    private fun requestRuntimePermissions() {
+    private suspend fun requestRuntimePermissions() {
+        val miracastWanted = runCatching {
+            SettingsRepository(this).settingsFlow.first().miracastEnabled
+        }.getOrDefault(false)
+
         val missing = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -342,13 +345,13 @@ class MainActivity : AppCompatActivity() {
         ) {
             missing += android.Manifest.permission.POST_NOTIFICATIONS
         }
-        if (ContextCompat.checkSelfPermission(
+        if (miracastWanted && ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             missing += android.Manifest.permission.ACCESS_FINE_LOCATION
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        if (miracastWanted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
                 this, PERMISSION_NEARBY_WIFI_DEVICES
             ) != PackageManager.PERMISSION_GRANTED
@@ -410,12 +413,6 @@ class MainActivity : AppCompatActivity() {
                 updateOverlay()
             }
         }
-        lifecycleScope.launch {
-            svc.castMediaActive.collectLatest { active ->
-                currentCastMediaActive = active
-                updateOverlay()
-            }
-        }
     }
 
     private fun updateOverlay() {
@@ -428,13 +425,9 @@ class MainActivity : AppCompatActivity() {
             // Audio-only AirPlay (system audio, Music, podcasts): show the now-playing card instead
             // of the black video surface. Set whenever audio plays without video.
             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
-            // Full-screen video: AirPlay mirroring, a Miracast (WFD) session, or a Cast sender
-            // with media loaded. Cast only counts once there is something to draw — launching an
-            // app for an audio-only sender must not black out the Home screen, and it is also
-            // what makes the debug HUD reachable during a Cast session.
+            // Full-screen video: AirPlay mirroring or a Miracast (WFD) session.
             currentAirPlayState == ProtocolState.CONNECTED ||
-                currentMiracastState == ProtocolState.CONNECTED ||
-                currentCastMediaActive -> showStreamingScreen()
+                currentMiracastState == ProtocolState.CONNECTED -> showStreamingScreen()
             photoFrame != null -> showPhotoScreen(photoFrame)
             else -> hideStreamingScreen()
         }

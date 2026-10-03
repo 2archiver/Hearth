@@ -85,6 +85,7 @@ class PhairPlayServiceTest {
         return when (state) {
             ProtocolState.CONNECTED   -> ActiveConnection("AirPlay Sender", Protocol.AIRPLAY)
             ProtocolState.ADVERTISING,
+            ProtocolState.UNAVAILABLE,
             ProtocolState.DISABLED,
             ProtocolState.ERROR       -> null
         }
@@ -109,6 +110,11 @@ class PhairPlayServiceTest {
     fun `DISABLED state clears ActiveConnection`() {
         val result = simulateStateChange(ProtocolState.DISABLED)
         assertNull("DISABLED must clear the ActiveConnection", result)
+    }
+
+    @Test
+    fun `UNAVAILABLE state clears ActiveConnection`() {
+        assertNull(simulateStateChange(ProtocolState.UNAVAILABLE))
     }
 
     @Test

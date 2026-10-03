@@ -15,9 +15,6 @@ import com.phairplay.MainActivity
 import com.phairplay.R
 import android.view.Surface
 import com.phairplay.airplay.AirPlayReceiver
-import com.phairplay.cast.CastReceiver
-import com.phairplay.cast.bridge.CastBridgeReceiver
-import com.phairplay.cast.bridge.CastMediaPlayer
 import com.phairplay.update.StageResult
 import com.phairplay.update.StagedUpdate
 import com.phairplay.update.UpdateCheck
@@ -44,7 +41,7 @@ import kotlinx.coroutines.launch
 /**
  * PhairPlayService — Android ForegroundService that hosts all receiver protocols.
  *
- * WHY: The AirPlay/Miracast/Cast receivers need to run continuously in the background.
+ * WHY: The AirPlay and Miracast receivers need to run continuously in the background.
  * Android may kill background processes. A ForegroundService with a persistent
  * notification keeps the app alive and shows the user that PhairPlay is active.
  *
@@ -79,9 +76,6 @@ class PhairPlayService : Service() {
     private val _miracastState = MutableStateFlow(ProtocolState.DISABLED)
     val miracastState: StateFlow<ProtocolState> = _miracastState.asStateFlow()
 
-    private val _castState = MutableStateFlow(ProtocolState.DISABLED)
-    val castState: StateFlow<ProtocolState> = _castState.asStateFlow()
-
     private val _activeConnection = MutableStateFlow<ActiveConnection?>(null)
     val activeConnection: StateFlow<ActiveConnection?> = _activeConnection.asStateFlow()
 
@@ -113,14 +107,6 @@ class PhairPlayService : Service() {
     // Receiver instances — null when not running
     private var airPlayReceiver: AirPlayReceiver? = null
     private var miracastReceiver: MiracastReceiver? = null
-    private var castReceiver: CastReceiver? = null
-
-    /**
-     * PhairPlay's own Google Cast receiver, used when no Google-issued Cast App ID is
-     * configured. Runs instead of [castReceiver], never alongside it — two receivers
-     * advertising `_googlecast._tcp` for the same IP make senders show duplicate entries.
-     */
-    private var castBridge: CastBridgeReceiver? = null
 
     /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
     private var updateCheckJob: kotlinx.coroutines.Job? = null
@@ -128,19 +114,20 @@ class PhairPlayService : Service() {
     /** Watches update preferences so toggles take effect without restarting the receivers. */
     private var updateSettingsJob: kotlinx.coroutines.Job? = null
 
-    /** Why the Cast card is in its current state ("Cast App ID not set", "port 8009 in use"…). */
-    private val _castDetail = MutableStateFlow<String?>(null)
-    val castDetail: StateFlow<String?> = _castDetail.asStateFlow()
-
     /**
-     * True while a Cast sender has media loaded (as opposed to merely connected).
+     * Why each card is in the state it is in — the address the TV is advertising on, a
+     * refused mDNS record, a TV with no Wi-Fi Direct.
      *
-     * WHY: showing the full-screen video surface the moment a sender *launches* an app would
-     * black out the Home screen for audio-only casting (Spotify, podcasts). This flips only
-     * once there is actually something to draw — or something audible to report in the HUD.
+     * WHY: a bare "Advertising"/"Disabled" line is what made "AirPlay does not work on my
+     * wired TV" impossible to answer. The receivers already know the real reason; the Home
+     * screen just never showed it. Null means "nothing to add", and the card falls back to its
+     * generic wording.
      */
-    private val _castMediaActive = MutableStateFlow(false)
-    val castMediaActive: StateFlow<Boolean> = _castMediaActive.asStateFlow()
+    private val _airPlayDetail = MutableStateFlow<String?>(null)
+    val airPlayDetail: StateFlow<String?> = _airPlayDetail.asStateFlow()
+
+    private val _miracastDetail = MutableStateFlow<String?>(null)
+    val miracastDetail: StateFlow<String?> = _miracastDetail.asStateFlow()
 
     /** Set while an automatic update check is running, so the UI can show a spinner. */
     private val _updateChecking = MutableStateFlow(false)
@@ -164,7 +151,7 @@ class PhairPlayService : Service() {
                 // WHY HERE: Settings saves this one without restarting the receivers (it is a
                 // UI-only preference), and it used to be read only inside startAirPlay() — so
                 // flipping the switch did nothing until the user happened to press Restart, and
-                // the overlay never appeared at all for Cast/Miracast sessions. Reading the flow
+                // the overlay never appeared at all for a Miracast session. Reading the flow
                 // makes the toggle take effect the moment it is flipped, mid-session included.
                 com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
                 val current = Triple(
@@ -224,36 +211,6 @@ class PhairPlayService : Service() {
      */
     fun setVideoSurfaceProvider(provider: () -> Surface?) {
         videoSurfaceProvider = provider
-        // A Cast session may already be playing (started while the Activity was in the
-        // background with no Surface). Hand the new Surface over so video shows up.
-        castBridge?.attachSurface()
-    }
-
-    /**
-     * Bring PhairPlay's Activity to the front so there is a Surface to render video onto.
-     *
-     * WHY: PhairPlay draws through a Surface owned by [MainActivity], and MainActivity drops
-     * that Surface as soon as it is no longer visible (it installs a null-returning provider
-     * in `onStop`). A sender that starts casting while the TV is sitting on the home screen
-     * would therefore play audio with no picture. Re-opening the Activity restores it.
-     *
-     * Android 10+ restricts background activity launches, so this is best-effort: it normally
-     * succeeds because MainActivity is still in the back stack of a recent task. If the
-     * system refuses we log it and carry on — audio-only is better than nothing.
-     */
-    private fun bringToFront() {
-        runCatching {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
-            }
-            startActivity(intent)
-        }.onFailure { error ->
-            Logger.w("Could not bring PhairPlay to the front for playback: ${error.message}", error)
-        }
     }
 
     /**
@@ -281,12 +238,12 @@ class PhairPlayService : Service() {
     /**
      * Starts all receivers that are enabled in Settings.
      *
-     * Reads current settings, then starts AirPlay, Miracast, and/or Cast
-     * receivers according to the enabled flags.
+     * Reads current settings, then starts the AirPlay and Miracast receivers
+     * according to the enabled flags.
      */
     private suspend fun startReceivers() {
         val settings = settingsRepository.settingsFlow.first()
-        Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}, Miracast=${settings.miracastEnabled}, Cast=${settings.castEnabled}")
+        Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}, Miracast=${settings.miracastEnabled}")
 
         // Belt and braces for the debug overlay: the settings collector in onCreate() already
         // mirrors this, but a receiver started before that collector's first emission must not
@@ -297,8 +254,10 @@ class PhairPlayService : Service() {
         updateNotification(isRunning = true)
 
         if (settings.airPlayEnabled)   startAirPlay(settings)
+        // Miracast is opt-in: it needs a Wi-Fi Direct group, which most Google TVs keep for
+        // the system, and starting it anyway used to leave a permanent red error on the Home
+        // screen of every wired TV. See docs/guides/MIRACAST.md.
         if (settings.miracastEnabled)  startMiracast()
-        if (settings.castEnabled)      startCast(settings)
 
         // Look for a newer PhairPlay build in the background. Throttled inside
         // UpdateManager (once every few hours), so this is cheap to call every start.
@@ -403,6 +362,7 @@ class PhairPlayService : Service() {
             onPinChanged = { pin ->
                 _pairingPin.value = pin
             },
+            onAdvertiseNotice = { notice -> _airPlayDetail.value = notice },
             onStateChanged = { state ->
                 _airPlayState.value = state
                 when (state) {
@@ -414,6 +374,7 @@ class PhairPlayService : Service() {
                         updateNotification(isRunning = true, streamingSenderName = pendingSenderName)
                     }
                     ProtocolState.ADVERTISING,
+                    ProtocolState.UNAVAILABLE,
                     ProtocolState.DISABLED,
                     ProtocolState.ERROR       -> {
                         _activeConnection.value = null
@@ -430,8 +391,8 @@ class PhairPlayService : Service() {
     /**
      * Starts a fresh debug-overlay session for [source], clearing the previous one's counters.
      *
-     * Never clears another protocol's session: a Cast session ending must not wipe counters an
-     * AirPlay stream is still writing.
+     * Never clears another protocol's session: a Miracast session ending must not wipe the
+     * counters an AirPlay stream is still writing.
      */
     private fun beginStatsSession(source: String) {
         com.phairplay.airplay.StreamStats.beginSession(source)
@@ -453,6 +414,7 @@ class PhairPlayService : Service() {
             // Same surface AirPlay decodes onto — MainActivity shows the streaming
             // overlay for Miracast CONNECTED, so the Surface exists before frames flow.
             videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
+            onNotice = { notice -> _miracastDetail.value = notice },
             onStateChanged = { state ->
                 _miracastState.value = state
                 when (state) {
@@ -462,6 +424,7 @@ class PhairPlayService : Service() {
                         updateNotification(isRunning = true, streamingSenderName = senderName)
                     }
                     ProtocolState.ADVERTISING,
+                    ProtocolState.UNAVAILABLE,
                     ProtocolState.DISABLED,
                     ProtocolState.ERROR -> {
                         // Another protocol (AirPlay) may own the active connection.
@@ -478,85 +441,6 @@ class PhairPlayService : Service() {
             // state once the Wi-Fi P2P service registration completes (async).
         ).also { it.start() }
         Logger.d("Miracast receiver started")
-    }
-
-    /**
-     * Starts Google Cast, choosing between the two implementations:
-     *
-     * 1. **Cast Connect** (Google's SDK) when this build carries a Cast Application ID.
-     *    That is the official path and needs a registration at <https://cast.google.com/publish>.
-     * 2. **PhairPlay's Cast bridge** otherwise — mDNS + DIAL + castv2 implemented here, so
-     *    casting works on a TV whose owner has not registered anything with Google.
-     */
-    private fun startCast(settings: AppSettings) {
-        if (CastReceiver.isConfigured()) {
-            castReceiver = CastReceiver(
-                context = applicationContext,
-                onStateChanged = { state ->
-                    _castState.value = state
-                    _castDetail.value = when (state) {
-                        ProtocolState.ADVERTISING -> getString(R.string.cast_detail_connect_advertising)
-                        ProtocolState.ERROR -> getString(R.string.protocol_detail_error_cast)
-                        else -> null
-                    }
-                }
-            ).also { it.start() }
-            Logger.d("Cast receiver started (Cast Connect, registered app ID)")
-            return
-        }
-
-        if (!settings.castBridgeEnabled) {
-            _castDetail.value = getString(R.string.cast_detail_disabled)
-            _castState.value = ProtocolState.DISABLED
-            Logger.w("Cast is on but both back-ends are unavailable: no Cast App ID and the bridge is off")
-            return
-        }
-
-        val bridge = CastBridgeReceiver(
-            context = applicationContext,
-            displayName = settings.effectiveDisplayName,
-            surfaceProvider = { videoSurfaceProvider?.invoke() },
-            onStateChanged = { state ->
-                _castState.value = state
-                _castDetail.value = when (state) {
-                    ProtocolState.ADVERTISING -> castBridge?.lastNotice
-                        ?: castBridge?.lastError
-                        ?: getString(R.string.cast_detail_bridge_advertising)
-                    ProtocolState.ERROR -> castBridge?.lastError ?: getString(R.string.cast_detail_error)
-                    else -> null
-                }
-                if (state == ProtocolState.CONNECTED) {
-                    // A Cast sender connects from outside the app — make sure there is a
-                    // Surface to draw on before the LOAD command arrives.
-                    bringToFront()
-                    _activeConnection.value = ActiveConnection(
-                        getString(R.string.cast_sender_name), Protocol.CAST
-                    )
-                    beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_CAST)
-                } else {
-                    if (_activeConnection.value?.protocol == Protocol.CAST) {
-                        _activeConnection.value = null
-                    }
-                    endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_CAST)
-                }
-            },
-            onMediaChanged = { state, positionSec, durationSec ->
-                val stats = com.phairplay.airplay.StreamStats
-                stats.castState = state
-                stats.castPositionSec = positionSec
-                stats.castDurationSec = durationSec
-                stats.audioActive = state == CastMediaPlayer.State.PLAYING
-                _castMediaActive.value = state != CastMediaPlayer.State.IDLE
-            },
-            onNotice = { message -> _castDetail.value = message }
-        )
-        castBridge = bridge
-        bridge.start()
-        if (bridge.lastError != null) {
-            _castDetail.value = bridge.lastError
-            _castState.value = ProtocolState.ERROR
-        }
-        Logger.d("Cast bridge started as '${settings.effectiveDisplayName}'")
     }
 
     /**
@@ -665,17 +549,12 @@ class PhairPlayService : Service() {
     private fun stopAllReceiversInternal() {
         try { airPlayReceiver?.stop() } catch (e: Exception) { Logger.e("AirPlay stop error", e) }
         try { miracastReceiver?.stop() } catch (e: Exception) { Logger.e("Miracast stop error", e) }
-        try { castReceiver?.stop() } catch (e: Exception) { Logger.e("Cast stop error", e) }
-        try { castBridge?.stop() } catch (e: Exception) { Logger.e("Cast bridge stop error", e) }
         airPlayReceiver = null
         miracastReceiver = null
-        castReceiver = null
-        castBridge = null
-        _castDetail.value = null
+        _airPlayDetail.value = null
+        _miracastDetail.value = null
         _airPlayState.value = ProtocolState.DISABLED
         _miracastState.value = ProtocolState.DISABLED
-        _castState.value = ProtocolState.DISABLED
-        _castMediaActive.value = false
         _photoFrame.value = null
         _nowPlaying.value = null
         _pairingPin.value = null

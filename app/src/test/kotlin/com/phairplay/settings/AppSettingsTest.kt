@@ -36,10 +36,19 @@ class AppSettingsTest {
     }
 
     @Test
-    fun `default settings have all protocols enabled`() {
+    fun `AirPlay is on by default and Miracast is not`() {
+        // AirPlay is the whole point of the app, so it runs on first launch. Miracast needs a
+        // Wi-Fi Direct group, which most Google TVs refuse an app — starting it regardless used
+        // to leave a red "Wi-Fi Direct unavailable or permission denied" card on every wired TV.
         assertTrue(AppSettings.DEFAULT.airPlayEnabled)
-        assertTrue(AppSettings.DEFAULT.miracastEnabled)
-        assertTrue(AppSettings.DEFAULT.castEnabled)
+        assertFalse(AppSettings.DEFAULT.miracastEnabled)
+    }
+
+    @Test
+    fun `the 4K mirroring ceiling is offered by default`() {
+        // A 4K Google TV decodes 4K; advertising 1080p there is the visible-softness bug. The
+        // advertised size is still capped by the panel and the decoder (see MirrorResolution).
+        assertTrue(AppSettings.DEFAULT.forceHighResolution)
     }
 
     @Test
@@ -108,31 +117,25 @@ class AppSettingsTest {
 
     @Test
     fun `anyProtocolEnabled is true when all protocols are enabled`() {
-        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = true, castEnabled = true)
+        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = true)
         assertTrue(settings.anyProtocolEnabled)
     }
 
     @Test
     fun `anyProtocolEnabled is true when only AirPlay is enabled`() {
-        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = false, castEnabled = false)
+        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = false)
         assertTrue(settings.anyProtocolEnabled)
     }
 
     @Test
     fun `anyProtocolEnabled is true when only Miracast is enabled`() {
-        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = true, castEnabled = false)
+        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = true)
         assertTrue(settings.anyProtocolEnabled)
     }
 
     @Test
-    fun `anyProtocolEnabled is true when only Cast is enabled`() {
-        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = false, castEnabled = true)
-        assertTrue(settings.anyProtocolEnabled)
-    }
-
-    @Test
-    fun `anyProtocolEnabled is false when all protocols are disabled`() {
-        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = false, castEnabled = false)
+    fun `anyProtocolEnabled is false when every protocol is disabled`() {
+        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = false)
         assertFalse(settings.anyProtocolEnabled)
     }
 

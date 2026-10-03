@@ -6,8 +6,10 @@
     See docs/spec/REQUIREMENTS.md §2.3 for the full permission rationale.
 
     INTERNET                    — required for local TCP/UDP socket operations (AirPlay is LAN-only)
-    CHANGE_WIFI_MULTICAST_STATE — required to join mDNS multicast groups
-    ACCESS_WIFI_STATE           — required to read the device's IP address and MAC address
+    CHANGE_WIFI_MULTICAST_STATE — holds the multicast lock Android otherwise uses to filter
+                                  the mDNS queries our own advertisement has to answer
+    ACCESS_WIFI_STATE           — required to read the device's IP/MAC address and whether the
+                                  Wi-Fi radio is on (Miracast availability)
     ACCESS_NETWORK_STATE        — required to detect network changes (reconnect logic)
     FOREGROUND_SERVICE          — required for persistent background receiver service (Android 9+)
     FOREGROUND_SERVICE_CONNECTED_DEVICE — required for connectedDevice foreground service type (Android 14+)
@@ -40,12 +42,6 @@
 
     <!-- Start on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!--
-        Cast volume: a Cast sender's volume slider maps onto the TV's music stream.
-        Normal-level permission — granted at install, never prompted at runtime.
-    -->
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Foreground service notification (Android 13+ requires runtime grant) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -81,56 +77,6 @@
     <uses-feature
         android:name="android.hardware.location.network"
         android:required="false" />
-
-    <!--
-        Package visibility (Android 11+).
-
-        Cast's DIAL hand-off has to ask "is Netflix / YouTube / … installed on this TV?" before
-        it can launch the real app instead of trying to play a protected stream itself. From
-        Android 11 the platform hides every other package unless it is named here, so without
-        this block every hand-off would silently fail and PhairPlay would keep serving apps it
-        cannot actually play.
-    -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.INFO" />
-        </intent>
-        <package android:name="com.netflix.ninja" />
-        <package android:name="com.google.android.apps.youtube.tv" />
-        <package android:name="com.google.android.youtube.tv" />
-        <package android:name="com.google.android.apps.youtube.livetv" />
-        <package android:name="com.google.android.apps.youtube.kids" />
-        <package android:name="com.spotify.tv.android" />
-        <package android:name="com.spotify.music" />
-        <package android:name="com.disney.disneyplus" />
-        <package android:name="com.amazon.avod.thirdpartyclient" />
-        <package android:name="com.wbd.hbo.max" />
-        <package android:name="com.hbo.hbonow" />
-        <package android:name="com.hulu.plus" />
-        <package android:name="com.peacocktv.peacocktv" />
-        <package android:name="com.cbs.ott" />
-        <package android:name="com.plexapp.android" />
-        <package android:name="tv.twitch.android.app" />
-        <package android:name="com.crunchyroll.crunchyroid" />
-        <package android:name="org.videolan.vlc" />
-        <package android:name="org.xbmc.kodi" />
-        <package android:name="com.ted.android" />
-        <package android:name="com.vimeo.android.videoapp" />
-        <package android:name="com.tubitv" />
-        <package android:name="tv.pluto.android" />
-        <package android:name="com.dazn.dazn" />
-        <package android:name="com.soundcloud.android" />
-        <package android:name="deezer.android.app" />
-        <package android:name="tunein.player" />
-        <package android:name="com.pandora.android" />
-        <package android:name="uk.co.bbc.android.iplayer" />
-        <package android:name="uk.co.bbc.iplayer" />
-    </queries>
 
     <application
         android:name=".PhairPlayApp"
@@ -169,7 +115,7 @@
 
         <!--
             PhairPlayService — persistent foreground service that manages
-            AirPlay, Miracast, and Cast receivers.
+            AirPlay and Miracast receivers.
 
             - foregroundServiceType="connectedDevice": required for Android 14+
               when a foreground service manages a connected device (BT/Wi-Fi/P2P)

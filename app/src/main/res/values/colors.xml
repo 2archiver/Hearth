@@ -33,13 +33,11 @@
     <!-- Yellow: service starting / restarting -->
     <color name="status_transitioning">#FFFFD60A</color>
 
-    <!-- ─── Protocol brand colors ────────────────────────────── -->
-    <!-- AirPlay: Apple silver-blue -->
-    <color name="protocol_airplay">#FF5AC8FA</color>
-    <!-- Miracast: neutral teal -->
-    <color name="protocol_miracast">#FF30D158</color>
-    <!-- Cast: Google blue -->
-    <color name="protocol_cast">#FF4285F4</color>
+    <!-- ─── Protocol brand colors (docs/DESIGN-SYSTEM.md §2.2) ─── -->
+    <!-- AirPlay: Apple silver-blue. Miracast: neutral green — deliberately NOT a brand
+         colour, and with no Cast entry any more these two are the only protocols in the app. -->
+    <color name="protocol_airplay">#FF5AAEE8</color>
+    <color name="protocol_miracast">#FF34A853</color>
 
     <!-- ─── Navigation ────────────────────────────────────────── -->
     <color name="nav_panel_background">#FF111111</color>

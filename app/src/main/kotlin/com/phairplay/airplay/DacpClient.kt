@@ -32,6 +32,14 @@ class DacpClient(context: Context) {
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /**
+     * NsdManager binds its discovery/resolve callbacks to the Looper of the calling thread and
+     * throws on a thread that has none — so every NsdManager call runs here, on the main
+     * looper. The callbacks only read a resolved address and stop a scan; the HTTP commands
+     * themselves stay on [scope].
+     */
+    private val nsdScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+
     @Volatile private var dacpId: String? = null
     @Volatile private var activeRemote: String? = null
     @Volatile private var resolvedHost: String? = null
@@ -77,12 +85,21 @@ class DacpClient(context: Context) {
     }
 
     fun stop() {
-        stopDiscovery()
+        // Cancel first so a queued stop cannot be dropped: the launch below would never run
+        // after the scope is gone, and an abandoned scan keeps the multicast listener alive.
+        stopDiscoveryNow()
+        nsdScope.cancel()
         scope.cancel()
     }
 
     private fun startDiscovery(targetName: String) {
-        stopDiscovery()
+        nsdScope.launch {
+            startDiscoveryOnLooperThread(targetName)
+        }
+    }
+
+    private fun startDiscoveryOnLooperThread(targetName: String) {
+        stopDiscoveryNow()
         val listener = object : NsdManager.DiscoveryListener {
             override fun onServiceFound(info: NsdServiceInfo) {
                 if (info.serviceName == targetName) {
@@ -115,6 +132,11 @@ class DacpClient(context: Context) {
     }
 
     private fun stopDiscovery() {
+        nsdScope.launch { stopDiscoveryNow() }
+    }
+
+    /** Must run on the same looper that started the scan; [stopDiscovery] does that hop. */
+    private fun stopDiscoveryNow() {
         discoveryListener?.let { runCatching { nsdManager.stopServiceDiscovery(it) } }
         discoveryListener = null
     }

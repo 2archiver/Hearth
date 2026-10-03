@@ -74,18 +74,12 @@ Two different things get called "casting". Which you want decides the route:
 2. Pick the name PhairPlay advertises (**Apple TV** by default).
 3. Open the app and play.
 
-**Google Cast (for apps that cast a media URL)** — the app's own cast icon now lists PhairPlay,
-and the TV fetches and plays the video itself. See [CAST.md](CAST.md) for what works, what
-doesn't, and how to fix a Cast card that shows an error.
-
-Two limits get reported on the Cast card rather than left mysterious:
-
-- *"\<app\> is using a private Cast channel that only its own receiver understands"* — the app
-  launched its own receiver here and then spoke a private protocol. Use **Screen Mirroring** for
-  that app.
-- *"\<app\> is being played by this TV's own app"* — the DIAL launch was handed to the app
-  installed on the TV (Netflix, YouTube, Spotify…), which is what a real smart TV does. The phone
-  is now talking to that app, not to PhairPlay.
+**Google Cast — not PhairPlay.** A cast icon inside an app looks for the TV's built-in Chromecast,
+which permanently owns TCP 8008/8009 and the `_googlecast._tcp` record; PhairPlay does not register
+a Cast receiver and never will, so it cannot appear in that list. If an app offers only a cast button
+and no Screen Mirroring, its video reaches the TV through Google's receiver or not at all —
+[CAST.md](CAST.md) explains the boundary. Screen Mirroring is the route that always works, because
+it is AirPlay, and AirPlay is what PhairPlay advertises.
 
 **Miracast** — see [MIRACAST.md](MIRACAST.md). Note the platform ceiling: Android's public
 Wi-Fi P2P APIs can advertise a WFD service and run discovery, but a third-party app cannot
@@ -93,17 +87,52 @@ silently accept an incoming Wi-Fi Direct connection the way the system's own wir
 feature can. If your TV already ships a "Screen mirroring" feature, prefer it. Miracast video
 works; **WFD audio is not decoded** (it is carried in an MPEG-2 transport stream).
 
-If the Cast card says *"Ports 8008/8009 are already in use"*, the TV's own built-in Chromecast
-is already serving Cast on those ports — PhairPlay cannot also bind them. Use the built-in
-receiver, or turn it off in the TV's settings and restart PhairPlay.
+Anything mentioning **8008/8009** means an old build is still installed: 1.6 removed PhairPlay's
+Cast bridge, so those ports are never bound and that conflict cannot be reported. Reinstall the
+current APK if a card still says it.
 
 ### If the iPhone cannot see the TV at all
 
-Check the **Network:** line on PhairPlay's Home screen first — it names the interface and IP the
-receiver is advertising on (`Ethernet · 192.168.1.42`). The phone must be on that same network,
-and multicast (mDNS) has to be able to cross between them. Wired TV + wireless phone is the
-usual mismatch, and no app can work around a router that keeps them apart. More in
-[CAST.md → Ethernet](CAST.md#ethernet-wired-google-tv).
+Read the AirPlay card on PhairPlay's Home screen first — it names the interface and address the
+advertisement is live on (`Advertising on Ethernet · 192.168.1.42`). Three cases:
+
+- **It says "Advertising" and shows an address** → discovery is running; the problem is between the
+  networks. See [Ethernet (wired Google TV)](#ethernet-wired-google-tv).
+- **It says "Advertising" with no address** → the TV has no usable network. Check the TV's own
+  network settings; a TV that is not joined to a network cannot be found on one.
+- **It says "Error"** → registration failed, and the line under it says why. Press **Restart**; if
+  it comes back red, grab the `mDNS: registration failed (…)` line from `adb logcat` for a report.
+
+## Ethernet (wired Google TV)
+
+Nothing in PhairPlay's AirPlay receiver assumes Wi-Fi. Sockets bind all interfaces, the multicast
+lock is taken on whatever network is up, and discovery is mDNS, which behaves identically over
+Ethernet — a wired 4K Google TV is the **primary tested target**, and the mirror is capped at 4K by
+the panel rather than by the network.
+
+What wiring does change is how many networks there are. In order:
+
+1. **Is the iPhone on the same subnet as the address on the card?** TV wired + phone on Wi-Fi is
+   only one network if the router bridges wired and wireless into the same subnet. Plenty of routers
+   keep them apart, or turn on "AP isolation" / a guest network.
+2. **Does multicast cross between them?** mDNS is multicast. A router that filters multicast between
+   its wired and wireless segments (sometimes sold as "IGMP snooping" or "multicast enhancement")
+   makes discovery impossible from the phone's side, and no app can work around it.
+3. **Is the TV joined to Wi-Fi as well as wired?** Then it has two addresses and the phone can pick a
+   route the TV never advertises on. PhairPlay advertises on the interface it is reachable by
+   (Ethernet wins), and the card tells you which. Either match it on the phone, or forget the Wi-Fi
+   network on the TV.
+
+Quick check from a computer on the same network:
+
+```bash
+dns-sd -B _airplay._tcp             # macOS: list AirPlay receivers
+avahi-browse -rt _airplay._tcp      # Linux
+```
+
+If PhairPlay appears there but not on the iPhone, it is multicast or segmentation. If it does not
+appear at all, PhairPlay is not advertising — press **Restart** on the Home screen and read the
+error line on the AirPlay card.
 
 ### If Screen Mirroring connects but the video is black
 

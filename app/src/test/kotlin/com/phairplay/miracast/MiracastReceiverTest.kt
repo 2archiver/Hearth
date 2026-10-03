@@ -54,16 +54,42 @@ class MiracastReceiverTest {
         assertEquals(ProtocolState.ADVERTISING, states.last())
     }
 
+    /**
+     * A TV that does not hand Wi-Fi Direct to apps is not a PhairPlay fault. The card has to
+     * say "not available here" (grey) instead of "error" (red), which is exactly what made the
+     * Miracast card look broken forever on a wired Google TV.
+     */
     @Test
-    fun `start emits error when WifiP2pManager is unavailable`() {
+    fun `start reports unavailable when WifiP2pManager is unavailable`() {
         val context = mockk<Context>()
         val states = mutableListOf<ProtocolState>()
+        val notices = mutableListOf<String?>()
 
         every { context.getSystemService(Context.WIFI_P2P_SERVICE) } returns null
 
-        MiracastReceiver(context) { states.add(it) }.start()
+        MiracastReceiver(context, onNotice = { notices.add(it) }) { states.add(it) }.start()
 
-        assertTrue(states.contains(ProtocolState.ERROR))
+        assertTrue(states.contains(ProtocolState.UNAVAILABLE))
+        assertTrue(
+            "the card must be told why, not just that something failed",
+            notices.lastOrNull()?.isNotBlank() == true
+        )
+    }
+
+    @Test
+    fun `start reports unavailable when the TV has no Wi-Fi Direct`() {
+        val context = mockk<Context>()
+        val packageManager = mockk<PackageManager>()
+        val states = mutableListOf<ProtocolState>()
+        val notices = mutableListOf<String?>()
+
+        every { context.packageManager } returns packageManager
+        every { packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT) } returns false
+
+        MiracastReceiver(context, onNotice = { notices.add(it) }) { states.add(it) }.start()
+
+        assertEquals(listOf(ProtocolState.UNAVAILABLE), states)
+        assertTrue(notices.single().orEmpty().contains("no Wi-Fi Direct"))
     }
 
     @Test

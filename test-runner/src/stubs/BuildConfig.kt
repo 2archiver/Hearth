@@ -11,7 +11,6 @@ package com.phairplay
  * ever needs a specific version, inject it rather than editing these constants.
  */
 object BuildConfig {
-    const val CAST_APP_ID = ""
 
     /** GitHub repo the in-app updater polls ("owner/name"). */
     const val UPDATE_REPO = "2archiver/phairplay-archiver-fork-"

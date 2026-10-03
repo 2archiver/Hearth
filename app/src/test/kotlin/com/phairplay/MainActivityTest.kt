@@ -81,7 +81,7 @@ class MainActivityTest {
 
         assertEquals("Exactly one state should show the overlay", 1, showingStates.size)
         assertEquals(ProtocolState.CONNECTED, showingStates.first())
-        assertEquals(3, hidingStates.size)
+        assertEquals(ProtocolState.values().size - 1, hidingStates.size)
     }
 
     // ─── Surface provider lambda mechanics ───────────────────────────────────

@@ -142,6 +142,47 @@ class MdnsServiceTest {
      * WHY: Restart must fully tear down and re-advertise so the device name
      * change from Settings takes effect immediately.
      */
+    /**
+     * Test: a refused registration is a state, not an exception.
+     *
+     * WHY: `NsdManager.registerService` throws when the TV's mDNS daemon rejects the record
+     * (or when the app is backgrounded at exactly the wrong moment). A crash here kills the
+     * receiver process, which looks to the user like "PhairPlay keeps restarting"; the card
+     * instead has to go red with an explanation. Excluded from `:test-runner` (it mocks
+     * NsdManager), so this runs with the app's own JVM test task.
+     */
+    @Test
+    fun `a refused registration reports ERROR instead of crashing`() {
+        val states = mutableListOf<com.phairplay.service.ProtocolState>()
+        every {
+            mockNsdManager.registerService(any(), NsdManager.PROTOCOL_DNS_SD, any())
+        } throws IllegalStateException("Registration failed: service already active")
+        val service = MdnsService(mockContext, onStateChange = { states.add(it) })
+
+        service.start()
+
+        assertTrue(
+            "an unusable advertisement must be visible on the AirPlay card",
+            states.contains(com.phairplay.service.ProtocolState.ERROR)
+        )
+    }
+
+    /**
+     * Test: `isAdvertising` only claims success once the browsable record is live.
+     *
+     * WHY: the Home card and the retry scheduler both ask this. If it answered "yes" while
+     * registration was pending, a wired TV would never get its retry and would sit on a
+     * half-advertising state forever.
+     */
+    @Test
+    fun `isAdvertising is false before start and after stop`() {
+        val service = MdnsService(mockContext)
+        assertEquals(false, service.isAdvertising())
+        service.start()
+        service.stop()
+        assertEquals(false, service.isAdvertising())
+    }
+
     @Test
     fun `restart unregisters then re-registers services`() {
         val service = MdnsService(mockContext)

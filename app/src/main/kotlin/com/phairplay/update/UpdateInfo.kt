@@ -44,14 +44,21 @@ data class UpdateInfo(
         if (versionCode > 0) "$versionName ($versionCode)" else versionName
 
     companion object {
-        /** Asset name the release workflow publishes alongside the APK. */
+        /**
+         * Asset name the release workflow used when every release carried three files
+         * (`version.json`, `SHA256SUMS.txt`, the APK). Releases are a single version-named APK
+         * now, so this only exists to keep reading *older* releases correctly.
+         */
         const val DESCRIPTOR_ASSET = "version.json"
 
-        /** Asset name of the Google TV APK in every PhairPlay release. */
+        /** The un-versioned APK name used by releases before the one-asset change. */
         const val APK_ASSET = "PhairPlay-googletv.apk"
 
-        /** Asset carrying the APK checksums published with each release. */
+        /** Asset carrying the APK checksums, published by releases before the one-asset change. */
         const val CHECKSUM_ASSET = "SHA256SUMS.txt"
+
+        /** A release's payload is recognised by this suffix — its name carries the version. */
+        const val APK_SUFFIX = ".apk"
     }
 }
 
@@ -72,9 +79,18 @@ data class Release(
 ) {
     fun asset(name: String): ReleaseAsset? = assets.firstOrNull { it.name == name }
 
-    /** The APK asset: the published name first, then anything ending in `.apk`. */
+    /**
+     * The release's payload: one APK, named after its version
+     * (`PhairPlay-1.6.0-main.42-googletv.apk`).
+     *
+     * The legacy fixed name is matched first only so old releases keep working; new ones have a
+     * version in the file name. Matching on the `.apk` suffix rather than "the first asset" is the
+     * deliberate part — a stray non-APK file in a release must never be offered to a TV as an
+     * installable update.
+     */
     fun apkAsset(): ReleaseAsset? =
-        asset(UpdateInfo.APK_ASSET) ?: assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+        asset(UpdateInfo.APK_ASSET)
+            ?: assets.firstOrNull { it.name.endsWith(UpdateInfo.APK_SUFFIX, ignoreCase = true) }
 }
 
 /**
@@ -147,6 +163,28 @@ object ReleaseParser {
             ?.toInt()
     }
 
+    /**
+     * Scrapes the APK's SHA-256 out of a release body.
+     *
+     * A one-asset release publishes no `SHA256SUMS.txt`, so the digest the workflow computed is
+     * written into the notes instead ("**SHA-256:** `…`"). Requires the full 64 hex characters, so
+     * a truncated or prose mention of a hash can never be mistaken for the real one.
+     */
+    fun scrapeSha256(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        return SHA256_REGEX.find(text)?.groupValues?.get(1)?.lowercase()
+    }
+
+    /**
+     * The version carried by the single asset's file name: `PhairPlay-1.6.0-main.42-googletv.apk`
+     * -> `1.6.0-main.42`. More trustworthy than the release title because it is the name of the
+     * file that actually gets installed.
+     */
+    fun versionNameFromAssetName(name: String?): String? {
+        if (name.isNullOrBlank()) return null
+        return ASSET_VERSION_REGEX.find(name)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+    }
+
     /** Parses `SHA256SUMS.txt` (lines of `<hex>  <filename>`) into a filename → hex map. */
     fun parseSha256Sums(text: String?): Map<String, String> {
         if (text.isNullOrBlank()) return emptyMap()
@@ -189,12 +227,17 @@ object ReleaseParser {
 
         val versionName = descriptor?.versionName
             ?.takeIf { it.isNotBlank() }
+            ?: versionNameFromAssetName(apk.name)
             ?: release.name.takeIf { it.isNotBlank() }
             ?: fallbackVersionName
 
+        // Descriptor (old releases) → SHA256SUMS.txt (old releases) → the digest written into the
+        // release body, which is all a one-asset release publishes. A null here does not block the
+        // update; it only means download() cannot prove the file is intact before installing it.
         val sha256 = descriptor?.sha256
             ?: checksums?.get(apk.name)
-            ?: checksums?.entries?.firstOrNull { it.key.endsWith(".apk", ignoreCase = true) }?.value
+            ?: checksums?.entries?.firstOrNull { it.key.endsWith(UpdateInfo.APK_SUFFIX, ignoreCase = true) }?.value
+            ?: scrapeSha256(release.body)
 
         return UpdateInfo(
             versionName = versionName,
@@ -212,6 +255,12 @@ object ReleaseParser {
     // ─── Internal helpers ────────────────────────────────────────────────────
 
     private val VERSION_CODE_REGEX = Regex("""versionCode\s*[:=]?\s*(\d{4,10})""", RegexOption.IGNORE_CASE)
+
+    /** `SHA-256: ` + up to eight separator characters + 64 hex digits. */
+    private val SHA256_REGEX = Regex("""(?i)SHA-?256\W{0,8}([0-9a-f]{64})""")
+
+    private val ASSET_VERSION_REGEX =
+        Regex("""^PhairPlay-(.+?)(?:-googletv)?\.apk$""", RegexOption.IGNORE_CASE)
 
     private fun parseAssets(array: JSONArray?): List<ReleaseAsset> {
         if (array == null) return emptyList()

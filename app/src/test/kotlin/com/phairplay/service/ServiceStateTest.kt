@@ -86,6 +86,18 @@ class ServiceStateTest {
         assertEquals(ProtocolState.ERROR, ProtocolState.valueOf("ERROR"))
     }
 
+    /**
+     * "Cannot run on this TV" is deliberately not the same thing as "broke". Miracast hits this
+     * state on every Google TV that keeps Wi-Fi Direct to itself, and the card has to be able to
+     * say so without accusing PhairPlay.
+     */
+    @Test
+    fun `ProtocolState has UNAVAILABLE state distinct from ERROR`() {
+        val unavailable = ProtocolState.UNAVAILABLE
+        assertNotEquals(ProtocolState.ERROR, unavailable)
+        assertNotEquals(ProtocolState.DISABLED, unavailable)
+    }
+
     // ─── Protocol enum ────────────────────────────────────────────────────────
 
     @Test
@@ -98,9 +110,16 @@ class ServiceStateTest {
         assertEquals(Protocol.MIRACAST, Protocol.valueOf("MIRACAST"))
     }
 
+    /**
+     * PhairPlay has no Cast protocol any more: a Google TV's own Chromecast owns TCP 8008/8009
+     * and `_googlecast._tcp`, so a second receiver here could only ever report a port clash.
+     */
     @Test
-    fun `Protocol has CAST value`() {
-        assertEquals(Protocol.CAST, Protocol.valueOf("CAST"))
+    fun `Protocol has no CAST value - the TV's built-in receiver owns Cast`() {
+        assertTrue(
+            "Cast must not come back as a PhairPlay protocol",
+            Protocol.values().none { it.name == "CAST" }
+        )
     }
 
     // ─── ActiveConnection data class ──────────────────────────────────────────

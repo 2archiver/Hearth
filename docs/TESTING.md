@@ -103,18 +103,15 @@ adb logcat -c
 Install the correct debug APK:
 
 ```bash
-# Google TV with AirPlay/Miracast only
-./gradlew assembleGoogletvDebug
-
-# Google TV with Cast enabled for real testing
-./gradlew assembleGoogletvDebug -Pphairplay.castAppId=<APP_ID>
+# Google TV — the only build there is
+./gradlew :app:assembleGoogletvDebug
 
 adb install -r app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
 ```
 
-To get the Cast App ID, register the receiver in the Google Cast SDK Developer
-Console and associate the Android TV package `com.phairplay.googletv`. See
-[Google Cast App ID](guides/CAST_APP_ID.md).
+There is no build flag that turns Google Cast on: PhairPlay has no Cast receiver, so there is no
+Cast App ID to register and no Cast SDK in the dependency graph. Verifying "Cast still works on the
+TV" means verifying the TV's own built-in receiver, which PhairPlay neither binds nor competes with.
 
 After a failed run, collect diagnostics before restarting the app:
 
@@ -139,13 +136,26 @@ The script writes ADB device details, package info, memory stats, process CPU, a
 ### Scenario 2: mDNS Discovery (Milestone 2)
 **Goal:** macOS discovers PhairPlay in the AirPlay menu within 3 seconds.
 
-1. Ensure Mac and TV are on the same Wi-Fi network
+1. Ensure Mac and TV are on the same network — **cable the TV to Ethernet for this scenario**,
+   because a wired TV is the shipping target and the case that used to fail silently
 2. Launch PhairPlay on the TV
-3. Start a timer on your phone
-4. On your Mac, click the AirPlay icon in the menu bar (or System Preferences → Displays → AirPlay Display)
-5. **Expected:** TV name appears in the AirPlay menu within 3 seconds
-6. Close PhairPlay (press Back on TV)
-7. **Expected:** TV name disappears from the AirPlay menu within 10 seconds
+3. Check the AirPlay card on the TV's Home screen first: it must read
+   `Advertising on Ethernet · <the TV's IP>`. If it shows a Wi-Fi address while the cable is
+   plugged in, that is the bug — the sender will be looking on the wrong interface.
+4. Start a timer on your phone
+5. On your Mac, click the AirPlay icon in the menu bar (or System Preferences → Displays → AirPlay Display)
+6. **Expected:** TV name appears in the AirPlay menu within 3 seconds
+7. Close PhairPlay (press Back on TV)
+8. **Expected:** TV name disappears from the AirPlay menu within 10 seconds
+
+On Android 13 and below the platform filters multicast unless the app holds a
+`WifiManager.MulticastLock`, so a discovery failure is a lock failure. Confirm the lock is held
+while advertising:
+
+```bash
+adb shell dumpsys wifi | grep -i "phairplay-mdns"   # listed while the receiver is advertising
+adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
+```
 
 ---
 
@@ -219,6 +229,37 @@ The script writes ADB device details, package info, memory stats, process CPU, a
 1. Connect macOS to PhairPlay
 2. Briefly disable and re-enable Wi-Fi on your Mac (or unplug/replug Ethernet)
 3. **Expected:** PhairPlay reappears in the macOS AirPlay menu within 5 seconds of network restoration
+
+---
+
+### Scenario 8: Wired Google TV 4K (Ethernet)
+**Goal:** the shipping configuration works with no Wi-Fi at all on the TV. This is the regression
+test for the version where AirPlay stopped appearing on wired sets.
+
+Hardware: Google TV 4K, Android TV OS 14, Ethernet only — **disable the TV's Wi-Fi** in
+Settings → Network so nothing can quietly fall back to it.
+
+1. Launch PhairPlay and read the Home screen:
+   - **Expected:** AirPlay card = *Advertising*, detail names `Ethernet` and the TV's wired IP.
+   - **Expected:** Miracast card = *Unavailable* with a Wi-Fi Direct reason — grey, not red, and no
+     permission prompt. A wired TV has no usable radio for it; that is a limitation, not a failure.
+2. From a Mac on the same subnet, connect over AirPlay and mirror for two minutes.
+   - **Expected:** picture at the panel's native size when
+     **Settings → Higher resolution (up to 4K)** is on (the default). Check
+     `adb logcat -d | grep -E "advertising|2160"` names 3840x2160, not 1920x1080.
+3. Renew the TV's lease without restarting the app — on the router, release/renew, or toggle the
+   TV's Ethernet off and on for 10 seconds.
+   - **Expected:** the card briefly re-registers and the Mac still finds the TV within 5 seconds
+     (`readvertise reason=network available` in the log). Losing the advertisement here is the bug
+     this scenario exists for.
+4. Kill and relaunch PhairPlay, then repeat step 2 with an iPhone on Wi-Fi (phone on Wi-Fi, TV on
+   the cable, same subnet).
+   - **Expected:** discovery works across the router's wired/wireless boundary. If the phone alone
+     cannot see it, the multicast lock is not being granted or the router filters multicast —
+     check `dumpsys wifi` above before blaming the app.
+5. Leave it mirroring for 30 minutes.
+   - **Expected:** audio does not go silent (RTSP keep-alive) and no `FATAL`/`ANR` in
+     `adb logcat -d`.
 
 ---
 
