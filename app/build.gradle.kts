@@ -7,6 +7,8 @@
 //
 // Shared code lives in src/main/. Google TV specific code lives in src/googletv/.
 
+import java.security.KeyStore
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -67,7 +69,7 @@ data class SigningKeySpec(
  * what tells a maintainer that published APKs will no longer update each other in place.
  */
 fun SigningKeySpec.canLoad(): Boolean = try {
-    val store = java.security.KeyStore.getInstance(storeType)
+    val store = KeyStore.getInstance(storeType)
     this.store.inputStream().use { store.load(it, storePassword.toCharArray()) }
     store.containsAlias(keyAlias) && store.getKey(keyAlias, keyPassword.toCharArray()) != null
 } catch (e: Exception) {
