@@ -56,7 +56,13 @@ data class AppSettings(
      * Whether the Google Cast receiver is enabled.
      * When false: Cast SDK is not initialized.
      */
-    val castEnabled: Boolean = true,
+    /**
+     * Google Cast Connect receiver. Disabled by default because Cast requires a registered
+     * Cast Application ID (see BuildConfig.CAST_APP_ID) to start. Without a valid ID the SDK
+     * still binds ports 8008/8009 and blocks other mDNS services while showing ERROR on the
+     * card — users must opt in once they have an App ID.
+     */
+    val castEnabled: Boolean = false,
 
     // ─── AirPlay specific ──────────────────────────────────────────────────
     /**

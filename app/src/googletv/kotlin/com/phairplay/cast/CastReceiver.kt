@@ -9,9 +9,20 @@ import com.phairplay.util.Logger
 /**
  * Google TV Cast Connect receiver lifecycle.
  *
- * This class starts the official Cast Android TV receiver SDK. Cast Connect
- * still requires a registered Cast Application ID and sender-side Cast support,
- * and this is the real SDK entry point.
+ * Starts the official Cast Android TV receiver SDK. Cast Connect requires a
+ * registered Cast Application ID and sender-side Cast support.
+ *
+ * PORTS NOTE: Cast SDK binds TCP 8008 (HTTP) and 8009 (DIAL/discovery) when
+ * [CastReceiverContext.start] is called. Previously, declaring the
+ * `RECEIVER_OPTIONS_PROVIDER_CLASS_NAME` meta-data in AndroidManifest.xml caused
+ * the SDK to auto-initialize at process start and bind those ports BEFORE this
+ * class ever checked whether Cast was enabled — which surfaced as "Port 8008/8009"
+ * showing up in tools like netstat even though the user had Cast disabled.
+ * PhairPlay removes that meta-data entry and only calls initInstance+start from
+ * [start] below, after verifying: (a) Cast is enabled in Settings, (b) a valid
+ * non-placeholder App ID is configured, and (c) Google Play Services is present.
+ * CastReceiverOptionsProvider is referenced programmatically by the SDK via
+ * reflection the first time initInstance runs; no manifest entry is needed for that.
  */
 class CastReceiver(
     private val context: Context,
@@ -21,25 +32,26 @@ class CastReceiver(
 
     fun start() {
         if (!isConfigured()) {
-            Logger.w("Google Cast is not configured: missing Cast application ID")
+            Logger.w("Google Cast is not configured: set PHAIRPLAY_CAST_APP_ID to a registered Cast App ID")
             onStateChanged(ProtocolState.ERROR)
             return
         }
 
         if (!isAvailable(context)) {
             Logger.w("Google Cast not available on this device (missing Google Play Services)")
-            // ERROR, not DISABLED: settings say Cast is on — the honest detail
-            // ("Cast App ID not set or Play Services unavailable") explains why it can't run.
             onStateChanged(ProtocolState.ERROR)
             return
         }
 
         try {
+            // initInstance(Context) is the only public overload; it reads its
+            // CastReceiverOptions via reflection on the ReceiverOptionsProvider class.
+            // Our CastReceiverOptionsProvider returns a minimal options set (status text).
             CastReceiverContext.initInstance(context.applicationContext)
             val receiverContext = CastReceiverContext.getInstance()
             receiverContext.start()
             started = true
-            Logger.i("Cast Connect receiver started")
+            Logger.i("Cast Connect receiver started on ports 8008/8009")
             onStateChanged(ProtocolState.ADVERTISING)
         } catch (e: Exception) {
             Logger.e("Failed to start Cast Connect receiver", e)

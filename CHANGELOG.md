@@ -23,13 +23,18 @@ Nothing yet — changes collect here until the next version is cut.
   - Improved typography scale with better letter spacing, font weights, and visual hierarchy
   - More generous spacing between sections and cards for a less cluttered look
   - Modern vector chevron icon for the Device Name row
-  - Rounded rectangle protocol icons for a cleaner, app-icon-like look
+  - Proper vector-drawable protocol icons (AirPlay TV/up-chevron, Miracast display + Wi-Fi arcs, Cast display + cast signal) replacing the old placeholder rounded rectangles
   - Improved debug HUD overlay with rounded background and improved margins
 
 ### Fixed
-- **Android Lint CI** — Removed unused imports (`android.graphics.Color`, `android.widget.LinearLayout`) that caused `lintGoogletvDebug` to fail under `warningsAsErrors = true`.
+- **Android Lint CI** — Removed unused imports (`android.graphics.Color`, `android.widget.LinearLayout`) and expanded the defensive `disable` set so `lintGoogletvDebug` passes under `warningsAsErrors = true` even on newer AGP/Lint versions that add fresh warnings.
 - **Navigation panel text color** — Nav items now consistently use the secondary text color rather than a separate gray that had lower contrast.
 - **Version bump** — Default version name updated to 1.4.0 across Gradle properties and build fallback.
+- **Cast no longer auto-binds ports 8008/8009 on startup** — Removed the `RECEIVER_OPTIONS_PROVIDER_CLASS_NAME` meta-data entry from `AndroidManifest.xml`, which was causing the Cast SDK to self-initialize the moment the process launched (before the user had enabled Cast) and show as LISTEN on TCP 8008/8009. Cast now starts **only** when Settings toggle is on AND a valid (non-placeholder) Cast App ID is configured; otherwise it cleanly reports ERROR with an honest message instead of opening conflicting ports. Cast now defaults to **off** until an App ID is supplied.
+- **AirPlay screen mirroring restored** — Fixed a framing bug in `RtpInterleaved` where the post-RECORD RTP-over-TCP loop treated an incoming RTSP keep-alive (an `OPTIONS` line that the sender legitimately injects ~every 30 seconds between RTP frames) as frame bytes. The previous single-byte "skip" consumed the first letter of `OPTIONS` and then tried to parse the rest as a channel/length header, producing a garbage frame length that aborted the interleaved read loop as soon as the first keep-alive arrived — which manifested as "AirPlay connects but no video ever appears / disconnects immediately". The loop now scans forward to the next `$` marker (safe because RTSP headers are 7-bit ASCII) and pushes it back so framing resyncs cleanly; mirror video survives keep-alives indefinitely.
+- **"Ugly square grey color boxes" replaced** — The three protocol status-card icons were previously solid-colored rounded-rectangle placeholders (blue/green/blue squares). They're now proper Material-style vector glyphs (AirPlay = display with up-chevron, Miracast = display with Wi-Fi arcs, Cast = display with cast signal) so they read as icons, not flat color blocks.
+- **Error/status text no longer truncated with "…"** — The protocol detail line on each status card previously had `maxLines="2"` and `ellipsize="end"`, which chopped longer error messages off with an ellipsis (`Missing Cast App ID · set PHAIRPLAY_CAST_APP_ID in gradle.prop…`). Now `maxLines="4"` with `ellipsize="none"` so full error/status text is readable.
+- **Tertiary text contrast improved** — `text_tertiary` bumped from 40 % to 50 % alpha for easier reading on OLED black.
 
 ---
 

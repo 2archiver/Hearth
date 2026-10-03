@@ -57,15 +57,20 @@
             android:fontFamily="sans-serif" />
     </LinearLayout>
 
-    <!-- Detail line: sender name when connected, hint when idle -->
+    <!--
+        Detail line: sender name when connected, hint when idle, or error message on failure.
+        NO ellipsis ("…") — users report error/status text is truncated. Allow up to 4 lines so
+        long messages (e.g. "Missing Cast App ID · set PHAIRPLAY_CAST_APP_ID in gradle.properties")
+        are fully readable on the Google TV launcher card.
+    -->
     <TextView
         android:id="@+id/text_protocol_detail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="@color/text_tertiary"
         android:textSize="13sp"
-        android:maxLines="2"
-        android:ellipsize="end"
+        android:maxLines="4"
+        android:ellipsize="none"
         android:lineSpacingExtra="2dp" />
 
 </LinearLayout>
