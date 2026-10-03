@@ -23,11 +23,11 @@ fun String.escapedForBuildConfig(): String =
  * WHY: Android only installs an APK over an existing one when its versionCode is higher, so a
  * code that grows with every build means "download the newest APK and install it" just works —
  * no uninstall first (provided the signing key matches, see docs/RELEASING.md). A clock-derived
- * code also stays monotonic across BOTH release paths (rolling `latest` builds from main and
- * permanent `v*` tag releases), which a version-derived code cannot.
+ * code stays monotonic across every build published to the single `latest` release, which a
+ * version-derived code cannot guarantee for two builds from the same release train.
  *
  * Range: ~1.45M today, inside Int32 until roughly the year 6053. CI passes an explicit
- * -Pphairplay.versionCode computed the same way, so published builds report a stable code.
+ * -Pphairplay.versionCode based on this clock and raises it above the last published APK if needed.
  */
 fun monotonicVersionCode(): Int = ((System.currentTimeMillis() / 60_000L) - 28_401_120L).toInt()
 
@@ -91,8 +91,8 @@ fun SigningKeySpec.canLoad(): Boolean = try {
  *      environment variables, or the matching `phairplay.keystore*` Gradle properties.
  *      Use this for anything you publish to other people.
  *   2. app/signing/phairplay.p12 — the public "community build" key committed to this
- *      repository. It is published on purpose (see docs/RELEASING.md) so that CI runs,
- *      tag releases and local clones all produce APKs that update each other in place.
+ *      repository. It is published on purpose (see docs/RELEASING.md) so that CI release
+ *      builds and local clones produce APKs that update each other in place.
  *
  * Both `debug` and `release` use whichever key is chosen, so a debug APK from CI and a
  * release APK from the release workflow can also replace each other.
@@ -151,11 +151,9 @@ android {
         // applicationId is overridden per flavor below
         minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
-        // Version source of truth: phairplay.versionName in gradle.properties (bumped per
-        // release train). CI overrides both per build — see .github/workflows/release.yml:
-        //   merge to main → "<base>-main.<run>" in the rolling `latest` release
-        //   v1.5.0 tag    → "1.5.0" in a permanent versioned release
-        // The versionCode fallback increases with every build so a new APK updates the old one.
+        // Version source of truth: phairplay.versionName in gradle.properties. CI adds the
+        // workflow run number, publishes one `latest` release, and reads the final APK metadata
+        // back before publishing. The versionCode fallback increases with each local build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
         versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.5.0")

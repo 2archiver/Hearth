@@ -4,191 +4,242 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PhairPlay for Google TV — Download</title>
-<meta name="description" content="Download the PhairPlay APK for Google TV (Android TV OS 10+, tested on Google TV 4K with Android TV OS 14). Free, open-source AirPlay receiver for your TV.">
+<meta name="description" content="Download the latest PhairPlay APK for Google TV. Free, open-source AirPlay receiver for your TV.">
 <style>
   :root {
-    --bg: #0e1116; --card: #171c24; --line: #262d38; --text: #e9edf3; --muted: #9aa5b4;
-    --accent: #5aa9ff; --accent-2: #3b82f6; --ok: #4ade80;
+    color-scheme: dark;
+    --bg: #0e1116; --card: #171c24; --line: #303a48; --text: #f1f4f8; --muted: #b7c2cf;
+    --accent: #83bdff; --accent-2: #2563eb; --ok: #70e39a;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   a { color: var(--accent); }
-  main { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px;
-    background: #1d2a3d; color: var(--accent); border: 1px solid #2b4263; }
-  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: -14px 0 28px; }
-  h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.1; margin: 14px 0 10px; }
-  .lead { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 620px; }
-
+  a:focus-visible, summary:focus-visible { outline: 3px solid #fff; outline-offset: 4px; border-radius: 4px; }
+  main { max-width: 820px; margin: 0 auto; padding: 36px 20px 72px; }
+  h1 { font-size: clamp(32px, 6vw, 48px); line-height: 1.12; margin: 8px 0; }
+  h2 { font-size: 25px; margin: 42px 0 12px; }
+  h3 { font-size: 19px; margin: 0 0 8px; }
+  .badge { display: inline-block; padding: 3px 11px; border-radius: 99px; font-size: 14px;
+    background: #1d2a3d; color: var(--accent); border: 1px solid #385272; }
+  .lead { color: var(--muted); font-size: 19px; margin: 8px 0 26px; max-width: 650px; }
   .download { background: linear-gradient(160deg, #1a2433, var(--card)); border: 1px solid var(--line);
-    border-radius: 18px; padding: 28px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+    border-radius: 18px; padding: 24px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .download h2 { margin: 0 0 12px; }
   .btn { display: inline-flex; align-items: center; gap: 12px; background: var(--accent-2); color: #fff;
-    text-decoration: none; font-weight: 700; font-size: 20px; padding: 16px 28px; border-radius: 12px;
-    outline-offset: 3px; transition: transform .1s, background .1s; }
-  .btn:hover, .btn:focus-visible { background: #2563eb; transform: scale(1.03); outline: 3px solid #fff; }
+    text-decoration: none; font-weight: 700; font-size: 20px; padding: 16px 24px; border-radius: 12px;
+    outline-offset: 4px; transition: background .1s; }
+  .btn:hover, .btn:focus-visible { background: #1d4ed8; outline: 3px solid #fff; }
   .btn svg { width: 24px; height: 24px; fill: currentColor; }
-  .meta { color: var(--muted); font-size: 14px; }
-  .meta b { color: var(--text); }
-  .meta code { word-break: break-all; font-size: 12px; }
-  .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ok); font-size: 14px; }
-
-  h2 { font-size: 24px; margin: 48px 0 14px; }
+  .meta { color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+  .meta strong { color: var(--text); }
+  .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ok); font-size: 15px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 14px; }
-  .card h3 { margin: 0 0 6px; font-size: 18px; }
-  ol, ul { padding-left: 22px; margin: 8px 0; }
-  li { margin: 4px 0; }
+  ol, ul { padding-left: 24px; margin: 8px 0; }
+  li { margin: 8px 0; }
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre { background: #0a0d12; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
-    overflow-x: auto; font-size: 14px; margin: 10px 0; }
+    overflow-wrap: anywhere; font-size: 14px; margin: 10px 0; user-select: all; }
   code.inline { background: #0a0d12; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 14px; }
-
+  .subtle { color: var(--muted); }
+  .release-link { display: inline-block; margin-top: 10px; font-weight: 650; }
+  details { margin-top: 24px; }
+  summary { cursor: pointer; font-weight: 650; padding: 8px 0; }
   .rel { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;
     padding: 14px 0; border-top: 1px solid var(--line); }
   .rel:first-child { border-top: 0; }
-  .rel .name { font-weight: 600; }
-  .rel .sub { color: var(--muted); font-size: 13px; }
-  .pill { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: #3a2d12; color: #fbbf24; margin-left: 6px; }
-  .pill.latest { background: #12351f; color: var(--ok); }
-  .dl { text-decoration: none; border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+  .rel .name { font-weight: 650; }
+  .rel .sub { color: var(--muted); font-size: 14px; }
+  .dl { display: inline-block; text-decoration: none; border: 1px solid var(--line); padding: 7px 12px;
+    border-radius: 8px; font-weight: 650; }
   .dl:hover, .dl:focus-visible { border-color: var(--accent); }
   .err { color: var(--muted); }
-  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+  footer { margin-top: 42px; color: var(--muted); font-size: 14px; }
+  footer a { margin-right: 8px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <span class="badge">Google TV · Android TV OS 10+ · tested on Google TV 4K (Android TV OS 14)</span>
+  <span class="badge">Google TV · Android TV OS 10+</span>
   <h1>PhairPlay for Google TV</h1>
-  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your Google TV — one APK, nothing else to pick. Rebuilt automatically on every merge to <code class="inline">main</code>, so the button below always serves the newest build.</p>
+  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your TV. One APK, one current release, and clear notes about what changed.</p>
 
-  <div class="badges">
-    <span class="badge">v1.5 — Cast discovery + DIAL hand-off, honest Miracast, working debug HUD</span>
-    <span class="badge">AirPlay · Google Cast · Miracast</span>
-  </div>
-
-  <section class="download" aria-label="Download">
-    <a id="dl-btn" class="btn" href="" rel="noopener">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
-      <span id="dl-label">Download APK</span>
-    </a>
+  <section class="download" aria-labelledby="download-heading">
+    <div>
+      <h2 id="download-heading">Get the latest APK</h2>
+      <a id="dl-btn" class="btn" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
+        <span>Download APK</span>
+      </a>
+    </div>
     <div class="meta">
-      <div><span class="file">PhairPlay-googletv.apk</span></div>
-      <div id="dl-meta">Rolling build from <code class="inline">main</code></div>
-      <div id="dl-sha"></div>
-      <div id="dl-note">Mirrors from macOS 12+ and iOS 16+ (tested: iPhone 14, iOS 27.0.1).<br>
-        Every build is signed with the same published key, so new versions install straight over the old one.</div>
+      <p><strong id="release-name" aria-live="polite">Latest successful build</strong></p>
+      <p><span class="file">PhairPlay-googletv.apk</span></p>
+      <p id="dl-meta" role="status" aria-live="polite">The direct download works even if release details are unavailable.</p>
+      <p id="dl-sha"></p>
+      <p class="subtle">Google TV / Android TV OS 10+ · tested on Google TV 4K (Android TV OS 14)</p>
+      <a id="release-page" class="release-link" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Read the current release notes</a>
     </div>
   </section>
 
-  <h2>Install on your Google TV</h2>
+  <section aria-labelledby="update-heading">
+    <h2 id="update-heading">What's new in this update</h2>
+    <div class="card">
+      <p id="update-summary" role="status" aria-live="polite">The release title and update notes are available on GitHub.</p>
+      <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Open the latest release on GitHub</a>
+    </div>
+  </section>
 
-  <div class="card">
-    <h3>Option 1 — On the TV with “Downloader” (no computer)</h3>
-    <ol>
-      <li>Install <b>Downloader</b> (by AFTVnews) from the Google Play Store on your TV.</li>
-      <li>Settings → Apps → Security &amp; restrictions → <b>Install unknown apps</b> → turn on <b>Downloader</b>.</li>
-      <li>Open Downloader and enter this address, then press <b>Go</b> (it always points at the newest build):
-        <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk</pre>
-      </li>
-      <li>When the download finishes choose <b>Install</b>, then <b>Open</b>.</li>
-    </ol>
-  </div>
+  <section aria-labelledby="install-heading">
+    <h2 id="install-heading">Install on your Google TV</h2>
+    <div class="card">
+      <h3>Option 1 — On the TV (no computer)</h3>
+      <ol>
+        <li>Install <strong>Downloader</strong> (by AFTVnews) from the Google Play Store on your TV.</li>
+        <li>Allow Downloader to install apps: Settings → Apps → Security &amp; restrictions → <strong>Install unknown apps</strong>.</li>
+        <li>Open Downloader and enter this address, then select <strong>Go</strong>:
+          <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk</pre>
+        </li>
+        <li>When the download finishes, choose <strong>Install</strong>, then <strong>Open</strong>.</li>
+      </ol>
+    </div>
 
-  <div class="card">
-    <h3>Option 2 — From a computer with ADB</h3>
-    <ol>
-      <li>On the TV: Settings → System → About → click <b>Android TV OS build</b> 7 times, then Settings → System → Developer options → turn on <b>USB debugging</b> (Android 14 also has <b>Wireless debugging</b>).</li>
-      <li>Find the TV’s IP under Settings → Network &amp; Internet.</li>
-    </ol>
-<pre>adb connect &lt;TV-IP&gt;:5555
+    <div class="card">
+      <h3>Option 2 — From a computer (ADB)</h3>
+      <ol>
+        <li>On the TV, enable Developer options by clicking <strong>Android TV OS build</strong> seven times under Settings → System → About.</li>
+        <li>Enable USB or Wireless debugging, then find the TV's IP address under Settings → Network &amp; Internet.</li>
+      </ol>
+      <pre>adb connect &lt;TV-IP&gt;:5555
 adb install -r PhairPlay-googletv.apk</pre>
-  </div>
+    </div>
 
-  <div class="card">
-    <h3>Then</h3>
-    <ul>
-      <li>Open <b>PhairPlay</b> from your apps row and allow the permission prompts (notifications, nearby devices).</li>
-      <li>On your Mac / iPhone, open AirPlay and pick your TV. Both must be on the same network.</li>
-      <li><b>Casting</b> works too — PhairPlay ships its own Google Cast receiver, so no Google registration
-        is needed. See the <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/guides/CAST.md">Cast guide</a>
-        for what will and will not cast (YouTube and friends need their own receiver app).</li>
-    </ul>
-  </div>
+    <div class="card">
+      <h3>Keep PhairPlay up to date</h3>
+      <p>On the TV, choose <strong>Settings → Updates → Check for updates</strong>. PhairPlay checks the current GitHub release, verifies its checksum and signing certificate, then offers to install it.</p>
+      <p>Builds from this repository use the same signing key and normally install over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">Update help</a></p>
+    </div>
+  </section>
 
-  <div class="card">
-    <h3>Staying up to date</h3>
-    <p>You install PhairPlay once. After that the app checks GitHub for a newer build in the
-    background, downloads it, and offers a one-tap <b>Update ready — Install</b> prompt on the
-    Home screen. Settings → <b>Updates</b> controls how often it looks and whether it downloads
-    over Wi-Fi only.</p>
-    <p>Every release <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">is
-    signed with the same key</a>, which is why an update no longer fails with
-    <i>“App not installed as package conflicts with an existing package”</i>.</p>
-  </div>
-
-  <h2>All releases</h2>
-  <div class="card" id="releases"><span class="err">Loading releases…</span></div>
+  <details id="older-releases" hidden>
+    <summary>Older releases</summary>
+    <div class="card" id="releases"><p class="err">Loading archived releases…</p></div>
+  </details>
 
   <footer>
-    <a href="https://github.com/2archiver/phairplay-archiver-fork-">Source on GitHub</a> ·
-    <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases">Release notes</a> ·
-    Apache-2.0 · No ads, no analytics.
+    <a href="https://github.com/2archiver/phairplay-archiver-fork-">Source on GitHub</a>
+    <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Release notes</a>
+    <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/CHANGELOG.md">Full changelog</a>
+    <span>Apache-2.0 · No ads, no analytics.</span>
   </footer>
 </main>
 
 <script>
 (function () {
+  "use strict";
   var REPO = "2archiver/phairplay-archiver-fork-";
-  // The rolling release rebuilt on every merge to main. This URL is tag-based, so it keeps
-  // working even when the GitHub API is unreachable or rate-limited from the browser.
-  var STABLE = "https://github.com/" + REPO + "/releases/download/latest/PhairPlay-googletv.apk";
+  var RELEASE_PAGE = "https://github.com/" + REPO + "/releases/tag/latest";
+  var STABLE_DOWNLOAD = "https://github.com/" + REPO + "/releases/download/latest/PhairPlay-googletv.apk";
   var $ = function (id) { return document.getElementById(id); };
 
-  // Works even if the API call fails: the stable "latest" link always resolves.
-  $("dl-btn").href = STABLE;
-  $("dl-url").textContent = STABLE;
+  // These links work without JavaScript or when GitHub's API is rate-limited.
+  $("dl-btn").href = STABLE_DOWNLOAD;
+  $("dl-url").textContent = STABLE_DOWNLOAD;
 
-  function mb(n) { return (n / 1048576).toFixed(1) + " MB"; }
-  function day(s) { return new Date(s).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
-  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
-  function apk(rel) {
-    var a = (rel.assets || []).filter(function (x) { return /\.apk$/i.test(x.name); });
-    // Prefer the fixed-name asset, fall back to any APK.
-    return a.filter(function (x) { return x.name === "PhairPlay-googletv.apk"; })[0] || a[0];
+  function apk(release) {
+    var assets = release.assets || [];
+    return assets.filter(function (asset) { return asset.name === "PhairPlay-googletv.apk"; })[0] ||
+      assets.filter(function (asset) { return /\.apk$/i.test(asset.name); })[0];
   }
 
-  fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=20", { headers: { Accept: "application/vnd.github+json" } })
-    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (rels) {
-      rels = rels.filter(function (r) { return !r.draft && apk(r); });
-      if (!rels.length) {
-        $("dl-meta").textContent = "No release published yet — the first merge to main creates one.";
-        $("releases").innerHTML = '<span class="err">No releases yet.</span>';
+  function dateLabel(value) {
+    if (!value) return "";
+    var date = new Date(value);
+    return isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, {
+      year: "numeric", month: "short", day: "numeric"
+    });
+  }
+
+  function updateSummary(markdown) {
+    if (!markdown) return "Release notes are on GitHub.";
+    var newSection = markdown.split(/\n## (?:Download and update|Build)\b/i)[0];
+    var paragraphs = newSection
+      .replace(/^#{1,6}[^\n]*$/gm, "")
+      .split(/\n\s*\n/)
+      .map(function (part) { return part.trim(); })
+      .filter(function (part) { return part && !part.startsWith("|"); });
+    var summary = paragraphs[0] || "Release notes are on GitHub.";
+    return summary
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[`*_>#]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function addArchiveEntry(release) {
+    var asset = apk(release);
+    if (!asset) return;
+    var row = document.createElement("div");
+    row.className = "rel";
+    var details = document.createElement("div");
+    var name = document.createElement("div");
+    name.className = "name";
+    name.textContent = release.name || release.tag_name;
+    var sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = [dateLabel(release.published_at), (asset.size / 1048576).toFixed(1) + " MB"]
+      .filter(Boolean).join(" · ");
+    details.appendChild(name);
+    details.appendChild(sub);
+
+    var link = document.createElement("a");
+    link.className = "dl";
+    link.href = asset.browser_download_url;
+    link.textContent = "Download APK";
+    link.setAttribute("aria-label", "Download APK " + (release.name || release.tag_name));
+    row.appendChild(details);
+    row.appendChild(link);
+    $("releases").appendChild(row);
+  }
+
+  fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=20", {
+    headers: { Accept: "application/vnd.github+json" }
+  })
+    .then(function (response) {
+      if (!response.ok) throw new Error("GitHub returned " + response.status);
+      return response.json();
+    })
+    .then(function (releases) {
+      releases = releases.filter(function (release) { return !release.draft && apk(release); });
+      var current = releases.filter(function (release) { return release.tag_name === "latest"; })[0] ||
+        releases.filter(function (release) { return !release.prerelease; })[0];
+      if (!current) {
+        $("release-name").textContent = "No release published yet";
+        $("dl-meta").textContent = "The direct download will be available after the first successful build from main.";
+        $("update-summary").textContent = "No update notes are available yet.";
         return;
       }
-      // Prefer the rolling `latest` release; fall back to the newest numbered one.
-      var rolling = rels.filter(function (r) { return r.tag_name === "latest"; })[0];
-      var latest = rolling || rels.filter(function (r) { return !r.prerelease; })[0] || rels[0];
-      var a = apk(latest);
-      $("dl-btn").href = a.browser_download_url;
-      $("dl-label").textContent = (latest === rolling) ? "Download APK" : "Download " + latest.tag_name;
-      $("dl-meta").innerHTML = "<b>" + esc(latest.name || latest.tag_name) + "</b> · " + mb(a.size) + " · " + day(latest.published_at);
-      if (a.digest) $("dl-sha").innerHTML = "SHA-256: <code>" + esc(a.digest.replace(/^sha256:/, "")) + "</code>";
 
-      $("releases").innerHTML = rels.map(function (r) {
-        var f = apk(r);
-        var pills = (r.tag_name === "latest" ? '<span class="pill latest">rolling build</span>' : "") +
-                    (r === latest && r.tag_name !== "latest" ? '<span class="pill latest">latest</span>' : "") +
-                    (r.prerelease ? '<span class="pill">pre-release</span>' : "");
-        return '<div class="rel"><div><div class="name">' + esc(r.name || r.tag_name) + pills + '</div>' +
-          '<div class="sub">' + day(r.published_at) + " · " + mb(f.size) + ' · <a href="' + r.html_url + '">release notes</a></div></div>' +
-          '<a class="dl" href="' + f.browser_download_url + '">Download APK</a></div>';
-      }).join("");
+      var asset = apk(current);
+      var published = dateLabel(current.published_at);
+      $("release-name").textContent = current.name || current.tag_name;
+      $("dl-meta").textContent = "APK version · " + (asset.size / 1048576).toFixed(1) + " MB" +
+        (published ? " · published " + published : "");
+      if (asset.digest) $("dl-sha").textContent = "SHA-256: " + asset.digest.replace(/^sha256:/, "");
+      $("update-summary").textContent = updateSummary(current.body);
+      $("release-page").href = current.html_url || RELEASE_PAGE;
+
+      var older = releases.filter(function (release) { return release !== current && release.tag_name !== "latest"; });
+      if (older.length) {
+        $("older-releases").hidden = false;
+        older.forEach(addArchiveEntry);
+      }
     })
     .catch(function () {
-      $("dl-meta").innerHTML = 'Latest release (details unavailable right now)';
-      $("releases").innerHTML = '<span class="err">Couldn’t load the list. See <a href="https://github.com/' + REPO + '/releases">all releases on GitHub</a>.</span>';
+      $("release-name").textContent = "Latest successful build";
+      $("dl-meta").textContent = "Release details are unavailable right now. The download link still works.";
+      $("update-summary").textContent = "Open the current release on GitHub to read what's new.";
     });
 })();
 </script>

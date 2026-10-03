@@ -1,132 +1,94 @@
-# Release workflow — builds the Google TV APK and publishes GitHub Releases.
+# Publishes one canonical release: the newest successful build from main.
+# The APK keeps a stable download name; the GitHub release title is read from the
+# APK's embedded versionName, and its notes come from CHANGELOG.md (or recent commits).
 #
-# Two modes, one job:
-#   push/merge to main → rebuilds the ROLLING release tagged `latest`
-#                        assets: PhairPlay-googletv.apk + SHA256SUMS.txt
-#   push of a v* tag   → permanent VERSIONED release (v1.2.0, v1.2.1, …)
-#                        assets: PhairPlay-<tag>-googletv.apk + PhairPlay-googletv.apk + SHA256SUMS.txt
-#   workflow_dispatch  → either: leave the tag as "latest", or enter v1.2.0
-#
-# Merging to main is therefore enough to publish an APK — no tag and no Pages setup needed.
-# This link always serves the newest build:
-#   https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-googletv.apk
-#
-# versionCode = minutes since 2024-01-01 UTC, so it grows with every build and a new APK
-# installs straight over the old one.
-#
-# SIGNING: builds are signed with app/signing/phairplay.p12, the public "community build"
-# key committed to this repository. Every current runner and local clone uses the same key,
-# so updates install in place once the device is on this signing identity. Older/differently
-# signed installs may need a one-time reinstall; the updater explains that Android limitation.
-# The in-app updater refuses any APK whose certificate does not match the installed one,
-# so it can never hand a TV a build that Android would reject.
-#
-# Optional override (Settings → Secrets and variables → Actions) — use your own private key
-# if you publish builds to other people. Pin its SHA-256 certificate fingerprint in the
-# EXPECTED_APK_CERT_SHA256 repository variable; releases fail closed if the signer drifts.
-#   KEYSTORE_BASE64      base64 of your keystore (base64 -w0 phairplay.p12)
-#   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
-#   KEYSTORE_TYPE        optional, defaults to pkcs12 for .p12/.pfx, otherwise jks
+# Direct download: https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-googletv.apk
+# The same release is marked as GitHub's "Latest", so the in-app updater and the
+# GitHub Releases page always point to the same build.
 
 name: Release
 
 on:
   push:
     branches: [ "main" ]
-    tags: [ "v*" ]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'What to publish: "latest" (rolling build from main) or a version tag such as v1.2.0'
-        required: false
-        default: 'latest'
 
 permissions:
   contents: write
-  pull-requests: write
 
-# Release builds must not overlap: two runs would fight over the `latest` tag and its assets.
+# Pushes and manual runs all update the same tag and release; never let them overlap.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-latest
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Build & publish Google TV APK
+    name: Build & publish the latest Google TV APK
     runs-on: ubuntu-latest
 
     env:
-      # Event payloads reach the shell through env, never by interpolation into a script.
-      INPUT_TAG: ${{ github.event.inputs.tag }}
       REPO: ${{ github.repository }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── What are we publishing? ────────────────────────────────────────────
-      - name: Derive release mode, version and versionCode
+      - name: Remember the currently published commit
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_sha=$(gh api "repos/$REPO/commits/latest" --jq '.sha' 2>/dev/null || true)
+          echo "sha=$previous_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Derive the APK version and update code
         id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          # Single source of truth for the base version, bumped per release train.
-          base=$(sed -n 's/^phairplay\.versionName=//p' gradle.properties | tr -d ' \r')
-          if [[ -z "$base" ]]; then
-            echo "::error::phairplay.versionName is missing from gradle.properties"
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Releases can only be published from main. Select the main branch and run this workflow again."
             exit 1
           fi
 
-          # Minutes since 2024-01-01T00:00:00Z (1704067200 / 60 = 28401120). Strictly increases
-          # with every build — main builds and tag builds alike — so a new APK always updates the
-          # installed one instead of being rejected as a downgrade. Fits in Int32 for ~4000 years.
+          base=$(sed -n 's/^phairplay\.versionName=//p' gradle.properties | tr -d ' \r')
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Set phairplay.versionName in gradle.properties to a valid version (got: ${base:-missing})."
+            exit 1
+          fi
+
+          # Every build is newer than the previous APK, including two runs in the same minute.
+          # This numeric code is what Android uses to decide whether an APK can update an install.
           code=$(( $(date -u +%s) / 60 - 28401120 ))
-
-          tag_in="${INPUT_TAG:-}"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            mode=tagged; tag="${GITHUB_REF#refs/tags/}"
-          elif [[ -n "$tag_in" && "$tag_in" != "latest" ]]; then
-            mode=tagged; tag="$tag_in"          # manual run for a specific version
-          else
-            mode=rolling; tag=latest            # merge/push to main
+          previous_body=$(gh api "repos/$REPO/releases/tags/latest" --jq '.body // ""' 2>/dev/null || true)
+          previous_code=$(printf '%s\n' "$previous_body" \
+            | grep -oE 'versionCode[[:space:]]+`?[0-9]+' \
+            | grep -oE '[0-9]+' | tail -1 || true)
+          if [[ -n "$previous_code" ]] && (( code <= previous_code )); then
+            code=$((previous_code + 1))
           fi
 
-          if [[ "$mode" == tagged ]]; then
-            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
-              echo "::error::Tag must look like v1.2.0 (got: $tag)"
-              exit 1
-            fi
-            version="${tag#v}"
-            prerelease=""
-            [[ "$tag" == *-* ]] && prerelease="--prerelease"   # v1.2.0-beta.1
-          else
-            # Rolling build: base version + workflow run number, so the version shown in the
-            # app's Settings screen grows with every merge to main too.
-            version="${base}-main.${GITHUB_RUN_NUMBER}"
-            prerelease=""
-          fi
-
+          version="${base}-main.${GITHUB_RUN_NUMBER}"
           {
-            echo "mode=$mode"
-            echo "tag=$tag"
             echo "version=$version"
             echo "code=$code"
-            echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
           {
-            echo "### Release build"
-            echo ""
+            echo "### Building the latest release"
+            echo
             echo "| | |"
             echo "|---|---|"
-            echo "| Mode | \`$mode\` |"
-            echo "| Release tag | \`$tag\` |"
-            echo "| versionName | \`$version\` |"
-            echo "| versionCode | \`$code\` |"
+            echo "| Source | \`main\` · \`${GITHUB_SHA:0:7}\` |"
+            echo "| Build version | \`$version\` |"
+            echo "| Android versionCode | \`$code\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Toolchain ──────────────────────────────────────────────────────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -137,8 +99,7 @@ jobs:
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
-      # NDK 28.2.13676358 is preinstalled on ubuntu-latest; cmake;3.22.1 is not, and AGP needs
-      # it for the native FairPlay/ALAC build. Naming both keeps the build off auto-download.
+      # NDK 28.2.13676358 is preinstalled on ubuntu-latest; AGP needs the named CMake version.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -147,8 +108,6 @@ jobs:
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      # Optional: a maintainer's own private key. When absent the committed
-      # app/signing/phairplay.p12 is used, which is what makes updates install in place.
       - name: Restore release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -165,14 +124,13 @@ jobs:
               echo "KEY_ALIAS=$SECRET_KEY_ALIAS"
               echo "KEY_PASSWORD=$SECRET_KEY_PASSWORD"
             } >> "$GITHUB_ENV"
-            echo "Signing with the release keystore — updates install over previous builds."
-            echo "Signing: release keystore" >> "$GITHUB_STEP_SUMMARY"
+            echo "Signing with the configured release keystore."
+            echo "Signing: configured release keystore" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No KEYSTORE_BASE64 secret — using the repository's public community-build key (app/signing/phairplay.p12), the default."
-            echo "Signing: **public community key** (updates install in place; set \`KEYSTORE_BASE64\` to sign with your own)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Using the repository's community signing key (app/signing/phairplay.p12)."
+            echo "Signing: **community key** — later builds from this repository update in place." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # ── Build ──────────────────────────────────────────────────────────────
       - name: Build release APK
         env:
           BUILD_VERSION: ${{ steps.meta.outputs.version }}
@@ -184,63 +142,96 @@ jobs:
             -Pphairplay.versionName="$BUILD_VERSION" \
             -Pphairplay.versionCode="$BUILD_CODE" 2>&1 | tee build.log
 
-      - name: Collect release assets
+      - name: Verify APK metadata and collect release assets
         id: assets
         env:
-          MODE: ${{ steps.meta.outputs.mode }}
-          TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
           CODE: ${{ steps.meta.outputs.code }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
-          src=$(ls app/build/outputs/apk/googletv/release/*.apk | head -1)
-          cp "$src" dist/PhairPlay-googletv.apk
-          if [[ "$MODE" == tagged ]]; then
-            cp "$src" "dist/PhairPlay-${TAG}-googletv.apk"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/googletv/release/*.apk)
+          if (( ${#apks[@]} != 1 )); then
+            echo "::error::Expected one Google TV release APK, found ${#apks[@]}."
+            exit 1
           fi
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          src="${apks[0]}"
 
+          aapt=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)
+          if [[ -z "$aapt" ]]; then
+            echo "::error::aapt was not found in the installed Android build-tools."
+            exit 1
+          fi
+          metadata=$("$aapt" dump badging "$src" \
+            | sed -n "s/^package: name='[^']*' versionCode='\([^']*\)' versionName='\([^']*\)'.*/\1 \2/p" \
+            | head -1)
+          if [[ -z "$metadata" ]]; then
+            echo "::error::Could not read versionName/versionCode from the built APK."
+            exit 1
+          fi
+          read -r apk_code apk_version <<< "$metadata"
+
+          expected_version="${VERSION}-googletv"
+          if [[ "$apk_version" != "$expected_version" || "$apk_code" != "$CODE" ]]; then
+            echo "::error::APK metadata ($apk_version / $apk_code) did not match the requested build ($expected_version / $CODE)."
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$src" dist/PhairPlay-googletv.apk
+          (cd dist && sha256sum PhairPlay-googletv.apk > SHA256SUMS.txt)
           apk_sha256=$(sha256sum dist/PhairPlay-googletv.apk | cut -d' ' -f1)
           apk_size=$(stat -c%s dist/PhairPlay-googletv.apk)
+          size_mb=$(python3 -c 'import sys; print(f"{int(sys.argv[1]) / 1048576:.1f}")' "$apk_size")
 
-          # version.json is what PhairPlay's in-app updater reads: it carries the
-          # versionCode, so the TV compares numbers instead of parsing release titles.
-          cat > dist/version.json <<JSON
-          {
-            "versionName": "$VERSION",
-            "versionCode": $CODE,
-            "apk": "PhairPlay-googletv.apk",
-            "sha256": "$apk_sha256",
-            "size": $apk_size,
-            "tag": "$TAG",
-            "commit": "$GITHUB_SHA",
-            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          APK_VERSION_NAME="$apk_version" APK_VERSION_CODE="$apk_code" \
+          APK_SHA256="$apk_sha256" APK_SIZE="$apk_size" APK_TAG="latest" \
+          APK_COMMIT="$GITHUB_SHA" python3 - <<'PY'
+          import datetime
+          import json
+          import os
+
+          descriptor = {
+              "versionName": os.environ["APK_VERSION_NAME"],
+              "versionCode": int(os.environ["APK_VERSION_CODE"]),
+              "apk": "PhairPlay-googletv.apk",
+              "sha256": os.environ["APK_SHA256"],
+              "size": int(os.environ["APK_SIZE"]),
+              "tag": os.environ["APK_TAG"],
+              "commit": os.environ["APK_COMMIT"],
+              "builtAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
           }
-          JSON
-          python3 -c "import json,sys; json.load(open('dist/version.json'))"   # fail fast on malformed JSON
+          with open("dist/version.json", "w", encoding="utf-8") as descriptor_file:
+              json.dump(descriptor, descriptor_file, indent=2)
+              descriptor_file.write("\n")
+          PY
+          python3 -c "import json; json.load(open('dist/version.json', encoding='utf-8'))"
 
-          echo "sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
-          echo "size_mb=$(du -m dist/PhairPlay-googletv.apk | cut -f1)" >> "$GITHUB_OUTPUT"
-          echo "APK: \`$(basename "$src")\` → \`dist/PhairPlay-googletv.apk\` ($(du -h dist/PhairPlay-googletv.apk | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
-          echo "version.json: \`$VERSION\` · versionCode \`$CODE\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "version_name=$apk_version"
+            echo "version_code=$apk_code"
+            echo "sha256=$apk_sha256"
+            echo "size_mb=$size_mb"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified APK"
+            echo
+            echo "- File: \`PhairPlay-googletv.apk\`"
+            echo "- Version from the APK: \`$apk_version\`"
+            echo "- Download size: ${size_mb} MB"
+            echo "- SHA-256: \`$apk_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      # Guard against shipping an APK signed with an unexpected key: that is precisely the
-      # situation that makes a TV refuse an update with "package conflicts with an existing
-      # package". Verify the signature and print the certificate fingerprint.
-      - name: Verify the APK signature and print the signing fingerprint
+      - name: Verify the APK signature
         shell: bash
         env:
-          # The checked-in community key is the default signing identity. If a maintainer
-          # intentionally overrides it, the repository variable must pin that private key.
           EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 || 'b9cb7e4b4d5179870e672e850f5d3661f02c248f943dbaf10cd78cd0c047eaae' }}
         run: |
           set -euo pipefail
-          # Pick whatever build-tools revision is installed rather than hard-coding one.
-          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
+          apksigner=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)
           if [[ -z "$apksigner" ]]; then
-            echo "::error::apksigner not found under $ANDROID_HOME/build-tools"
+            echo "::error::apksigner was not found in the installed Android build-tools."
             exit 1
           fi
           "$apksigner" verify --verbose dist/PhairPlay-googletv.apk
@@ -251,162 +242,143 @@ jobs:
           echo "APK signing certificate SHA-256: $fingerprint"
           echo "Signing certificate SHA-256: \`$fingerprint\`" >> "$GITHUB_STEP_SUMMARY"
           if [[ -z "$expected" || "$fingerprint" != "$expected" ]]; then
-            echo "::error::APK was signed with an unexpected certificate. Expected $expected but got $fingerprint. Publishing this would break in-place updates."
+            echo "::error::Unexpected APK signing certificate. Expected $expected but got $fingerprint."
             exit 1
           fi
 
-      # A versionCode that does not grow is how an update silently stops being an update.
-      # Rolling builds only: a tagged release may be re-published, and its own previous body
-      # is what "latest" would report back.
-      - name: Sanity-check that versionCode beats the current release
-        if: steps.meta.outputs.mode == 'rolling'
-        shell: bash
+      - name: Confirm the version code is newer than the published APK
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          CODE: ${{ steps.meta.outputs.code }}
+          CODE: ${{ steps.assets.outputs.version_code }}
+        shell: bash
         run: |
           set -euo pipefail
-          previous=$(gh api "repos/$REPO/releases/latest" --jq '.body' 2>/dev/null \
-            | grep -oE 'versionCode [0-9]+' | grep -oE '[0-9]+' | head -1 || true)
-          if [[ -z "${previous:-}" ]]; then
-            echo "No previous versionCode found — this is the first release with a version.json."
-          elif (( CODE <= previous )); then
-            echo "::error::versionCode $CODE does not exceed the published $previous — TVs would refuse this as a downgrade."
+          previous_body=$(gh api "repos/$REPO/releases/tags/latest" --jq '.body // ""' 2>/dev/null || true)
+          previous_code=$(printf '%s\n' "$previous_body" \
+            | grep -oE 'versionCode[[:space:]]+`?[0-9]+' \
+            | grep -oE '[0-9]+' | tail -1 || true)
+          if [[ -n "$previous_code" ]] && (( CODE <= previous_code )); then
+            echo "::error::versionCode $CODE must be higher than the currently published $previous_code."
             exit 1
+          fi
+          echo "The built APK can update the currently published version."
+
+      - name: Make sure this is still the newest main commit
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq '.sha')
+          if [[ "$main_sha" == "$GITHUB_SHA" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            echo "This build is the current tip of main; publishing it as latest."
           else
-            echo "versionCode $CODE > published $previous — updates will install in place."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::A newer commit is already on main. Skipping this stale build; the queued run will publish the current commit."
           fi
 
-      # ── Publish: rolling `latest` release (every merge to main) ─────────────
-      - name: Point the `latest` tag at this commit
-        if: steps.meta.outputs.mode == 'rolling'
+      - name: Point the latest tag at this commit
+        if: steps.freshness.outputs.current == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Force-move the tag: the rolling release follows main, and moving the tag moves the
-          # release with it, so the download URL keeps working while the assets are replaced.
           git tag -f latest "$GITHUB_SHA"
-          git push -f origin refs/tags/latest
+          git push --force origin refs/tags/latest
 
-      - name: Publish rolling release
-        if: steps.meta.outputs.mode == 'rolling'
+      - name: Publish the single latest release
+        if: steps.freshness.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          CODE: ${{ steps.meta.outputs.code }}
+          PREVIOUS_SHA: ${{ steps.previous.outputs.sha }}
+          VERSION: ${{ steps.assets.outputs.version_name }}
+          CODE: ${{ steps.assets.outputs.version_code }}
           APK_SHA256: ${{ steps.assets.outputs.sha256 }}
           APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
         shell: bash
         run: |
           set -euo pipefail
+
+          python3 tools/extract_release_notes.py CHANGELOG.md "$VERSION" > dist/changelog-notes.md
+          : > dist/changes-since-last-build.md
+          if [[ -n "${PREVIOUS_SHA:-}" && "$PREVIOUS_SHA" != "$GITHUB_SHA" ]]; then
+            gh api "repos/$REPO/compare/${PREVIOUS_SHA}...${GITHUB_SHA}" \
+              --jq '.commits[]? | "- " + (.commit.message | split("\n")[0])' \
+              > dist/changes-since-last-build.md || true
+          fi
+          if [[ ! -s dist/changes-since-last-build.md && ! -s dist/changelog-notes.md ]]; then
+            echo "No version-specific changelog entry is available yet. See the commit and changelog links below." \
+              > dist/changes-since-last-build.md
+          fi
+
           short_sha="${GITHUB_SHA:0:7}"
-          title="PhairPlay latest (Google TV)"
-          notes=$(cat <<EOF
-          **Always the newest build from \`main\`.** Rebuilt on every merge, so this release never goes stale.
+          title="PhairPlay ${VERSION} for Google TV"
+          apk_url="https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+          {
+            echo "# What's new in this build"
+            if [[ -s dist/changes-since-last-build.md ]]; then
+              echo
+              echo "## Changes since the previous build"
+              echo
+              cat dist/changes-since-last-build.md
+            fi
+            if [[ -s dist/changelog-notes.md ]]; then
+              echo
+              echo "## Release summary"
+              echo
+              cat dist/changelog-notes.md
+            fi
+            cat <<EOF
 
-          | | |
-          |---|---|
-          | Download | \`PhairPlay-googletv.apk\` (below) |
-          | Direct link | https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk |
-          | Version | ${VERSION} · versionCode ${CODE} |
-          | Size / SHA-256 | ${APK_SIZE_MB} MB · \`${APK_SHA256}\` |
-          | Commit | [${short_sha}](https://github.com/${REPO}/commit/${GITHUB_SHA}) |
-          | Runs on | Google TV / Android TV OS 10+ (tested: Google TV 4K, Android TV OS 14) |
-          | Mirrors from | macOS 12+, iPhone/iPad iOS 16+ (tested: iPhone 14, iOS 27.0.1) |
+          ## Download and update
 
-          Install: on the TV open **Downloader** and paste the direct link, or
-          \`adb install -r PhairPlay-googletv.apk\` —
-          [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
+          **Download the APK**: [PhairPlay-googletv.apk](${apk_url}) — this is the only APK in the release.
 
-          **Updating:** builds from this repository use the same signing key, so later updates
-          install in place. An older or differently signed install may need a one-time manual
-          reinstall first; PhairPlay 1.4+ explains this before install. Or let the TV check in
-          **Settings → Updates → Check for updates**.
+          - **Version:** \`${VERSION}\` · \`versionCode ${CODE}\`
+          - **Size:** ${APK_SIZE_MB} MB · **SHA-256:** \`${APK_SHA256}\`
+          - **TV update:** open **Settings → Updates → Check for updates**, or paste the direct APK link into Downloader.
+          - **Computer:** \`adb install -r PhairPlay-googletv.apk\`
 
-          Numbered releases (\`v1.2.0\`, …) stay available under
-          [All releases](https://github.com/${REPO}/releases).
+          Builds from this repository use the same signing key, so updates install over the existing app. A one-time reinstall is needed only when switching from a differently signed build.
+
+          [Installation guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md) · [Full changelog](https://github.com/${REPO}/blob/main/CHANGELOG.md)
+
+          **Build:** [\`${short_sha}\`](https://github.com/${REPO}/commit/${GITHUB_SHA}) · Google TV / Android TV OS 10+
           EOF
-          )
+          } > dist/release-notes.md
 
           if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload latest dist/* --repo "$REPO" --clobber
-            gh release edit latest --repo "$REPO" --title "$title" --notes "$notes" --latest
-            echo "Updated the rolling \`latest\` release."
+            release_id=$(gh api "repos/$REPO/releases/tags/latest" --jq '.id')
+            while IFS= read -r asset_id; do
+              [[ -z "$asset_id" ]] || gh api --method DELETE "repos/$REPO/releases/assets/$asset_id"
+            done < <(gh api "repos/$REPO/releases/$release_id" \
+              --jq '.assets[] | select((.name | ascii_downcase | endswith(".apk")) and .name != "PhairPlay-googletv.apk") | .id')
+            gh release upload latest \
+              dist/PhairPlay-googletv.apk dist/SHA256SUMS.txt dist/version.json \
+              --repo "$REPO" --clobber
+            gh release edit latest --repo "$REPO" --title "$title" \
+              --notes-file dist/release-notes.md --latest
+            echo "Updated the current release."
           else
-            gh release create latest dist/* --repo "$REPO" \
-              --title "$title" --notes "$notes" --target "$GITHUB_SHA" --latest
-            echo "Created the rolling \`latest\` release."
+            gh release create latest \
+              dist/PhairPlay-googletv.apk dist/SHA256SUMS.txt dist/version.json \
+              --repo "$REPO" --title "$title" --notes-file dist/release-notes.md \
+              --target "$GITHUB_SHA" --verify-tag --latest
+            echo "Created the current release."
           fi
+
           {
-            echo ""
-            echo "Rolling release: https://github.com/${REPO}/releases/tag/latest"
-            echo ""
-            echo "APK: https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+            echo
+            echo "## Published current release"
+            echo
+            echo "- [Release notes](https://github.com/${REPO}/releases/tag/latest)"
+            echo "- [Download the APK](${apk_url})"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Publish: permanent versioned release (v* tag) ───────────────────────
-      - name: Publish versioned release
-        if: steps.meta.outputs.mode == 'tagged'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          CODE: ${{ steps.meta.outputs.code }}
-          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
-          APK_SHA256: ${{ steps.assets.outputs.sha256 }}
-          APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          title="PhairPlay ${TAG} (Google TV)"
-          notes=$(cat <<EOF
-          ## PhairPlay ${TAG} for Google TV
-
-          **Download \`PhairPlay-googletv.apk\` below** — that is the only file you need.
-
-          | | |
-          |---|---|
-          | Version | ${VERSION} · versionCode ${CODE} |
-          | Size / SHA-256 | ${APK_SIZE_MB} MB · \`${APK_SHA256}\` |
-          | Runs on | Google TV / Android TV OS 10+ (tested: Google TV 4K, Android TV OS 14) |
-          | Mirrors from | macOS 12+, iPhone/iPad iOS 16+ (tested: iPhone 14, iOS 27.0.1) |
-
-          Install: on the TV open **Downloader** and paste the link below, or
-          \`adb install -r PhairPlay-googletv.apk\` —
-          [full guide](https://github.com/${REPO}/blob/main/docs/guides/INSTALLATION.md).
-
-          https://github.com/${REPO}/releases/download/${TAG}/PhairPlay-googletv.apk
-
-          Prefer the newest build from \`main\` instead? See the rolling
-          [\`latest\` release](https://github.com/${REPO}/releases/tag/latest).
-          EOF
-          )
-
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --repo "$REPO" --clobber
-            gh release edit "$TAG" --repo "$REPO" --title "$title" --notes "$notes"
-          else
-            # gh creates the tag at --target when it does not exist yet (manual runs).
-            # A stable release is also marked "Latest"; pre-releases are not.
-            gh release create "$TAG" dist/* --repo "$REPO" \
-              --title "$title" --notes "$notes" --generate-notes \
-              --target "$GITHUB_SHA" $PRERELEASE \
-              $([[ -z "$PRERELEASE" ]] && echo --latest || true)
-          fi
-          {
-            echo ""
-            echo "Release: https://github.com/${REPO}/releases/tag/${TAG}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # ── Diagnostics ────────────────────────────────────────────────────────
-      # Runner logs live on a blob host that is awkward to reach and they expire, and job
-      # summaries are not readable through the REST API — so a failure reports itself: the
-      # compiler errors and the Gradle failure block go to the job summary AND back to the
-      # pull request (or the commit, for pushes to main and tags).
-      - name: Report the failure (job summary + comment)
+      - name: Report the failure in the job summary and commit
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -416,35 +388,24 @@ jobs:
           report=$(mktemp)
           {
             echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
-            echo ""
+            echo
             echo "Errors:"
             echo '```'
-            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
-            # failing unit test names itself; head keeps a wall of warnings from pushing the
-            # real error out of the report.
             grep -E "^e: |error:|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
-            echo ""
-            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
-            echo ""
+            echo
+            echo "<details><summary>Gradle failure details</summary>"
+            echo
             echo '```'
             awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
-            echo "--- tail ---"
-            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
+            tail -n 40 build.log 2>/dev/null || echo "(Gradle did not run)"
             echo '```'
-            echo ""
+            echo
             echo "</details>"
-            echo ""
+            echo
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } > "$report"
           cat "$report" >> "$GITHUB_STEP_SUMMARY"
-
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
-              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
-              || echo "::warning::could not comment on the pull request"
-          else
-            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -f body="$(cat "$report")" > /dev/null \
-              || echo "::warning::could not comment on the commit"
-          fi
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -f body="$(cat "$report")" > /dev/null \
+            || echo "::warning::Could not comment on the commit."
