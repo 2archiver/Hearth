@@ -191,14 +191,17 @@ class UpdateManager(private val context: Context) {
     companion object {
         private const val UPDATE_DIR = "updates"
 
-        @Volatile
-        private var instance: UpdateManager? = null
-
-        /** Process-wide instance (the BroadcastReceiver needs one without a DI graph). */
-        fun get(context: Context): UpdateManager =
-            instance ?: synchronized(this) {
-                instance ?: UpdateManager(context.applicationContext).also { instance = it }
-            }
+        /**
+         * Entry point for the callers that have no dependency graph — the service, the
+         * install-result receiver and the UI fragments — and which all hold an application
+         * Context anyway.
+         *
+         * Deliberately NOT cached in a static field. A static reference to an object that
+         * holds a Context is a lint `StaticFieldLeak` error, and there would be nothing to
+         * gain from caching: every piece of updater state lives in SharedPreferences or on
+         * disk, so a fresh instance is two small allocations.
+         */
+        fun get(context: Context): UpdateManager = UpdateManager(context.applicationContext)
     }
 }
 
