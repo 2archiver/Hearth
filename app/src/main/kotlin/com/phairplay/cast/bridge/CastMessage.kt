@@ -74,60 +74,68 @@ internal object CastProtocol {
         return frame
     }
 
-    /** Decodes a bare protobuf body. Returns null when the payload is not usable. */
-    fun decode(bytes: ByteArray): CastMessage? = try {
-        var sourceId: String? = null
-        var destinationId: String? = null
-        var namespace: String? = null
-        var payloadType = PAYLOAD_STRING
-        var payloadUtf8: String? = null
-        var payloadBinary: ByteArray? = null
+    /**
+     * Decodes a bare protobuf body. Returns null when the payload is not usable.
+     *
+     * Note the block body: Kotlin forbids `return` inside a function declared with an
+     * expression body (`= try { … }`), and bailing out early is exactly what this does on
+     * every malformed field.
+     */
+    fun decode(bytes: ByteArray): CastMessage? {
+        return try {
+            var sourceId: String? = null
+            var destinationId: String? = null
+            var namespace: String? = null
+            var payloadType = PAYLOAD_STRING
+            var payloadUtf8: String? = null
+            var payloadBinary: ByteArray? = null
 
-        var position = 0
-        while (position < bytes.size) {
-            val (tag, consumed) = bytes.readVarint(position) ?: break
-            position = consumed
-            val field = tag ushr 3
-            val wireType = tag and 0x07
+            var position = 0
+            while (position < bytes.size) {
+                val (tag, consumed) = bytes.readVarint(position) ?: break
+                position = consumed
+                val field = tag ushr 3
+                val wireType = tag and 0x07
 
-            when (wireType) {
-                WIRE_VARINT -> {
-                    val (value, next) = bytes.readVarint(position) ?: break
-                    position = next
-                    if (field == 5) payloadType = value
-                    // field 1 (protocol_version) is always 0; ignore it.
-                }
-
-                WIRE_LENGTH_DELIMITED -> {
-                    val (length, afterLength) = bytes.readVarint(position) ?: break
-                    position = afterLength
-                    if (length < 0 || length > bytes.size - position) return null
-                    val slice = bytes.copyOfRange(position, position + length)
-                    position += length
-                    when (field) {
-                        2 -> sourceId = String(slice, StandardCharsets.UTF_8)
-                        3 -> destinationId = String(slice, StandardCharsets.UTF_8)
-                        4 -> namespace = String(slice, StandardCharsets.UTF_8)
-                        6 -> payloadUtf8 = String(slice, StandardCharsets.UTF_8)
-                        7 -> payloadBinary = slice
-                        else -> Unit          // unknown field — skip, stay compatible
+                when (wireType) {
+                    WIRE_VARINT -> {
+                        val (value, next) = bytes.readVarint(position) ?: break
+                        position = next
+                        if (field == 5) payloadType = value
+                        // field 1 (protocol_version) is always 0; ignore it.
                     }
+
+                    WIRE_LENGTH_DELIMITED -> {
+                        val (length, afterLength) = bytes.readVarint(position) ?: break
+                        position = afterLength
+                        if (length < 0 || length > bytes.size - position) return null
+                        val slice = bytes.copyOfRange(position, position + length)
+                        position += length
+                        when (field) {
+                            2 -> sourceId = String(slice, StandardCharsets.UTF_8)
+                            3 -> destinationId = String(slice, StandardCharsets.UTF_8)
+                            4 -> namespace = String(slice, StandardCharsets.UTF_8)
+                            6 -> payloadUtf8 = String(slice, StandardCharsets.UTF_8)
+                            7 -> payloadBinary = slice
+                            else -> Unit          // unknown field — skip, stay compatible
+                        }
+                    }
+
+                    else -> return null           // groups/fixed types are not used by castv2
                 }
-
-                else -> return null           // groups/fixed types are not used by castv2
             }
-        }
 
-        if (sourceId == null || destinationId == null || namespace == null) return null
-        CastMessage(
-            sourceId = sourceId,
-            destinationId = destinationId,
-            namespace = namespace,
-            payloadUtf8 = if (payloadType == PAYLOAD_BINARY) null else payloadUtf8,
-            payloadBinary = payloadBinary
-        )
-    } catch (e: Exception) {
-        null
+            if (sourceId == null || destinationId == null || namespace == null) return null
+            CastMessage(
+                sourceId = sourceId,
+                destinationId = destinationId,
+                namespace = namespace,
+                payloadUtf8 = if (payloadType == PAYLOAD_BINARY) null else payloadUtf8,
+                payloadBinary = payloadBinary
+            )
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private const val WIRE_VARINT = 0

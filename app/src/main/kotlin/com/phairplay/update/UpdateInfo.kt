@@ -87,19 +87,27 @@ data class Release(
  */
 object ReleaseParser {
 
-    /** Parses the `releases/latest` response. Returns null when it is not usable. */
-    fun parseRelease(json: String): Release? = try {
-        val root = JSONObject(json)
-        val tag = root.optStringOrNull("tag_name") ?: return null
-        Release(
-            tagName = tag,
-            name = root.optStringOrNull("name") ?: tag,
-            htmlUrl = root.optStringOrNull("html_url") ?: "",
-            body = root.optStringOrNull("body")?.trim()?.takeIf { it.isNotEmpty() },
-            assets = parseAssets(root.optJSONArray("assets"))
-        )
-    } catch (e: Exception) {
-        null
+    /**
+     * Parses the `releases/latest` response. Returns null when it is not usable.
+     *
+     * Note the block body: Kotlin forbids `return` inside a function declared with an
+     * expression body (`= try { … }`), and bailing out on a missing `tag_name` is exactly
+     * what this does.
+     */
+    fun parseRelease(json: String): Release? {
+        return try {
+            val root = JSONObject(json)
+            val tag = root.optStringOrNull("tag_name") ?: return null
+            Release(
+                tagName = tag,
+                name = root.optStringOrNull("name") ?: tag,
+                htmlUrl = root.optStringOrNull("html_url") ?: "",
+                body = root.optStringOrNull("body")?.trim()?.takeIf { it.isNotEmpty() },
+                assets = parseAssets(root.optJSONArray("assets"))
+            )
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /**

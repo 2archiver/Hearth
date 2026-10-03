@@ -55,7 +55,7 @@ internal class CastMediaPlayer(
     @Volatile private var currentUrl: String? = null
     @Volatile private var state: String = State.IDLE
     @Volatile private var prepared = false
-    @Volatile private var startAtMs = 0
+    @Volatile private var startAtMs = 0L
 
     override fun currentState(): String = state
     fun currentUrl(): String? = currentUrl
@@ -65,7 +65,7 @@ internal class CastMediaPlayer(
     override fun load(url: String, startPositionSec: Double, autoplay: Boolean) {
         release()
         currentUrl = url
-        startAtMs = (startPositionSec * 1000.0).toLong().coerceAtLeast(0)
+        startAtMs = (startPositionSec * 1000.0).toLong().coerceAtLeast(0L)
         state = State.BUFFERING
         Logger.i("Cast: loading $url (start=${startAtMs}ms autoplay=$autoplay)")
         val player = MediaPlayer()
@@ -139,7 +139,7 @@ internal class CastMediaPlayer(
     override fun seek(positionSec: Double) {
         val p = player ?: return
         if (!prepared) {
-            startAtMs = (positionSec * 1000.0).toLong().coerceAtLeast(0)
+            startAtMs = (positionSec * 1000.0).toLong().coerceAtLeast(0L)
             return
         }
         runCatching { p.seekTo((positionSec * 1000.0).toLong().toInt()) }
@@ -178,7 +178,7 @@ internal class CastMediaPlayer(
         }
         player = null
         prepared = false
-        startAtMs = 0
+        startAtMs = 0L
     }
 
     private fun onPrepared(player: MediaPlayer, autoplay: Boolean) {
@@ -186,7 +186,7 @@ internal class CastMediaPlayer(
             if (this.player !== player) return     // released or replaced while preparing
             prepared = true
             runCatching { surfaceProvider()?.let { player.setSurface(it) } }
-            if (startAtMs > 0) runCatching { player.seekTo(startAtMs) }
+            if (startAtMs > 0) runCatching { player.seekTo(startAtMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) }
             if (autoplay) {
                 runCatching { player.start() }
                 state = State.PLAYING
