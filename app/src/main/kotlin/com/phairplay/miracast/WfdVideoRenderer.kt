@@ -1,6 +1,7 @@
 package com.phairplay.miracast
 
 import android.view.Surface
+import com.phairplay.airplay.StreamStats
 import com.phairplay.airplay.VideoDecoder
 import com.phairplay.airplay.VideoRtpProcessor
 import com.phairplay.util.Logger
@@ -71,6 +72,14 @@ internal class WfdVideoRenderer(
             active = createDecoder() ?: return  // still waiting for SPS/PPS/Surface — drop frame
         }
         active.decodeNalUnit(nalUnit, presentationTimeUs)
+        // The HUD's resolution comes from the decoder's own report; keep the advertised string
+        // honest once MediaCodec has told us what it is really decoding.
+        val width = StreamStats.videoWidth
+        val height = StreamStats.videoHeight
+        if (width > 0 && height > 0) {
+            val resolved = "${'$'}widthx${'$'}height"
+            if (resolved != StreamStats.videoRes) StreamStats.videoRes = resolved
+        }
     }
 
     /**
@@ -90,6 +99,7 @@ internal class WfdVideoRenderer(
             // the SPS NAL unit itself and reports it for aspect-fit rendering.
             candidate.initialize(spsBytes, ppsBytes, FALLBACK_WIDTH, FALLBACK_HEIGHT)
             decoder = candidate
+            StreamStats.videoDecoderReady = true
             Logger.i("WFD: H.264 decoder initialized (SPS + PPS received)")
             candidate
         } catch (e: Exception) {
@@ -106,6 +116,7 @@ internal class WfdVideoRenderer(
         decoder = null
         sps = null
         pps = null
+        StreamStats.videoDecoderReady = false
     }
 
     companion object {

@@ -191,12 +191,160 @@ class CastReceiverAppTest {
     }
 
     @Test
-    fun `media messages are ignored when nothing has been launched`() {
+    fun `a media command with no session gets INVALID_REQUEST instead of silence`() {
+        // Silence is the worst possible answer: the sender sits on "connecting…" forever
+        // waiting for a reply that will never come. Before 1.5 this returned nothing.
         val (app, playback, sink) = fixture()
         app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
             """{"type":"LOAD","requestId":1,"media":{"contentId":"http://x/y.mp4"}}""")
         assertNull(playback.loadedUrl)
-        assertTrue(sink.sent.none { it.namespace == CastReceiverApp.NS_MEDIA })
+        val reply = sink.last(CastReceiverApp.NS_MEDIA)
+        assertEquals("INVALID_REQUEST", reply?.optString("type"))
+        assertEquals(1, reply?.optInt("requestId") ?: -1)
+    }
+
+    @Test
+    fun `LOAD without a contentId reports LOAD_FAILED rather than doing nothing`() {
+        val (app, _, sink) = fixture()
+        app.receive("sender-0", "receiver-0", CastReceiverApp.NS_RECEIVER,
+            """{"type":"LAUNCH","appId":"CC1AD845","requestId":1}""")
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"LOAD","requestId":9,"media":{"contentType":"video/mp4"}}""")
+        val reply = sink.last(CastReceiverApp.NS_MEDIA)
+        assertEquals("LOAD_FAILED", reply?.optString("type"))
+        assertEquals(9, reply?.optInt("requestId") ?: -1)
+        assertTrue((reply?.optInt("detailedErrorCode") ?: 0) > 0)
+    }
+
+    // ─── Queue ───────────────────────────────────────────────────────────────
+
+    private fun launched(): Triple<CastReceiverApp, FakePlayback, Recorder> {
+        val fixture = fixture()
+        fixture.first.receive("sender-0", "receiver-0", CastReceiverApp.NS_RECEIVER,
+            """{"type":"LAUNCH","appId":"CC1AD845","requestId":1}""")
+        return fixture
+    }
+
+    @Test
+    fun `QUEUE_LOAD plays the first item and reports the queue back`() {
+        val (app, playback, sink) = launched()
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"QUEUE_LOAD","requestId":4,"startIndex":0,"repeatMode":"REPEAT_OFF",
+                "items":[
+                  {"media":{"contentId":"http://x/one.mp4"},"autoplay":true},
+                  {"media":{"contentId":"http://x/two.mp4"},"autoplay":true}
+                ]}""")
+
+        assertEquals("http://x/one.mp4", playback.loadedUrl)
+
+        val ids = sink.on(CastReceiverApp.NS_MEDIA).mapNotNull { it.optJSONArray("itemIds") }.lastOrNull()
+        assertNotNull("QUEUE_LOAD must answer with QUEUE_ITEM_IDS", ids)
+        assertEquals(2, ids?.length() ?: -1)
+
+        // QUEUE_LOAD answers twice (MEDIA_STATUS then QUEUE_ITEM_IDS), so pick the status out.
+        val status = sink.on(CastReceiverApp.NS_MEDIA)
+            .lastOrNull { it.optString("type") == "MEDIA_STATUS" }
+        assertNotNull(status)
+        assertEquals(
+            "http://x/one.mp4",
+            status?.optJSONArray("status")?.optJSONObject(0)?.optJSONObject("media")?.optString("contentId")
+        )
+        assertTrue(app.hasSession())
+    }
+
+    @Test
+    fun `QUEUE_NEXT advances to the following item`() {
+        val (app, playback, _) = launched()
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"QUEUE_LOAD","requestId":1,"startIndex":0,
+                "items":[
+                  {"media":{"contentId":"http://x/one.mp4"}},
+                  {"media":{"contentId":"http://x/two.mp4"}}
+                ]}""")
+        assertEquals("http://x/one.mp4", playback.loadedUrl)
+
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"QUEUE_NEXT","requestId":2}""")
+        assertEquals("http://x/two.mp4", playback.loadedUrl)
+        assertTrue(app.hasSession())
+    }
+
+    @Test
+    fun `an empty QUEUE_LOAD is rejected instead of silently starting nothing`() {
+        val (app, _, sink) = launched()
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"QUEUE_LOAD","requestId":3,"items":[]}""")
+        assertEquals("INVALID_REQUEST", sink.last(CastReceiverApp.NS_MEDIA)?.optString("type"))
+    }
+
+    // ─── Per-sender replies ──────────────────────────────────────────────────
+
+    @Test
+    fun `a reply goes to the sender that asked, not to every connected phone`() {
+        val playback = FakePlayback()
+        val phoneA = Recorder()
+        val phoneB = Recorder()
+        val app = CastReceiverApp("TV", playback, onVolumeChanged = { _, _ -> })
+        app.addSink(phoneA)
+        app.addSink(phoneB)
+
+        app.handle(
+            CastMessage("sender-0", "receiver-0", CastReceiverApp.NS_RECEIVER,
+                payloadUtf8 = """{"type":"GET_STATUS","requestId":1}"""),
+            phoneA
+        )
+
+        assertEquals(0, phoneB.sent.size)
+        assertEquals(1, phoneA.sent.size)
+        assertEquals("RECEIVER_STATUS", phoneA.last(CastReceiverApp.NS_RECEIVER)?.optString("type"))
+    }
+
+    // ─── Private protocols ───────────────────────────────────────────────────
+
+    @Test
+    fun `an app using a private Cast channel is reported once, naming the app`() {
+        val notices = mutableListOf<String>()
+        val playback = FakePlayback()
+        val sink = Recorder()
+        val app = CastReceiverApp(
+            displayName = "TV",
+            player = playback,
+            onVolumeChanged = { _, _ -> },
+            onUnsupportedNamespace = { notices += it }
+        )
+        app.addSink(sink)
+        app.receive("sender-0", "receiver-0", CastReceiverApp.NS_RECEIVER,
+            """{"type":"LAUNCH","appId":"233637DE","requestId":1}""")
+
+        val mdx = "urn:x-cast:com.google.youtube.mdx"
+        app.receive("sender-0", "web-1", mdx, """{"type":"mdxOpen"}""")
+        app.receive("sender-0", "web-1", mdx, """{"type":"mdxNext"}""")
+
+        assertEquals(1, notices.size)                 // once, not on every message
+        assertTrue(notices[0].contains("233637DE"))
+        assertTrue(notices[0].contains(mdx))
+        assertTrue(notices[0].contains("Screen Mirroring"))
+    }
+
+    @Test
+    fun `SET_VOLUME on the media namespace also updates the receiver volume`() {
+        var notified: Double? = null
+        val app = CastReceiverApp("TV", FakePlayback(), onVolumeChanged = { level, _ -> notified = level })
+        val sink = Recorder()
+        app.addSink(sink)
+        app.receive("sender-0", "receiver-0", CastReceiverApp.NS_RECEIVER,
+            """{"type":"LAUNCH","appId":"CC1AD845","requestId":1}""")
+
+        app.receive("sender-0", "web-1", CastReceiverApp.NS_MEDIA,
+            """{"type":"SET_VOLUME","requestId":2,"volume":{"level":0.4,"muted":false}}""")
+
+        assertEquals(0.4, notified ?: -1.0, 0.001)
+        assertEquals(
+            0.4,
+            sink.last(CastReceiverApp.NS_RECEIVER)
+                ?.optJSONObject("status")?.optJSONObject("volume")?.optDouble("level") ?: -1.0,
+            0.001
+        )
     }
 
     @Test

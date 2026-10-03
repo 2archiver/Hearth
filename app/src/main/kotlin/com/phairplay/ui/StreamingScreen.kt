@@ -53,11 +53,17 @@ class StreamingScreen @JvmOverloads constructor(
     // Optional debug HUD (Settings → "Debug overlay"), drawn on top of the video.
     private val debugView = TextView(context).apply {
         setTextColor(Color.parseColor("#FF00FF66"))
-        setBackgroundColor(Color.parseColor("#A6000000"))
-        textSize = 13f
+        setBackgroundColor(Color.parseColor("#C8000000"))
+        textSize = 14f
         typeface = Typeface.MONOSPACE
-        setPadding(24, 16, 24, 16)
+        setPadding(32, 20, 32, 20)
         visibility = GONE
+        // SurfaceView is composited in its own layer *below* the window, so a sibling normally
+        // draws above it — but on some TV stacks (and after a decoder re-configure) the video
+        // layer ends up in front. An explicit elevation wins in every case.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            elevation = 1000f
+        }
     }
     // Last applied surface size, so we only re-layout on an actual change (rotation/resolution switch).
     private var lastSurfaceW = Int.MIN_VALUE
@@ -93,7 +99,8 @@ class StreamingScreen @JvmOverloads constructor(
         addView(debugView, LayoutParams(
             LayoutParams.WRAP_CONTENT,
             LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 48; leftMargin = 48 })
+        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 40; leftMargin = 40 })
+        debugView.bringToFront()
 
         // Register a callback to track when the Surface is created/destroyed
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {

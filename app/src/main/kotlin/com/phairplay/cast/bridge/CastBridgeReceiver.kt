@@ -46,7 +46,11 @@ internal class CastBridgeReceiver(
     private val context: Context,
     private val displayName: String,
     private val surfaceProvider: () -> Surface?,
-    private val onStateChanged: (ProtocolState) -> Unit
+    private val onStateChanged: (ProtocolState) -> Unit,
+    /** Mirrors the player's state to the service, which feeds the debug HUD and the video overlay. */
+    private val onMediaChanged: (state: String, positionSec: Double, durationSec: Double) -> Unit = { _, _, _ -> },
+    /** Good news / explanations worth showing on the Cast card (e.g. "handed YouTube to the TV"). */
+    private val onNotice: (String) -> Unit = {}
 ) {
 
     @Volatile private var running = false
@@ -56,6 +60,7 @@ internal class CastBridgeReceiver(
     private var dialServer: DialHttpServer? = null
     private var castServer: CastV2Server? = null
     private var advertiser: CastMdnsAdvertiser? = null
+    private var ssdp: SsdpResponder? = null
 
     /** User-facing explanation of the last failure, shown on the Cast card. */
     @Volatile var lastError: String? = null
@@ -112,7 +117,12 @@ internal class CastBridgeReceiver(
         try {
             val mediaPlayer = CastMediaPlayer(
                 surfaceProvider = surfaceProvider,
-                onStateChanged = { _, _, _ -> app?.broadcastMediaStatus() }
+                onStateChanged = { state, positionSec, durationSec ->
+                    app?.broadcastMediaStatus()
+                    // The debug HUD shows player state + position for a Cast session (there are
+                    // no frames to count — ExoPlayer/MediaPlayer renders straight to the Surface).
+                    onMediaChanged(state, positionSec, durationSec)
+                }
             )
             val receiverApp = CastReceiverApp(
                 displayName = displayName,
@@ -121,17 +131,51 @@ internal class CastBridgeReceiver(
                 onSessionChanged = { active ->
                     if (active) onStateChanged(ProtocolState.CONNECTED)
                     else onStateChanged(ProtocolState.ADVERTISING)
+                },
+                // Reported on the Cast card: an app that launched here and then spoke a private
+                // channel is not a PhairPlay bug, and saying so is better than a black screen.
+                onUnsupportedNamespace = { notice ->
+                    Logger.i("Cast: unsupported private channel — $notice")
+                    onNotice(notice)
                 }
             )
+
+            // Hand a DIAL launch to an app that is already installed on this TV when we
+            // recognise the name; everything else is played by PhairPlay itself.
+            val appLauncher: DialAppLauncher = DialAppRouter(context)
 
             val dial = DialHttpServer(
                 port = DialHttpServer.DEFAULT_PORT,
                 deviceName = { displayName },
                 localIpAddress = { NetworkUtils.getLocalIpAddress() ?: "127.0.0.1" },
-                onLaunch = { appId -> receiverApp.launch(appId) },
-                onStop = { receiverApp.stopSession() }
+                onLaunch = { appId, handedOff ->
+                    if (handedOff) {
+                        val message = "\"$appId\" is being played by this TV's own app — " +
+                            "PhairPlay only started it."
+                        Logger.i("Cast: DIAL launch handed to the TV's own app ($appId)")
+                        onNotice(message)
+                    } else {
+                        receiverApp.launch(appId)
+                    }
+                },
+                onStop = { receiverApp.stopSession() },
+                appLauncher = appLauncher
             )
             dial.start()
+
+            // DIAL discovery: mDNS `_googlecast._tcp` is what the Cast SDK browses, but
+            // Netflix/YouTube/Windows find devices by sending SSDP M-SEARCH to port 1900.
+            val discovery = SsdpResponder(
+                context = context,
+                locationUrl = { dial.deviceDescriptionUrl },
+                deviceUuid = { dial.deviceUuid }
+            )
+            val ssdpListening = discovery.start()
+            discovery.lastError?.let { onNotice(it) }
+            if (!ssdpListening) {
+                Logger.w("Cast: DIAL-only senders will not discover this TV over SSDP")
+            }
+            ssdp = discovery
 
             val cast = CastV2Server(
                 port = CastV2Server.DEFAULT_PORT,
@@ -196,6 +240,7 @@ internal class CastBridgeReceiver(
             advertiser?.stop()
             castServer?.stop()
             dialServer?.stop()
+            ssdp?.stop()
             player?.release()
         } catch (e: Exception) {
             Logger.w("Cast bridge: error while stopping (non-fatal): ${e.message}")
@@ -203,6 +248,7 @@ internal class CastBridgeReceiver(
         advertiser = null
         castServer = null
         dialServer = null
+        ssdp = null
         player = null
         app = null
     }

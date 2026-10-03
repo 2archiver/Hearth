@@ -113,6 +113,12 @@ class AudioStreamServer(
     fun start(scope: CoroutineScope) {
         running = true
         StreamStats.audioActive = true
+        StreamStats.audioCodec = when (codecType) {
+            CT_ALAC -> "ALAC"
+            CT_AAC_LC -> "AAC-LC"
+            CT_AAC_ELD -> "AAC-ELD"
+            else -> "ct=$codecType"
+        } + " ${sampleRate / 1000}k"
         scope.launch(Dispatchers.IO) { runPlayback() }   // decode + play (may block on AudioTrack)
         scope.launch(Dispatchers.IO) { runReceive() }    // drain socket fast (never blocks on audio)
         scope.launch(Dispatchers.IO) { runControl() }    // capture sender addr + handle resend replies

@@ -23,7 +23,7 @@ That link never goes stale and never needs a tag, a release to be cut by hand, o
 | **Download page** | <https://2archiver.github.io/phairplay-archiver-fork-/> (optional; needs Pages → Source: *GitHub Actions*) |
 | **Runs on** | Google TV / Android TV OS 10+ — tested on Google TV 4K, Android TV OS 14 |
 
-**Guides:** [Installation](docs/guides/INSTALLATION.md) · [Keeping up to date](docs/UPDATES.md) · [Google Cast](docs/guides/CAST.md) · [Troubleshooting](docs/guides/TROUBLESHOOTING.md)
+**Guides:** [Installation](docs/guides/INSTALLATION.md) · [Keeping up to date](docs/UPDATES.md) · [Google Cast](docs/guides/CAST.md) · [Miracast](docs/guides/MIRACAST.md) · [Troubleshooting](docs/guides/TROUBLESHOOTING.md)
 
 **Install it on the TV:** open the *Downloader* app, paste the link above, then **Install** — or from a computer, `adb install -r PhairPlay-googletv.apk`. Full steps: [docs/guides/INSTALLATION.md](docs/guides/INSTALLATION.md).
 
@@ -47,13 +47,21 @@ Or skip the computer: **Settings → Updates → Check for updates** on the TV. 
 
 ---
 
-## Current Status — v1.4
+## Current Status — v1.5
 
 PhairPlay's AirPlay 2 receiver is fully implemented and published as a beta. Grab the APK above — a merge to `main` is all it takes to publish a new one.
 
-**v1.4 removes the two things that made PhairPlay annoying to live with:**
-- **Updates just work after a one-time signing-key transition.** Builds from this repository share one key, so subsequent APKs install in place; some early 1.4 or differently signed installs need a one-time reinstall first. PhairPlay checks the certificate before install and guides that transition from **Settings → Updates**.
-- **Google Cast works without registering anything with Google.** PhairPlay serves Cast directly (mDNS + DIAL + castv2), so an iPhone app's cast button now lists your TV.
+**v1.5 is about casting from the phone actually connecting, and about being able to see what is going on when it doesn't:**
+- **Google Cast now answers SSDP/DIAL discovery.** PhairPlay only advertised over mDNS (`_googlecast._tcp`), which the Google Cast SDK browses — but Netflix, YouTube and Windows find receivers by sending a UPnP `M-SEARCH` to port 1900, and we never answered. As far as every DIAL sender was concerned the TV did not exist. It now does.
+- **Cast hands off to the app already on your TV.** A DIAL launch for `Netflix`, `YouTube`, `Spotify` and friends starts the real app installed on the TV instead of trying to play a protected stream PhairPlay cannot decode. That is what a real smart TV does, and it is the only way those apps can ever work.
+- **The Cast protocol is much closer to a real Chromecast.** Replies go to the sender that asked, failures are answered instead of swallowed, queue/playlist commands work, and `MEDIA_STATUS` is pushed every second so the phone's progress bar keeps moving.
+- **Apps with a private Cast channel now say so.** YouTube and Netflix launch their own receiver and then speak a protocol only that receiver knows. PhairPlay says exactly that on the Cast card instead of silently doing nothing.
+- **Miracast negotiation is complete.** `GET_PARAMETER` answers exactly the parameters the source asked for (including `wfd_uibc_capability`, which Windows requires), `wfd_video_formats` reports a valid H.264 profile/level instead of values no source recognises, and the OPTIONS reply lists every method we implement.
+- **The debug overlay actually works.** Toggling it now takes effect immediately (no Restart), it shows real numbers within a second instead of after 300 packets, and it now reports Cast and Miracast sessions too — not just AirPlay.
+
+See the [changelog](CHANGELOG.md) for the full list. Limits are documented honestly:
+[docs/guides/CAST.md](docs/guides/CAST.md) for what can and cannot be cast, and
+[docs/guides/MIRACAST.md](docs/guides/MIRACAST.md) for Miracast's platform ceiling on Android TV.
 
 The AirPlay 2 stack is complete end-to-end: mDNS advertising, RTSP handshake, HomeKit-style pairing, FairPlay key decryption, H.264 mirroring, AAC-ELD/AAC-LC/ALAC audio, NTP A/V sync, and DACP reverse remote. Real-device validation with macOS and iOS senders is the current focus.
 

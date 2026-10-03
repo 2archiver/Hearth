@@ -68,6 +68,8 @@ class MainActivity : AppCompatActivity() {
     private var isBound = false
     private var currentAirPlayState = ProtocolState.DISABLED
     private var currentMiracastState = ProtocolState.DISABLED
+    /** True once a Cast sender has media loaded — drives the video overlay + debug HUD. */
+    private var currentCastMediaActive = false
     private var currentPhotoFrame: PhotoFrame? = null
     private var currentNowPlaying: NowPlayingInfo? = null
     private var currentPin: String? = null
@@ -296,7 +298,8 @@ class MainActivity : AppCompatActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         val overlayActive = currentNowPlaying != null ||
             currentAirPlayState == ProtocolState.CONNECTED ||
-            currentMiracastState == ProtocolState.CONNECTED
+            currentMiracastState == ProtocolState.CONNECTED ||
+            currentCastMediaActive
         if (overlayActive) {
             val command = when (keyCode) {
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -407,6 +410,12 @@ class MainActivity : AppCompatActivity() {
                 updateOverlay()
             }
         }
+        lifecycleScope.launch {
+            svc.castMediaActive.collectLatest { active ->
+                currentCastMediaActive = active
+                updateOverlay()
+            }
+        }
     }
 
     private fun updateOverlay() {
@@ -419,9 +428,13 @@ class MainActivity : AppCompatActivity() {
             // Audio-only AirPlay (system audio, Music, podcasts): show the now-playing card instead
             // of the black video surface. Set whenever audio plays without video.
             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
-            // Full-screen video: AirPlay mirroring or a Miracast (WFD) session.
+            // Full-screen video: AirPlay mirroring, a Miracast (WFD) session, or a Cast sender
+            // with media loaded. Cast only counts once there is something to draw — launching an
+            // app for an audio-only sender must not black out the Home screen, and it is also
+            // what makes the debug HUD reachable during a Cast session.
             currentAirPlayState == ProtocolState.CONNECTED ||
-                currentMiracastState == ProtocolState.CONNECTED -> showStreamingScreen()
+                currentMiracastState == ProtocolState.CONNECTED ||
+                currentCastMediaActive -> showStreamingScreen()
             photoFrame != null -> showPhotoScreen(photoFrame)
             else -> hideStreamingScreen()
         }

@@ -82,6 +82,56 @@
         android:name="android.hardware.location.network"
         android:required="false" />
 
+    <!--
+        Package visibility (Android 11+).
+
+        Cast's DIAL hand-off has to ask "is Netflix / YouTube / … installed on this TV?" before
+        it can launch the real app instead of trying to play a protected stream itself. From
+        Android 11 the platform hides every other package unless it is named here, so without
+        this block every hand-off would silently fail and PhairPlay would keep serving apps it
+        cannot actually play.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.INFO" />
+        </intent>
+        <package android:name="com.netflix.ninja" />
+        <package android:name="com.google.android.apps.youtube.tv" />
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.google.android.apps.youtube.livetv" />
+        <package android:name="com.google.android.apps.youtube.kids" />
+        <package android:name="com.spotify.tv.android" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.disney.disneyplus" />
+        <package android:name="com.amazon.avod.thirdpartyclient" />
+        <package android:name="com.wbd.hbo.max" />
+        <package android:name="com.hbo.hbonow" />
+        <package android:name="com.hulu.plus" />
+        <package android:name="com.peacocktv.peacocktv" />
+        <package android:name="com.cbs.ott" />
+        <package android:name="com.plexapp.android" />
+        <package android:name="tv.twitch.android.app" />
+        <package android:name="com.crunchyroll.crunchyroid" />
+        <package android:name="org.videolan.vlc" />
+        <package android:name="org.xbmc.kodi" />
+        <package android:name="com.ted.android" />
+        <package android:name="com.vimeo.android.videoapp" />
+        <package android:name="com.tubitv" />
+        <package android:name="tv.pluto.android" />
+        <package android:name="com.dazn.dazn" />
+        <package android:name="com.soundcloud.android" />
+        <package android:name="deezer.android.app" />
+        <package android:name="tunein.player" />
+        <package android:name="com.pandora.android" />
+        <package android:name="uk.co.bbc.android.iplayer" />
+        <package android:name="uk.co.bbc.iplayer" />
+    </queries>
+
     <application
         android:name=".PhairPlayApp"
         android:allowBackup="false"

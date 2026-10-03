@@ -113,4 +113,73 @@ class MiracastReceiverTest {
 
         assertEquals(1, started)
     }
+
+    @Test
+    fun `OPTIONS lists every method the receiver implements`() {
+        val server = WfdRtspServer(onSessionStarted = {}, onSessionStopped = {})
+        val response = server.routeRequest(
+            RtspRequest("OPTIONS", "*", mapOf("CSeq" to "1", "Require" to "org.wfa.wfd1.0"), "")
+        )
+        assertEquals(200, response.statusCode)
+        // Sources read this before using SETUP/PLAY; the old reply omitted both.
+        for (method in listOf("SETUP", "PLAY", "PAUSE", "GET_PARAMETER", "SET_PARAMETER")) {
+            assertTrue("Public header is missing $method",
+                response.headers["Public"]?.contains(method) == true)
+        }
+    }
+
+    @Test
+    fun `GET_PARAMETER answers exactly the parameters the source asked for`() {
+        val server = WfdRtspServer(onSessionStarted = {}, onSessionStopped = {})
+        val request = RtspRequest(
+            method = "GET_PARAMETER",
+            uri = "rtsp://192.168.49.1/wfd1.0",
+            headers = mapOf("CSeq" to "3", "Content-Type" to "text/parameters"),
+            body = "wfd_uibc_capability\r\nwfd_standby_resume_capability\r\n"
+        )
+        val body = server.routeRequest(request).body
+        val answered = body.lineSequence().filter { it.isNotBlank() }
+            .map { it.substringBefore(':').trim() }.toList()
+
+        assertEquals(listOf("wfd_uibc_capability", "wfd_standby_resume_capability"), answered)
+    }
+
+    @Test
+    fun `SET_PARAMETER keeps the source presentation URL and echoes it back`() {
+        val server = WfdRtspServer(onSessionStarted = {}, onSessionStopped = {})
+        server.routeRequest(
+            RtspRequest(
+                method = "SET_PARAMETER",
+                uri = "rtsp://192.168.49.1/wfd1.0",
+                headers = mapOf("CSeq" to "4", "Content-Type" to "text/parameters"),
+                body = "wfd_presentation_URL: rtsp://192.168.49.1/wfd1.0/streamid=0\r\n" +
+                    "wfd_client_rtp_ports: RTP/AVP/UDP;unicast 19000 0 mode=play\r\n"
+            )
+        )
+
+        val body = server.routeRequest(
+            RtspRequest(
+                method = "GET_PARAMETER",
+                uri = "rtsp://192.168.49.1/wfd1.0",
+                headers = mapOf("CSeq" to "5", "Content-Type" to "text/parameters"),
+                body = "wfd_presentation_URL\r\nwfd_client_rtp_ports\r\n"
+            )
+        ).body
+
+        // The source's own choice is echoed…
+        assertTrue(body.contains("wfd_presentation_URL: rtsp://192.168.49.1/wfd1.0/streamid=0"))
+        // …but a transport we do not implement is never promised back.
+        assertTrue(body.contains("wfd_client_rtp_ports: RTP/AVP/TCP;unicast 0 0 mode=play"))
+    }
+
+    @Test
+    fun `PLAY reports a range and RTP-Info so the source can timestamp the stream`() {
+        val server = WfdRtspServer(onSessionStarted = {}, onSessionStopped = {})
+        val response = server.routeRequest(
+            RtspRequest("PLAY", "rtsp://192.168.49.1/wfd1.0", mapOf("CSeq" to "6"), "")
+        )
+        assertEquals(200, response.statusCode)
+        assertTrue(response.headers["Range"] == "npt=now-")
+        assertTrue(response.headers["RTP-Info"]?.startsWith("url=rtsp://") == true)
+    }
 }

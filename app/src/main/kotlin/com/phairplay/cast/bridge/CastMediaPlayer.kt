@@ -51,11 +51,26 @@ internal class CastMediaPlayer(
         const val PAUSED = "PAUSED"
     }
 
+    companion object {
+        /** How often MEDIA_STATUS is pushed while playing, so the sender's scrubber keeps moving. */
+        private const val STATUS_TICK_MS = 1_000L
+    }
+
     private var player: MediaPlayer? = null
     @Volatile private var currentUrl: String? = null
     @Volatile private var state: String = State.IDLE
     @Volatile private var prepared = false
     @Volatile private var startAtMs = 0L
+
+    /**
+     * Pushes a MEDIA_STATUS out once a second while playing.
+     *
+     * WHY: a sender's progress bar, elapsed-time readout and "is it still alive?" check are
+     * driven entirely by MEDIA_STATUS. Those used to arrive only on a state transition, so the
+     * scrubber froze mid-playback even though the video was fine. A plain `java.util.Timer`
+     * (not a Handler) keeps this class free of a Looper.
+     */
+    private var statusTimer: java.util.Timer? = null
 
     override fun currentState(): String = state
     fun currentUrl(): String? = currentUrl
@@ -64,6 +79,7 @@ internal class CastMediaPlayer(
     @Synchronized
     override fun load(url: String, startPositionSec: Double, autoplay: Boolean) {
         release()
+        startStatusTicker()
         currentUrl = url
         startAtMs = (startPositionSec * 1000.0).toLong().coerceAtLeast(0L)
         state = State.BUFFERING
@@ -89,6 +105,23 @@ internal class CastMediaPlayer(
                 Logger.e("Cast: MediaPlayer error what=$what extra=$extra")
                 state = State.IDLE
                 emit()
+                true
+            }
+            // A rebuffering sender deserves an honest BUFFERING state rather than a frozen
+            // PLAYING: without this the phone's spinner stops while the TV is still filling.
+            player.setOnInfoListener { _, what, _ ->
+                when (what) {
+                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
+                        state = State.BUFFERING
+                        emit()
+                    }
+                    MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                        if (prepared) {
+                            state = if (player.isPlaying) State.PLAYING else State.PAUSED
+                            emit()
+                        }
+                    }
+                }
                 true
             }
             player.setDataSource(url)
@@ -172,6 +205,7 @@ internal class CastMediaPlayer(
 
     @Synchronized
     fun release() {
+        stopStatusTicker()
         player?.let { p ->
             runCatching { if (p.isPlaying) p.stop() }
             runCatching { p.release() }
@@ -179,6 +213,29 @@ internal class CastMediaPlayer(
         player = null
         prepared = false
         startAtMs = 0L
+    }
+
+    private fun startStatusTicker() {
+        stopStatusTicker()
+        val timer = java.util.Timer("cast-media-status", true)
+        timer.scheduleAtFixedRate(
+            object : java.util.TimerTask() {
+                override fun run() {
+                    // Only while actually playing: a paused or finished sender does not need a
+                    // heartbeat, and spamming MEDIA_STATUS with an unchanged position makes
+                    // some senders fight the scrubber.
+                    if (state == State.PLAYING) emit()
+                }
+            },
+            STATUS_TICK_MS,
+            STATUS_TICK_MS
+        )
+        statusTimer = timer
+    }
+
+    private fun stopStatusTicker() {
+        statusTimer?.cancel()
+        statusTimer = null
     }
 
     private fun onPrepared(player: MediaPlayer, autoplay: Boolean) {

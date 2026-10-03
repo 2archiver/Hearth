@@ -154,11 +154,11 @@ android {
         // Version source of truth: phairplay.versionName in gradle.properties (bumped per
         // release train). CI overrides both per build — see .github/workflows/release.yml:
         //   merge to main → "<base>-main.<run>" in the rolling `latest` release
-        //   v1.3.0 tag    → "1.3.0" in a permanent versioned release
+        //   v1.5.0 tag    → "1.5.0" in a permanent versioned release
         // The versionCode fallback increases with every build so a new APK updates the old one.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.3.0")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.5.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")
