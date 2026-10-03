@@ -38,7 +38,9 @@ class UpdateInfoTest {
 
     private val descriptorJson = """
         { "versionName": "1.4.0-main.131", "versionCode": 20432100,
-          "apk": "PhairPlay-googletv.apk", "sha256": "ABCDEF0123456789", "size": 12345678 }
+          "apk": "PhairPlay-googletv.apk",
+          "sha256": "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+          "size": 12345678 }
     """.trimIndent()
 
     @Test
@@ -63,7 +65,10 @@ class UpdateInfoTest {
         assertEquals("1.4.0-main.131", descriptor.versionName)
         assertEquals(20432100, descriptor.versionCode)
         assertEquals("PhairPlay-googletv.apk", descriptor.apk)
-        assertEquals("ABCDEF0123456789", descriptor.sha256)
+        assertEquals(
+            "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+            descriptor.sha256
+        )
     }
 
     @Test
@@ -74,7 +79,11 @@ class UpdateInfoTest {
 
         assertEquals(20432100, info.versionCode)
         assertEquals("1.4.0-main.131", info.versionName)
-        assertEquals("ABCDEF0123456789".lowercase(), info.sha256)
+        // Lowercased by buildUpdateInfo, which only trusts a full 64-hex digest.
+        assertEquals(
+            "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789".lowercase(),
+            info.sha256
+        )
         assertTrue(info.isNewerThan(20432100 - 1))
         assertTrue(!info.isNewerThan(20432100))
     }
