@@ -1,4 +1,4 @@
-# PhairPlay – Acceptance Criteria
+# Hearth – Acceptance Criteria
 
 Version: 1.0
 Status: Draft
@@ -45,13 +45,13 @@ This document defines **measurable, verifiable acceptance criteria** for each mi
 
 ## Milestone 2 – Network Visibility (mDNS)
 
-**Goal:** macOS discovers PhairPlay in the AirPlay picker within 3 seconds of app launch.
+**Goal:** macOS discovers Hearth in the AirPlay picker within 3 seconds of app launch.
 
 | # | Criterion | How to Verify | Pass Condition |
 |---|---|---|---|
-| AC-2.1 | PhairPlay appears in macOS AirPlay menu within 3 seconds | Start timer at app launch, watch macOS menu bar → AirPlay icon | Device name appears ≤ 3s after app launch |
+| AC-2.1 | Hearth appears in macOS AirPlay menu within 3 seconds | Start timer at app launch, watch macOS menu bar → AirPlay icon | Device name appears ≤ 3s after app launch |
 | AC-2.2 | Device name in macOS picker matches TV device name | Compare macOS picker with device settings name | Names are identical |
-| AC-2.3 | PhairPlay disappears from macOS picker within 10 seconds of app close | Close app, watch picker | Device removed from picker ≤ 10s after close |
+| AC-2.3 | Hearth disappears from macOS picker within 10 seconds of app close | Close app, watch picker | Device removed from picker ≤ 10s after close |
 | AC-2.4 | mDNS re-registers correctly after app returns from background | Background app 60s, then bring to foreground | Device reappears in macOS picker ≤ 5s |
 | AC-2.5 | Unit test: `MdnsService` registers correct service types | `./gradlew test` | `MdnsServiceTest` — all tests pass |
 | AC-2.6 | Unit test: TXT record contains required keys (deviceid, features, model) | `./gradlew test` | `MdnsServiceTest.testTxtRecordContents()` passes |
@@ -67,7 +67,7 @@ This document defines **measurable, verifiable acceptance criteria** for each mi
 
 | # | Criterion | How to Verify | Pass Condition |
 |---|---|---|---|
-| AC-3.1 | macOS completes RTSP OPTIONS → SETUP → ANNOUNCE → RECORD sequence | PhairPlay logcat shows all 4 RTSP methods received | All 4 methods logged, all responded with `200 OK` |
+| AC-3.1 | macOS completes RTSP OPTIONS → SETUP → ANNOUNCE → RECORD sequence | Hearth logcat shows all 4 RTSP methods received | All 4 methods logged, all responded with `200 OK` |
 | AC-3.2 | No RTSP error responses (4xx / 5xx) during normal handshake | Inspect logcat | 0 error responses for a standard connection attempt |
 | AC-3.3 | A second connection attempt while streaming is rejected | Connect a second Mac while first is active | Second connection gets `503 Service Unavailable` |
 | AC-3.4 | TEARDOWN cleans up all resources | Disconnect from macOS, check logcat | Resources freed, WaitingScreen shown, mDNS still active |
@@ -128,7 +128,7 @@ This document defines **measurable, verifiable acceptance criteria** for each mi
 | AC-6.2 | 30-minute continuous stream without unexpected disconnect | Monitor RTSP session | Session stays active for full 30 minutes |
 | AC-6.3 | RAM usage stays ≤ 150 MB throughout the 30-minute test | `adb shell dumpsys meminfo com.phairplay.*` every 5 minutes | Peak ≤ 150 MB at every measurement |
 | AC-6.4 | CPU usage stays ≤ 30% average throughout the 30-minute test | `adb shell top -p $(pidof com.phairplay.*)` | 5-minute rolling average ≤ 30% |
-| AC-6.5 | Automatic reconnect after network disruption (Wi-Fi toggle) | Disable and re-enable Wi-Fi on sender Mac | PhairPlay reappears in macOS picker within 5s of reconnect |
+| AC-6.5 | Automatic reconnect after network disruption (Wi-Fi toggle) | Disable and re-enable Wi-Fi on sender Mac | Hearth reappears in macOS picker within 5s of reconnect |
 | AC-6.6 | Automatic reconnect after sender disconnects | Disconnect AirPlay from macOS, wait 5s, reconnect | Reconnect completes without restarting the app |
 | AC-6.7 | App survives Android "Don't Keep Activities" developer option | Enable option, background app, return | App still functional after returning from background |
 

@@ -87,7 +87,7 @@ data class ActiveConnection(
 /**
  * Identifies the receiver a connection belongs to.
  *
- * AirPlay is the only receiver PhairPlay runs. The Apple Casting card is not a second
+ * AirPlay is the only receiver Hearth runs. The Apple Casting card is not a second
  * protocol — it is the mirroring half of the same AirPlay session — so it shares this value
  * rather than inventing a protocol that does not exist.
  */

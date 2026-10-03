@@ -11,7 +11,7 @@ import com.phairplay.airplay.handshake.PlistCodec
 /**
  * RtspHandlerTest — Unit tests for the RTSP protocol implementation.
  *
- * WHY: The RTSP handler is the most security-critical component of PhairPlay.
+ * WHY: The RTSP handler is the most security-critical component of Hearth.
  * It processes untrusted data from the network. Every parsing path must be
  * tested with both valid inputs and malformed/malicious inputs.
  *

@@ -4,7 +4,7 @@ import android.app.Application
 import timber.log.Timber
 
 /**
- * PhairPlayApp — The Application class for PhairPlay.
+ * PhairPlayApp — The Application class for Hearth.
  *
  * WHY: Android requires an Application subclass to run initialization code before
  * any Activity or Service starts. We use this to set up logging (Timber) once

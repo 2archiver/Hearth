@@ -11,7 +11,7 @@ The AirPlay/Miracast/Cast receivers need to run continuously in the background �
 
 ## Decision
 
-Implement `PhairPlayService` as an Android `ForegroundService`:
+Implement `HearthService` as an Android `ForegroundService`:
 - Shows a persistent notification with status and quick actions (Stop, Restart)
 - `ServiceController` provides a clean API from the UI layer to the service
 - `MainActivity` binds to the service to receive state updates for the UI
@@ -23,7 +23,7 @@ Implement `PhairPlayService` as an Android `ForegroundService`:
 MainActivity / HomeFragment
       │  bind()
       ▼
-PhairPlayService (ForegroundService)
+HearthService (ForegroundService)
   ├── AirPlayReceiver
   ├── MiracastReceiver
   └── CastReceiver

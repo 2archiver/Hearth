@@ -1,4 +1,4 @@
-# PhairPlay Testing Guide
+# Hearth Testing Guide
 
 This document explains how to run tests, what is tested, and how to perform manual testing on real devices.
 
@@ -109,9 +109,9 @@ Install the correct debug APK:
 adb install -r app/build/outputs/apk/googletv/debug/app-googletv-debug.apk
 ```
 
-There is no build flag that turns Google Cast on: PhairPlay has no Cast receiver, so there is no
+There is no build flag that turns Google Cast on: Hearth has no Cast receiver, so there is no
 Cast App ID to register and no Cast SDK in the dependency graph. Verifying "Cast still works on the
-TV" means verifying the TV's own built-in receiver, which PhairPlay neither binds nor competes with.
+TV" means verifying the TV's own built-in receiver, which Hearth neither binds nor competes with.
 
 After a failed run, collect diagnostics before restarting the app:
 
@@ -126,7 +126,7 @@ The script writes ADB device details, package info, memory stats, process CPU, a
 **Goal:** App starts and shows the WaitingScreen without crashing.
 
 1. Install the debug APK via `adb install`
-2. Launch PhairPlay from the TV app list
+2. Launch Hearth from the TV app list
 3. **Expected:** WaitingScreen appears with the TV's device name
 4. **Check:** No crash dialog, no FATAL in `adb logcat`
 5. **Pass condition:** App remains stable for 30 seconds after launch
@@ -134,18 +134,18 @@ The script writes ADB device details, package info, memory stats, process CPU, a
 ---
 
 ### Scenario 2: mDNS Discovery (Milestone 2)
-**Goal:** macOS discovers PhairPlay in the AirPlay menu within 3 seconds.
+**Goal:** macOS discovers Hearth in the AirPlay menu within 3 seconds.
 
 1. Ensure Mac and TV are on the same network — **cable the TV to Ethernet for this scenario**,
    because a wired TV is the shipping target and the case that used to fail silently
-2. Launch PhairPlay on the TV
+2. Launch Hearth on the TV
 3. Check the AirPlay card on the TV's Home screen first: it must read
    `Advertising on Ethernet · <the TV's IP>`. If it shows a Wi-Fi address while the cable is
    plugged in, that is the bug — the sender will be looking on the wrong interface.
 4. Start a timer on your phone
 5. On your Mac, click the AirPlay icon in the menu bar (or System Preferences → Displays → AirPlay Display)
 6. **Expected:** TV name appears in the AirPlay menu within 3 seconds
-7. Close PhairPlay (press Back on TV)
+7. Close Hearth (press Back on TV)
 8. **Expected:** TV name disappears from the AirPlay menu within 10 seconds
 
 On Android 13 and below the platform filters multicast unless the app holds a
@@ -162,7 +162,7 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 ### Scenario 3: Screen Mirroring Connection (Milestone 3)
 **Goal:** Successful RTSP handshake — macOS connects without errors.
 
-1. Launch PhairPlay on the TV
+1. Launch Hearth on the TV
 2. On your Mac, select the TV from the AirPlay menu
 3. **Expected:** StreamingScreen appears on TV (transitions from WaitingScreen)
 4. Check `adb logcat` for RTSP messages:
@@ -176,7 +176,7 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 ### Scenario 4: Video Quality (Milestone 4)
 **Goal:** Video plays at ≥25fps with ≤100ms latency.
 
-1. Connect macOS to PhairPlay as in Scenario 3
+1. Connect macOS to Hearth as in Scenario 3
 2. On your Mac, open a terminal and run: `watch -n 0.1 date +%T.%3N` (shows a millisecond clock)
 3. Look at the TV screen
 4. **Expected:**
@@ -193,7 +193,7 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 **Goal:** Audio plays in sync with video.
 
 1. Find an A/V sync test video (search for "A/V sync test clapper board")
-2. Connect macOS to PhairPlay
+2. Connect macOS to Hearth
 3. Play the test video on your Mac (it should be mirrored to the TV)
 4. **Expected:** When the clapper board snaps shut, the sound happens at the same moment visually
 5. **Fail condition:** Audio is more than ~40ms ahead or behind the video
@@ -203,7 +203,7 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 ### Scenario 6: Stability (Milestone 6)
 **Goal:** 30-minute continuous stream without disconnect or crash.
 
-1. Connect macOS to PhairPlay
+1. Connect macOS to Hearth
 2. Start a timer
 3. Keep the Mac active and streaming (move the mouse occasionally, watch something)
 4. **Expected after 30 minutes:**
@@ -218,7 +218,7 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 **Goal:** Automatic reconnect works.
 
 **Test 7a: Sender disconnects:**
-1. Connect macOS to PhairPlay
+1. Connect macOS to Hearth
 2. On your Mac, click the AirPlay icon and select "Turn Off AirPlay Mirroring"
 3. **Expected:** TV shows WaitingScreen within 2 seconds
 4. Wait 5 seconds
@@ -226,9 +226,9 @@ adb logcat -d | grep -E "mDNS:"                     # lock + registration lines
 6. **Expected:** Streaming resumes without restarting the app
 
 **Test 7b: Network interruption:**
-1. Connect macOS to PhairPlay
+1. Connect macOS to Hearth
 2. Briefly disable and re-enable Wi-Fi on your Mac (or unplug/replug Ethernet)
-3. **Expected:** PhairPlay reappears in the macOS AirPlay menu within 5 seconds of network restoration
+3. **Expected:** Hearth reappears in the macOS AirPlay menu within 5 seconds of network restoration
 
 ---
 
@@ -239,7 +239,7 @@ test for the version where AirPlay stopped appearing on wired sets.
 Hardware: Google TV 4K, Android TV OS 14, Ethernet only — **disable the TV's Wi-Fi** in
 Settings → Network so nothing can quietly fall back to it.
 
-1. Launch PhairPlay and read the Home screen:
+1. Launch Hearth and read the Home screen:
    - **Expected:** AirPlay card = *Advertising*, detail names `Ethernet` and the TV's wired IP.
    - **Expected:** Apple Casting card = *Advertising* (idle) and only *Connected* while mirror
      video is on screen — grey/waiting, never a false "Connected"; no
@@ -253,7 +253,7 @@ Settings → Network so nothing can quietly fall back to it.
    - **Expected:** the card briefly re-registers and the Mac still finds the TV within 5 seconds
      (`readvertise reason=network available` in the log). Losing the advertisement here is the bug
      this scenario exists for.
-4. Kill and relaunch PhairPlay, then repeat step 2 with an iPhone on Wi-Fi (phone on Wi-Fi, TV on
+4. Kill and relaunch Hearth, then repeat step 2 with an iPhone on Wi-Fi (phone on Wi-Fi, TV on
    the cable, same subnet).
    - **Expected:** discovery works across the router's wired/wireless boundary. If the phone alone
      cannot see it, the multicast lock is not being granted or the router filters multicast —

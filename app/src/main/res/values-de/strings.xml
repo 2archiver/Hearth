@@ -7,6 +7,12 @@
 -->
 <resources>
 
+    <!-- ── Über die App ────────────────────────────────────────── -->
+    <!-- Sagt laut, dass die App umbenannt wurde: sonst wundert sich, wer aktualisiert
+         hat, warum Beschriftung und Versionszeile nicht zur Erinnerung passen. -->
+    <string name="setting_renamed_note">Hearth ist der neue Name von PhairPlay — dieselbe App, dieselben Einstellungen, derselbe Signaturschlüssel.</string>
+    <string name="update_version_value">%1$s (%2$d) · Hearth (früher PhairPlay)</string>
+
     <!-- ── Navigation ──────────────────────────────────────────── -->
     <string name="nav_home">Startseite</string>
     <string name="nav_settings">Einstellungen</string>
@@ -45,7 +51,7 @@
     <string name="action_restart">Neustart</string>
 
     <!-- ── Notification ────────────────────────────────────────── -->
-    <string name="notification_channel_name">PhairPlay-Dienst</string>
+    <string name="notification_channel_name">Hearth-Dienst</string>
     <string name="notification_channel_description">Dauerhafte Benachrichtigung für den AirPlay-Empfänger-Dienst</string>
     <string name="notification_status_running">Empfänger aktiv — Werbung im Netzwerk</string>
     <string name="notification_status_stopped">Empfänger gestoppt</string>
@@ -72,9 +78,9 @@
     <string name="setting_version">Version</string>
     <string name="setting_reset_defaults">Auf Standardwerte zurücksetzen</string>
     <string name="setting_check_updates">Nach Updates suchen</string>
-    <string name="setting_check_updates_subtitle">Nach der neuesten PhairPlay-Version suchen</string>
+    <string name="setting_check_updates_subtitle">Nach der neuesten Hearth-Version suchen</string>
     <string name="setting_auto_check_updates">Automatisch nach Updates suchen</string>
-    <string name="setting_auto_check_updates_subtitle">Etwa alle sechs Stunden im Hintergrund suchen, solange PhairPlay läuft</string>
+    <string name="setting_auto_check_updates_subtitle">Etwa alle sechs Stunden im Hintergrund suchen, solange Hearth läuft</string>
     <string name="setting_auto_download_updates">Automatisch herunterladen</string>
     <string name="setting_auto_download_updates_subtitle">Neue Versionen herunterladen und prüfen, damit sie bereitstehen</string>
     <string name="setting_auto_install_updates">Automatisch installieren</string>
@@ -95,8 +101,8 @@
     <string name="update_key_mismatch_card">Einmalige Neuinstallation zum Wechsel des Signaturschlüssels erforderlich</string>
     <string name="update_download_progress">Update wird heruntergeladen… %1$d%%</string>
     <string name="update_key_mismatch_title">Einmalige Neuinstallation erforderlich</string>
-    <string name="update_key_mismatch_message">PhairPlay hat Version %1$s gefunden, sie wurde jedoch mit einem anderen Schlüssel signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Laden Sie die APK von dieser Release-Seite herunter, deinstallieren Sie PhairPlay einmal und installieren Sie anschließend die heruntergeladene APK. Bei der Deinstallation können Einstellungen verloren gehen. Notieren Sie sie vorher. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
-    <string name="update_key_mismatch_message_unknown">Dieses Update wurde mit einem anderen Schlüssel als die installierte App signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Verwenden Sie eine APK mit demselben Schlüssel oder wechseln Sie einmal manuell: Einstellungen notieren, PhairPlay deinstallieren und die APK von der Release-Seite installieren. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
+    <string name="update_key_mismatch_message">Hearth hat Version %1$s gefunden, sie wurde jedoch mit einem anderen Schlüssel signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Laden Sie die APK von dieser Release-Seite herunter, deinstallieren Sie Hearth einmal und installieren Sie anschließend die heruntergeladene APK. Bei der Deinstallation können Einstellungen verloren gehen. Notieren Sie sie vorher. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
+    <string name="update_key_mismatch_message_unknown">Dieses Update wurde mit einem anderen Schlüssel als die installierte App signiert. Android erlaubt nicht, eine Signatur durch eine andere zu ersetzen. Verwenden Sie eine APK mit demselben Schlüssel oder wechseln Sie einmal manuell: Einstellungen notieren, Hearth deinstallieren und die APK von der Release-Seite installieren. Künftige Updates mit demselben Schlüssel lassen sich normal installieren.</string>
     <string name="update_download_failed_title">Update-Download fehlgeschlagen</string>
     <string name="update_install_failed_title">Update konnte nicht installiert werden</string>
     <string name="update_open_release_title">Release-Seite konnte nicht geöffnet werden</string>

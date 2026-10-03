@@ -11,12 +11,12 @@ import com.phairplay.util.NetworkUtils
 /**
  * WaitingScreen — The idle screen shown when no AirPlay sender is connected.
  *
- * WHY: Users need visual confirmation that PhairPlay is running and ready to receive.
+ * WHY: Users need visual confirmation that Hearth is running and ready to receive.
  * Without this screen, the TV would show a black screen and users wouldn't know
  * if the app is working or not.
  *
  * HOW: A simple full-screen view showing:
- * - The app name ("PhairPlay")
+ * - The app name ("Hearth")
  * - The device's AirPlay name (what appears in macOS AirPlay picker)
  * - Brief instructions for the user
  *

@@ -3,7 +3,7 @@
 # APK's embedded versionName, and its notes come from CHANGELOG.md (or recent commits).
 #
 # Direct download (the single asset, named after its version):
-#   https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-<version>-googletv.apk
+#   https://github.com/<owner>/<repo>/releases/download/latest/Hearth-<version>-googletv.apk
 # There is deliberately exactly ONE asset per release. The version name, version code and the
 # APK's SHA-256 are written into the release body, which is what the in-app updater reads.
 # The same release is marked as GitHub's "Latest", so the in-app updater and the
@@ -188,7 +188,7 @@ jobs:
           # nothing telling it which was which. The checksum and the version code now live in the
           # release body instead, which is where a person reads them anyway and where
           # update/ReleaseParser can still scrape them.
-          apk_name="PhairPlay-${apk_version}.apk"
+          apk_name="Hearth-${apk_version}.apk"
           mkdir -p dist
           cp "$src" "dist/$apk_name"
           apk_sha256=$(sha256sum "dist/$apk_name" | cut -d' ' -f1)
@@ -305,7 +305,7 @@ jobs:
           fi
 
           short_sha="${GITHUB_SHA:0:7}"
-          title="PhairPlay ${VERSION} for Google TV"
+          title="Hearth ${VERSION} for Google TV"
           apk_url="https://github.com/${REPO}/releases/download/latest/${APK_NAME}"
           {
             echo "# What's new in this build"

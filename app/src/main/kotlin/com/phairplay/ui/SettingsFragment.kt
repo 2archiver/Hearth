@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * SettingsFragment — Settings screen for PhairPlay.
+ * SettingsFragment — Settings screen for Hearth.
  *
  * WHY: Centralizes all user-configurable options in one screen. By separating
  * settings into their own Fragment, we keep MainActivity lean and make it easy
@@ -573,7 +573,7 @@ class SettingsFragment : Fragment() {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
         } catch (e: Exception) {
-            Logger.w("Could not open the PhairPlay release page: ${e.message}")
+            Logger.w("Could not open the Hearth release page: ${e.message}")
             showMessageDialog(
                 R.string.update_open_release_title,
                 getString(R.string.update_open_release_failed, releaseUrl)

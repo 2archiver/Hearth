@@ -13,11 +13,11 @@ import com.phairplay.util.MdnsNames
 import com.phairplay.util.NetworkUtils
 
 /**
- * MdnsService — Advertises PhairPlay as an AirPlay 2 receiver on the local network.
+ * MdnsService — Advertises Hearth as an AirPlay 2 receiver on the local network.
  *
- * WHY: For macOS/iOS to show PhairPlay in the AirPlay menu, the device must announce
+ * WHY: For macOS/iOS to show Hearth in the AirPlay menu, the device must announce
  * itself using mDNS (Multicast DNS, the same protocol as Apple's Bonjour).
- * Without this advertisement, no sender would know PhairPlay exists.
+ * Without this advertisement, no sender would know Hearth exists.
  *
  * HOW: Registers two mDNS services using Android's [NsdManager]:
  * - `_airplay._tcp` — main AirPlay service with feature flags and device info
@@ -66,11 +66,11 @@ class MdnsService(
      * Called with the actual mDNS service name after registration completes.
      *
      * Android's NsdManager resolves name collisions automatically: if another device
-     * on the network is already registered as "PhairPlay", Android will register us as
-     * "PhairPlay (2)" instead. The [onActualNameRegistered] callback delivers the name
+     * on the network is already registered as "Hearth", Android will register us as
+     * "Hearth (2)" instead. The [onActualNameRegistered] callback delivers the name
      * that was actually registered (which may differ from the requested name).
      *
-     * The caller can use this to update the UI (e.g., show "Registered as: PhairPlay (2)")
+     * The caller can use this to update the UI (e.g., show "Registered as: Hearth (2)")
      * or log the divergence for debugging.
      *
      * Only the `_airplay._tcp` service name is reported (not the `_raop._tcp` name,
@@ -227,7 +227,7 @@ class MdnsService(
     /**
      * Registers the `_airplay._tcp` mDNS service.
      *
-     * TXT records tell senders what features PhairPlay supports.
+     * TXT records tell senders what features Hearth supports.
      * See TECHNICAL_SPEC.md §8 for bit-level breakdown of the `features` value.
      *
      * @param displayName The name shown in sender AirPlay pickers.

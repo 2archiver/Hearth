@@ -130,7 +130,7 @@ object NetworkUtils {
     }
 
     /**
-     * A description of the network PhairPlay is currently advertising on.
+     * A description of the network Hearth is currently advertising on.
      *
      * WHY: "my iPhone cannot see the TV" is almost always a network question — the phone is
      * on Wi-Fi while the TV is wired, or the two are on different subnets, or multicast does
@@ -161,7 +161,7 @@ object NetworkUtils {
     }
 
     /**
-     * Summarises the network PhairPlay is on, for the Home screen and for diagnosing
+     * Summarises the network Hearth is on, for the Home screen and for diagnosing
      * discovery problems on wired (Ethernet) Google TVs.
      *
      * Never throws — if the platform refuses to answer, the summary is simply empty and the

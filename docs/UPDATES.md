@@ -1,12 +1,12 @@
-# Keeping PhairPlay up to date
+# Keeping Hearth up to date
 
 Three ways, easiest first.
 
-## 1. From the TV (PhairPlay 1.4+)
+## 1. From the TV (Hearth 1.4+)
 
 **Settings → Updates → Check for updates.**
 
-PhairPlay asks GitHub what the newest published build is, compares **versionCode** (a number,
+Hearth asks GitHub what the newest published build is, compares **versionCode** (a number,
 not a version string — `1.10.0` sorts before `1.9.0` as text), and if something newer exists
 downloads it and offers to install.
 
@@ -27,18 +27,18 @@ two dismissals, and they mean different things:
 When the signing key matches, Android 12+ normally lets an app replace **itself** without a
 confirmation dialog, so with all three on the update is hands-off. On older Android, or if the
 TV's policy disagrees, the standard "Install?" confirmation is shown. A different signing key
-is never auto-installed; PhairPlay stops and explains the one-time transition instead.
+is never auto-installed; Hearth stops and explains the one-time transition instead.
 
-The first time, Android may need you to allow installs from PhairPlay:
-**Settings → Apps → Special access → Install unknown apps → PhairPlay → Allow**.
+The first time, Android may need you to allow installs from Hearth:
+**Settings → Apps → Special access → Install unknown apps → Hearth → Allow**.
 
 ## 2. Install the APK over the old one
 
 ```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
+https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk
 ```
 
-Paste it into **Downloader** on the TV, or `adb install -r PhairPlay-googletv.apk` from a
+Paste it into **Downloader** on the TV, or `adb install -r Hearth-googletv.apk` from a
 computer. Once the TV is running a build signed with this repository's community key, Android
 treats later APKs as updates — no uninstall. Older or differently signed installs need the
 one-time transition described above.
@@ -46,7 +46,7 @@ one-time transition described above.
 ## 3. Let `adb` do it
 
 ```bash
-adb install -r PhairPlay-googletv.apk
+adb install -r Hearth-googletv.apk
 ```
 
 ---
@@ -54,7 +54,7 @@ adb install -r PhairPlay-googletv.apk
 ## A different signing key / one-time reinstall
 
 Android only allows an app to update an existing install when both APKs are signed with the
-same key. This is a platform security rule; PhairPlay cannot bypass it or silently remove
+same key. This is a platform security rule; Hearth cannot bypass it or silently remove
 itself. It is about the signing certificate, not the version number.
 
 The first public 1.4 rolling builds were published before the repository's long-lived community
@@ -66,8 +66,8 @@ Android package-conflict error.
 To switch signing sources once:
 
 1. Open the release page from the updater and download the APK to the TV (or use Downloader).
-2. Note any PhairPlay settings you want to keep. Android may erase app data when you uninstall.
-3. Uninstall the old PhairPlay, then install the downloaded APK.
+2. Note any Hearth settings you want to keep. Android may erase app data when you uninstall.
+3. Uninstall the old Hearth, then install the downloaded APK.
 4. Keep using builds from the same signing source. Future updates signed with that key install
    over the app normally.
 
@@ -87,9 +87,9 @@ in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
 ## How the updater decides
 
 1. `GET https://api.github.com/repos/2archiver/phairplay-archiver-fork-/releases/latest` — one
-   request. A PhairPlay release is that JSON plus a single asset, so nothing else is fetched.
+   request. A Hearth release is that JSON plus a single asset, so nothing else is fetched.
 2. Read the version: `versionCode` is scraped from the release body (`versionCode <n>`), the
-   version name from the asset's file name, `PhairPlay-1.6.0-main.43-googletv.apk`. A release that
+   version name from the asset's file name, `Hearth-1.6.0-main.43-googletv.apk`. A release that
    still publishes a `version.json` descriptor (anything before 1.6) is read from that instead,
    because a descriptor beats a scrape.
 3. Compare with the installed `BuildConfig.VERSION_CODE` — a strictly higher number is the *only*
@@ -109,7 +109,7 @@ in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
 5. **Read the downloaded APK's own `versionCode`.** If it is not strictly newer than the installed
    build — a mislabelled release, a stale asset on the `latest` tag — the download is discarded and
    the card explains why. This is the last line of defence before Android's installer.
-6. Read the downloaded APK's signing certificate and compare it with PhairPlay's own.
+6. Read the downloaded APK's signing certificate and compare it with Hearth's own.
    **Mismatch → refuse**, because that is exactly the "package conflicts" case.
 7. Hand it to `PackageInstaller`.
 

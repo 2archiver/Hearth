@@ -24,7 +24,7 @@ object MdnsNames {
     /**
      * The name a fresh install — and "Reset to default" — advertises.
      *
-     * PhairPlay already answers `GET /info` as an Apple TV (`AppleTV5,3`) so senders
+     * Hearth already answers `GET /info` as an Apple TV (`AppleTV5,3`) so senders
      * treat it as one. Matching that model string with the name an Apple TV would show
      * keeps the iPhone picker, the macOS menu and the `/info` reply consistent, and it
      * is the name most senders' users expect to pick from a list.

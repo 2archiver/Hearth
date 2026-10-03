@@ -1,4 +1,4 @@
-# PhairPlay – Technical Specification
+# Hearth – Technical Specification
 
 > **Note (1.6.1):** Miracast/WFD sections are historical; the receiver was removed in 1.6.1.
 > The two Home cards are AirPlay (session) and Apple Casting (mirror video).
@@ -20,7 +20,7 @@ AirPlay 2 Screen Mirroring works as a layered protocol stack. The description be
 
 macOS continuously scans the local network for AirPlay receivers using **mDNS** (Multicast DNS, RFC 6762), the same technology as Apple's "Bonjour".
 
-PhairPlay registers two mDNS services:
+Hearth registers two mDNS services:
 
 | Service Type | Purpose |
 |---|---|
@@ -48,7 +48,7 @@ Once macOS discovers the device, it opens a **TCP connection to port 7000** and 
 The RTSP handshake sequence for screen mirroring:
 
 ```
-macOS                           PhairPlay (Android TV)
+macOS                           Hearth (Android TV)
   │                                     │
   │── OPTIONS rtsp://... RTSP/1.0 ────► │  "What can you do?"
   │◄─ 200 OK (Public: OPTIONS, SETUP…)─ │  "Here are my capabilities"
@@ -152,7 +152,7 @@ UI behaviour: the app remains on the **HomeScreen**. The AirPlay protocol card u
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                          PhairPlay App                               │
+│                          Hearth App                               │
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │                     UI Layer (Fragments)                        │  │
@@ -160,7 +160,7 @@ UI behaviour: the app remains on the **HomeScreen**. The AirPlay protocol card u
 │  └────────────────────────────┬───────────────────────────────────┘  │
 │                               │ binds / observes StateFlow            │
 │  ┌────────────────────────────▼───────────────────────────────────┐  │
-│  │               PhairPlayService  (ForegroundService)             │  │
+│  │               HearthService  (ForegroundService)             │  │
 │  │  serviceState / airPlayState / miracastState / castState        │  │
 │  └────────┬──────────────────┬───────────────────┬────────────────┘  │
 │           │                  │                   │                   │
@@ -202,7 +202,7 @@ Chrome/Android ──[Cast]─────► CastReceiver (Cast SDK)
 
 | Component | File | Responsibility |
 |---|---|---|
-| `PhairPlayService` | `service/PhairPlayService.kt` | ForegroundService: owns lifecycle of all protocol receivers; exposes `StateFlow` for UI |
+| `HearthService` | `service/HearthService.kt` | ForegroundService: owns lifecycle of all protocol receivers; exposes `StateFlow` for UI |
 | `ServiceController` | `service/ServiceController.kt` | Singleton helper: `start` / `stop` / `restart` the service from any Context |
 | `ServiceState` | `service/ServiceState.kt` | Sealed class hierarchy: `Running`, `Stopped`, `Restarting`, `Error(msg)` |
 | `BootReceiver` | `service/BootReceiver.kt` | BOOT_COMPLETED receiver; starts service if `startOnBoot` setting is enabled |
@@ -226,7 +226,7 @@ Chrome/Android ──[Cast]─────► CastReceiver (Cast SDK)
 | Component | File | Responsibility |
 |---|---|---|
 | `MainActivity` | `MainActivity.kt` | Single-activity host; side nav panel; swaps Home/Settings fragments |
-| `HomeFragment` | `ui/HomeFragment.kt` | Protocol state cards; service control buttons; binds to PhairPlayService |
+| `HomeFragment` | `ui/HomeFragment.kt` | Protocol state cards; service control buttons; binds to HearthService |
 | `SettingsFragment` | `ui/SettingsFragment.kt` | All 7 settings with immediate-save listeners via SettingsRepository |
 
 ### Utilities
@@ -330,9 +330,9 @@ The `firetv` flavor MUST NOT use any API gated on API level 26+ without a versio
 
 ## 8. Supported AirPlay Feature Flags
 
-The `features` TXT record is a bitmask that tells macOS which AirPlay capabilities the receiver has. PhairPlay v1.0 will advertise the following flags (based on the open AirPlay spec):
+The `features` TXT record is a bitmask that tells macOS which AirPlay capabilities the receiver has. Hearth v1.0 will advertise the following flags (based on the open AirPlay spec):
 
-| Bit | Feature | PhairPlay v1 | Notes |
+| Bit | Feature | Hearth v1 | Notes |
 |---|---|---|---|
 | 0 | Video | ✅ Supported | H.264 AVC mandatory |
 | 1 | Photo | ✅ Supported | JPEG/PNG via `/photo` endpoint — see §9 |
@@ -359,7 +359,7 @@ AirPlay supports sending individual still images (JPEG or PNG) from macOS/iOS to
 ### Protocol Flow
 
 ```
-macOS/iOS                        PhairPlay (Android TV)
+macOS/iOS                        Hearth (Android TV)
     │                                    │
     │── PUT /photo HTTP/1.1 ───────────► │
     │   Content-Type: image/jpeg         │
@@ -483,7 +483,7 @@ HDCP 2.x (High-bandwidth Digital Content Protection) is negotiated at the **WFD 
 wfd-content-protection: HDCP2.2 port=1189
 ```
 
-If the receiver does not support HDCP and the sender requires it, the session setup fails gracefully (WFD RTSP `403 Forbidden`). Android TV hardware typically includes HDCP 2.x support via the SoC's secure video path. PhairPlay does not implement the HDCP key exchange itself — it is handled by the Android framework's `MediaDrm` / display pipeline.
+If the receiver does not support HDCP and the sender requires it, the session setup fails gracefully (WFD RTSP `403 Forbidden`). Android TV hardware typically includes HDCP 2.x support via the SoC's secure video path. Hearth does not implement the HDCP key exchange itself — it is handled by the Android framework's `MediaDrm` / display pipeline.
 
 ### 11.2 Widevine & PlayReady (Google Cast)
 
@@ -491,7 +491,7 @@ Google Cast streams for DRM-protected content use **Widevine** (Google's DRM) or
 1. The **Google Cast SDK** (CastReceiverContext / MediaManager)
 2. Android's **`MediaDrm` API** (used internally by the Cast SDK)
 
-PhairPlay does **not** need to implement Widevine or PlayReady key exchange logic. The Cast SDK handles license acquisition, key delivery, and secure decryption. On devices without Widevine L1 (hardware-secured), content providers may restrict playback to Widevine L3 (software).
+Hearth does **not** need to implement Widevine or PlayReady key exchange logic. The Cast SDK handles license acquisition, key delivery, and secure decryption. On devices without Widevine L1 (hardware-secured), content providers may restrict playback to Widevine L3 (software).
 
 ### 11.3 FairPlay (AirPlay)
 
@@ -505,6 +505,6 @@ FairPlay Streaming (FPS) is Apple's proprietary DRM for HLS content. A full eval
 | Open-source compatibility | Incompatible — FPS license restricts distribution |
 | Scope of impact | Only affects premium DRM-protected content (Apple TV+, iTunes purchases) |
 | Unencrypted AirPlay | Fully supported — FairPlay only applies to licensed premium content |
-| Workaround | None within scope — users must use unprotected content for AirPlay to PhairPlay |
+| Workaround | None within scope — users must use unprotected content for AirPlay to Hearth |
 
 AirPlay screen mirroring (which uses session AES-128-CTR encryption, **not** FairPlay) is fully supported. FairPlay only applies to streaming licensed premium video content directly to the receiver.

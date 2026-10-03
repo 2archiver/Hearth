@@ -318,7 +318,7 @@ open class RtspHandler(
     private fun routePost(request: RtspRequest): RtspResponse = when (request.uri.substringBefore("?")) {
         "/pair-setup"  -> handlePairSetup(request)
         "/pair-verify" -> handlePairVerify(request)
-        // Apple's HomeKit PIN flows. PhairPlay advertises a legacy-pairing receiver (feature bit
+        // Apple's HomeKit PIN flows. Hearth advertises a legacy-pairing receiver (feature bit
         // 27, model AppleTV3,2 — see [AirPlayIdentity]), so a well-behaved sender never asks for
         // these. Answer 501 with a trace line rather than 470: "not implemented" is the truth,
         // and a 470 would make the sender pop up a code prompt it can never satisfy.
@@ -619,7 +619,7 @@ open class RtspHandler(
     /**
      * The HomeKit (SRP/TLV8) pairing endpoints, answered honestly.
      *
-     * PhairPlay does not implement HomeKit pairing: it advertises a legacy-pairing receiver, and
+     * Hearth does not implement HomeKit pairing: it advertises a legacy-pairing receiver, and
      * legacy pairing is what the "no code, connect from anywhere on the LAN" setup uses. A sender
      * only asks for these when a receiver advertises access control (a PIN or password bit in
      * `statusFlags`, or the HomeKit pairing feature bits) — so reaching this code means the
@@ -1052,7 +1052,7 @@ open class RtspHandler(
         private const val MAX_MESSAGE_BYTES = 65536
         private const val OCTET_STREAM = "application/octet-stream"
         private const val TIMING_PORT = 6002   // matches TimingHandler's UDP NTP port
-        private const val SESSION_ID = "PhairPlaySession"
+        private const val SESSION_ID = "HearthSession"
         private const val AUDIO_RTP_PORT = 6001
         private const val DEFAULT_SENDER_NAME = "AirPlay Sender"
     }

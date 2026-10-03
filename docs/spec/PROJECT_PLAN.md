@@ -1,4 +1,4 @@
-# PhairPlay – Project Plan
+# Hearth – Project Plan
 
 > **Note (1.6.1):** everything in this plan about Miracast (Phase 6, the 3-card Home screen)
 > is historical. Miracast was removed in 1.6.1 and Apple Casting took its place on Home.
@@ -65,7 +65,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 
 **Tasks:**
 - [x] `HomeFragment.kt` — Google TV Streamer-style home screen with 3 service cards
 - [x] `SettingsFragment.kt` — settings screen with toggles and text inputs
-- [x] `PhairPlayService.kt` — ForegroundService with start/stop/restart
+- [x] `HearthService.kt` — ForegroundService with start/stop/restart
 - [x] `ServiceController.kt` — start/stop/restart API
 - [x] `AppSettings.kt` — settings data model
 - [x] `SettingsRepository.kt` — DataStore persistence
@@ -100,7 +100,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 
 - [x] Settings: device name applied to implemented advertisers
 
 **Definition of Done:**
-- macOS sees PhairPlay within 3s (AC-2.1)
+- macOS sees Hearth within 3s (AC-2.1)
 - Device name from Settings is shown in picker
 - WifiP2p service registered (Miracast P2P)
 - Service cards update when advertising starts/stops
@@ -315,7 +315,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 
 
 **Tasks:**
 - [x] Signed release APK for Google TV (`.github/workflows/release.yml`, see `docs/RELEASING.md`)
-- [x] GitHub Release with GoogleTV + FireTV APKs ([v1.0.0-beta.1](https://github.com/mazer666/PhairPlay/releases/tag/v1.0.0-beta.1))
+- [x] GitHub Release with GoogleTV + FireTV APKs ([v1.0.0-beta.1](https://github.com/mazer666/Hearth/releases/tag/v1.0.0-beta.1))
 - [x] CHANGELOG.md entry for v1.0.0-beta.1
 - [x] Documentation updated (README, ARCHITECTURE, PROJECT_PLAN)
 - [ ] All tests green on CI (247 JVM tests pass; Android Lint pending)

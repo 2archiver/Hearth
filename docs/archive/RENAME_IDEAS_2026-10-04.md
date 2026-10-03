@@ -1,6 +1,9 @@
 # Rename ideas — shortlist and a recommendation
 
-**Status:** proposals only. Nothing in this document has been applied. The rename *mechanics*
+> **Archived 2026-10-04.** The shortlist below was the input to the rename; **Hearth** was chosen
+> and applied. See [RENAME.md](../RENAME.md) for the decision and what actually changed.
+
+**Status:** superseded — kept for the reasoning, not as a live proposal. The rename *mechanics*
 checklist at the bottom lists everything that has to change when a name is chosen, because the
 cheapest moment to pick one is before the next release train.
 

@@ -3,10 +3,10 @@ package com.phairplay.util
 import timber.log.Timber
 
 /**
- * Logger — A thin wrapper around Timber for PhairPlay-specific logging.
+ * Logger — A thin wrapper around Timber for Hearth-specific logging.
  *
  * WHY: Using a wrapper instead of calling Timber directly gives us two benefits:
- * 1. We can add PhairPlay-specific behavior in one place (e.g., scrubbing IP addresses
+ * 1. We can add Hearth-specific behavior in one place (e.g., scrubbing IP addresses
  *    from logs in release builds to protect user privacy)
  * 2. In tests, we can verify that specific log messages were emitted
  *

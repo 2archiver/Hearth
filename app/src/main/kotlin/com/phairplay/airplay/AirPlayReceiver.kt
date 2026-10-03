@@ -200,7 +200,7 @@ class AirPlayReceiver(
      *
      * [NsdManager] attaches its registration callbacks to the Looper of the calling thread and
      * refuses to run on a thread that has none — and the receiver's scope is `Dispatchers.IO`,
-     * whose pooled workers have none. Registering from there is what left PhairPlay permanently
+     * whose pooled workers have none. Registering from there is what left Hearth permanently
      * in ERROR on a Google TV: the RTSP server was listening, but no Mac or iPhone could ever
      * find the address to dial. The main looper always exists, and the callback work here is
      * two flags and a state emit, so it costs that thread nothing.

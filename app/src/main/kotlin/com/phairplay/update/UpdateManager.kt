@@ -148,7 +148,7 @@ class UpdateManager(private val context: Context) {
                 // would be rejected with "package conflicts with an existing package".
                 downloaded.delete()
                 StageResult.Failed(
-                    "Android cannot install this update over the current PhairPlay because the " +
+                    "Android cannot install this update over the current Hearth because the " +
                         "signing keys differ. Use an APK signed with this install's key, or make " +
                         "a one-time manual switch to the new source.",
                     UpdateFailureReason.SIGNATURE_MISMATCH
@@ -246,7 +246,7 @@ class UpdateManager(private val context: Context) {
 
     private fun destinationFor(info: UpdateInfo): File = File(
         File(context.applicationContext.cacheDir, UPDATE_DIR),
-        "PhairPlay-${info.versionCode}.apk"
+        "Hearth-${info.versionCode}.apk"
     )
 
     companion object {

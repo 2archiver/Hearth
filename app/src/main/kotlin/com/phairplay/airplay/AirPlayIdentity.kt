@@ -4,11 +4,11 @@ import android.content.Context
 import com.phairplay.util.NetworkUtils
 
 /**
- * AirPlayIdentity — the **one** description of what PhairPlay claims to be on the network.
+ * AirPlayIdentity — the **one** description of what Hearth claims to be on the network.
  *
  * WHY THIS FILE EXISTS: mDNS advertises one set of facts, `GET /info` answers a second, and the
  * sender decides how to pair, which clock to use and which streams to open **from those facts
- * alone**. When the two disagree — or when they describe a device whose pairing PhairPlay does
+ * alone**. When the two disagree — or when they describe a device whose pairing Hearth does
  * not implement — a real iPhone/Mac connects and then stops: the picker shows the TV, the
  * spinner runs, and the session dies before a single frame arrives. Every value a sender can
  * read is therefore defined here, once, and used by [MdnsService] and
@@ -16,7 +16,7 @@ import com.phairplay.util.NetworkUtils
  *
  * ─── The profile: a legacy-pairing AirPlay 2 receiver ───────────────────────────────────
  *
- * PhairPlay implements AirPlay's **legacy** pairing (a raw 32-byte `POST /pair-setup` answered
+ * Hearth implements AirPlay's **legacy** pairing (a raw 32-byte `POST /pair-setup` answered
  * with our Ed25519 public key, then the X25519 `POST /pair-verify` signature exchange). Apple's
  * newer HomeKit/SRP pairing (`pair-setup` carried as TLV8, SRP-6a over the 3072-bit group)
  * is *not* implemented, and pretending otherwise is what makes a modern sender give up.
@@ -29,7 +29,7 @@ import com.phairplay.util.NetworkUtils
  *    working open-source receivers advertise: `0x5A7FFEE6`.
  *  - **The model.** `AppleTV5,3` is an AirPlay **2** Apple TV — a device that pairs with
  *    HomeKit and runs an encrypted control channel. A sender that sees it expects `pair-setup`
- *    in the HomeKit dialect, and a receiver that answers 400 never gets a session. PhairPlay
+ *    in the HomeKit dialect, and a receiver that answers 400 never gets a session. Hearth
  *    therefore reports `AppleTV3,2`, the model the reference legacy-pairing receivers use, so
  *    the sender takes the legacy path this app actually implements.
  *

@@ -58,7 +58,7 @@ class MdnsNamesTest {
 
     @Test
     fun `sanitize honours an explicit fallback`() {
-        assertEquals("PhairPlay", MdnsNames.sanitize("###", fallback = "PhairPlay"))
+        assertEquals("Hearth", MdnsNames.sanitize("###", fallback = "Hearth"))
     }
 
     @Test

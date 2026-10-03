@@ -4,6 +4,7 @@
     Only strings that differ from the main flavor need to be listed here.
 -->
 <resources>
-    <!-- Launcher label for the Google TV build (with archiver tag) -->
-    <string name="app_name">PhairPlay (archiver)</string>
+    <!-- The Google TV build's launcher label. Same as the base one since the rename; kept as
+         an override so a store/TV-specific suffix has a place to live. -->
+    <string name="app_name">Hearth</string>
 </resources>

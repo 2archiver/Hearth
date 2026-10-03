@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  *
  * WHY: The AirPlay receiver needs to run continuously in the background.
  * Android may kill background processes. A ForegroundService with a persistent
- * notification keeps the app alive and shows the user that PhairPlay is active.
+ * notification keeps the app alive and shows the user that Hearth is active.
  *
  * HOW: Bind to this service from [MainActivity] to receive state updates.
  * Use [ServiceController] to send start/stop/restart commands.
@@ -275,7 +275,7 @@ class PhairPlayService : Service() {
             _appleCastingDetail.value = null
         }
 
-        // Look for a newer PhairPlay build in the background. Throttled inside
+        // Look for a newer Hearth build in the background. Throttled inside
         // UpdateManager (once every few hours), so this is cheap to call every start.
         startUpdateChecker(settings)
     }
@@ -423,7 +423,7 @@ class PhairPlayService : Service() {
     /**
      * Starts a fresh debug-overlay session for [source], clearing the previous one's counters.
      *
-     * Keeps the counters of a live stream safe: this is the only media session PhairPlay runs
+     * Keeps the counters of a live stream safe: this is the only media session Hearth runs
      * now, but the guard stays so a stale callback cannot end a session it does not own.
      */
     private fun beginStatsSession(source: String) {
@@ -438,7 +438,7 @@ class PhairPlayService : Service() {
     }
 
     /**
-     * Periodically asks GitHub whether a newer PhairPlay APK exists.
+     * Periodically asks GitHub whether a newer Hearth APK exists.
      *
      * Runs on the service's own scope, so a TV left sitting on the Home screen still hears
      * about an update instead of only finding out the next time Settings is opened.

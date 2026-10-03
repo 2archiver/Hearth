@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * UpdateInfo — everything the in-app updater knows about a newer PhairPlay build.
+ * UpdateInfo — everything the in-app updater knows about a newer Hearth build.
  *
  * WHY: the updater has to answer two questions from a GitHub release without guessing:
  * "is this newer than what is installed?" (needs a numeric [versionCode], not a version
@@ -25,7 +25,7 @@ data class UpdateInfo(
     val tagName: String,
     /** Web page for the release, opened by "view release notes". */
     val htmlUrl: String,
-    /** File name of the APK asset, e.g. `PhairPlay-googletv.apk`. */
+    /** File name of the APK asset, e.g. `Hearth-1.6.1-googletv.apk`. */
     val apkName: String,
     /** Direct download URL for [apkName]. */
     val apkUrl: String,
@@ -51,7 +51,11 @@ data class UpdateInfo(
          */
         const val DESCRIPTOR_ASSET = "version.json"
 
-        /** The un-versioned APK name used by releases before the one-asset change. */
+        /**
+         * The fixed APK name used before releases named their asset after the version. It is
+         * still `PhairPlay-…`: that is what those older releases actually publish, and finding
+         * them is the point. A release from now on is matched by the `.apk` suffix instead.
+         */
         const val APK_ASSET = "PhairPlay-googletv.apk"
 
         /** Asset carrying the APK checksums, published by releases before the one-asset change. */
@@ -81,7 +85,7 @@ data class Release(
 
     /**
      * The release's payload: one APK, named after its version
-     * (`PhairPlay-1.6.0-main.42-googletv.apk`).
+     * (`Hearth-1.6.1-main.44-googletv.apk`).
      *
      * The legacy fixed name is matched first only so old releases keep working; new ones have a
      * version in the file name. Matching on the `.apk` suffix rather than "the first asset" is the
@@ -176,13 +180,18 @@ object ReleaseParser {
     }
 
     /**
-     * The version carried by the single asset's file name: `PhairPlay-1.6.0-main.42-googletv.apk`
-     * -> `1.6.0-main.42`. More trustworthy than the release title because it is the name of the
+     * The version carried by the single asset's file name: `Hearth-1.6.1-main.44-googletv.apk`
+     * -> `1.6.1-main.44`. More trustworthy than the release title because it is the name of the
      * file that actually gets installed.
+     *
+     * Both brands are accepted: every release published before the rename is `PhairPlay-…`, and
+     * a TV running an older build still updates from whatever the `latest` release says.
      */
     fun versionNameFromAssetName(name: String?): String? {
         if (name.isNullOrBlank()) return null
-        return ASSET_VERSION_REGEX.find(name)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+        return ASSET_VERSION_REGEX.find(name)
+            ?.groupValues?.get(1)
+            ?.takeIf { it.isNotBlank() && !it.equals("googletv", ignoreCase = true) }
     }
 
     /** Parses `SHA256SUMS.txt` (lines of `<hex>  <filename>`) into a filename → hex map. */
@@ -260,7 +269,7 @@ object ReleaseParser {
     private val SHA256_REGEX = Regex("""(?i)SHA-?256\W{0,8}([0-9a-f]{64})""")
 
     private val ASSET_VERSION_REGEX =
-        Regex("""^PhairPlay-(.+?)(?:-googletv)?\.apk$""", RegexOption.IGNORE_CASE)
+        Regex("""^(?:Hearth|PhairPlay)-(.+?)(?:-googletv)?\.apk$""", RegexOption.IGNORE_CASE)
 
     private fun parseAssets(array: JSONArray?): List<ReleaseAsset> {
         if (array == null) return emptyList()

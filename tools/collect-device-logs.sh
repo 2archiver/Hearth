@@ -30,7 +30,7 @@ fi
 
 adb logcat -d -v time \
   '*:W' \
-  'PhairPlay:V' \
+  'Hearth:V' \
   'AirPlayReceiver:V' \
   'RtspHandler:V' \
   'AirPlayTrace:V' \

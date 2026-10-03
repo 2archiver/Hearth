@@ -1,6 +1,6 @@
-# Releasing PhairPlay (Google TV)
+# Releasing Hearth (Google TV)
 
-PhairPlay has **one current GitHub release**, tagged `latest`. A successful
+Hearth has **one current GitHub release**, tagged `latest`. A successful
 build from `main` updates it in place, and GitHub marks that same release as **Latest**. The
 in-app updater, direct download link, and release page therefore point to the same APK. Older
 numbered releases are kept as history; new builds do not create competing release entries.
@@ -11,14 +11,14 @@ numbered releases are kept as history; new builds do not create competing releas
 - **Release title, update notes, version, checksum and build details:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest>
 - **Optional download page:** <https://2archiver.github.io/phairplay-archiver-fork-/>
 
-A release carries **exactly one file**: `PhairPlay-<version>-googletv.apk`, named after the
+A release carries **exactly one file**: `Hearth-<version>-googletv.apk`, named after the
 `versionName` embedded in it (the workflow reads that back out of the built APK with `aapt`).
 Nothing else is uploaded — no `SHA256SUMS.txt`, no `version.json`. What those files used to carry
 is now written into the release body, which is where a human reads it and where
 `ReleaseParser.scrapeVersionCode` / `scrapeSha256` find it for the in-app updater.
 
 Why one file: a release with three assets invites a TV to download the wrong one, and an
-un-versioned `PhairPlay-googletv.apk` cannot tell you which build it is once it lands in the
+un-versioned `Hearth-googletv.apk` cannot tell you which build it is once it lands in the
 Downloads folder. Both problems disappear when the file name *is* the version and it is alone.
 
 ## How publishing works
@@ -60,10 +60,10 @@ key**. Get this wrong and the TV reports:
 > **App not installed as package conflicts with an existing package**
 
 That message means "different signing key", not "different version". It used to happen on every
-PhairPlay update, because a build without signing secrets fell back to a throw-away debug key
+Hearth update, because a build without signing secrets fell back to a throw-away debug key
 that differed on every CI run — so every update had to be preceded by an uninstall.
 
-PhairPlay fixes this by signing **every** build with one key:
+Hearth fixes this by signing **every** build with one key:
 
 ```
 app/signing/phairplay.p12        the public "community build" key, committed on purpose
@@ -81,13 +81,13 @@ APK from the release workflow also replace each other.
 ### The trade-off, stated plainly
 
 A committed private key is **not** a secret: anyone can build an APK signed with it. If someone
-published a malicious "PhairPlay update" signed with this key, Android would install it over
-PhairPlay without complaint. That is the cost of updates that Just Work for a sideloaded app
+published a malicious "Hearth update" signed with this key, Android would install it over
+Hearth without complaint. That is the cost of updates that Just Work for a sideloaded app
 with no Play Store in the loop.
 
 Mitigations built in:
 
-- PhairPlay's own updater **verifies the downloaded APK's signing certificate against its own**
+- Hearth's own updater **verifies the downloaded APK's signing certificate against its own**
   before installing, and refuses anything that does not match — so the in-app path can never
   install a differently-signed build ([docs/UPDATES.md](UPDATES.md)).
 - CI **verifies the APK signature after building** and pins the certificate SHA-256. The
@@ -147,7 +147,7 @@ otherwise the committed community key is used. Omit the `-P` flags to use the ba
 One asset, named after the version read back out of the built APK:
 
 ```
-PhairPlay-1.5.0-main.131-googletv.apk
+Hearth-1.5.0-main.131-googletv.apk
 ```
 
 and a release body that carries everything the side files used to:

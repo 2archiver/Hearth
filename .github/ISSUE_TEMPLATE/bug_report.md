@@ -30,7 +30,7 @@ assignees: ''
 - Device model: (e.g., Google TV Streamer 4K, Chromecast with Google TV)
 - Android TV OS version: (e.g., Android TV OS 14)
 - TV output resolution: [ ] 4K  [ ] 1080p  [ ] don't know
-- PhairPlay version (Settings → Version on the TV): (e.g., 1.6.0-main.43-googletv)
+- Hearth version (Settings → Version on the TV): (e.g., 1.6.0-main.43-googletv)
 - Where the APK came from: [ ] rolling `latest` release  [ ] a `v…` release  [ ] CI artifact  [ ] built it myself
 - **What the AirPlay card says on the Home screen, verbatim** — "Advertising on Ethernet ·
   192.168.1.42" / "Advertising on Wi-Fi · …" / an error line. This is the single most useful line
@@ -44,9 +44,9 @@ assignees: ''
 - What you were doing: [ ] screen mirroring  [ ] photos  [ ] audio only
 - Same subnet as the address on the TV's card? [ ] yes  [ ] no  [ ] don't know
 
-> **Cast buttons are not a PhairPlay bug.** The app has no Google Cast receiver: the TV's built-in
-> Chromecast owns ports 8008/8009 and `_googlecast._tcp`, and PhairPlay neither binds nor
-> advertises them. If the problem is "the cast icon in an app does not list PhairPlay", that is by
+> **Cast buttons are not a Hearth bug.** The app has no Google Cast receiver: the TV's built-in
+> Chromecast owns ports 8008/8009 and `_googlecast._tcp`, and Hearth neither binds nor
+> advertises them. If the problem is "the cast icon in an app does not list Hearth", that is by
 > design — see `docs/guides/CAST.md`, and use iOS Screen Mirroring instead.
 
 **Network:**
@@ -57,8 +57,8 @@ assignees: ''
 
 <!--
 If you can reproduce the bug, please attach the Android logcat output.
-Filter by "PhairPlay" to get relevant logs:
-  adb logcat -s PhairPlay:* | head -100
+Filter by "Hearth" to get relevant logs:
+  adb logcat -s Hearth:* | head -100
 For discovery problems these two lines are worth including even if nothing else is:
   adb logcat -d | grep -E "mDNS:"          # advertisement, multicast lock, retries
   adb shell dumpsys wifi | grep -i phairplay-mdns   # the multicast lock, held while advertising

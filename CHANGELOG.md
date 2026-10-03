@@ -1,11 +1,42 @@
 # Changelog
 
-All notable changes to PhairPlay will be documented in this file.
+All notable changes to Hearth (formerly PhairPlay) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+## [1.7.0] - 2026-10-04 — PhairPlay is now Hearth
+
+**The app is renamed. Nothing else about it changes.**
+
+`PhairPlay` named the protocol rather than the product, and it named it with Apple's words. The
+app is now **Hearth** — the warm centre of the home, which is where the TV already is. Full
+reasoning, the runner-up names and the list of things that deliberately did *not* change are in
+[docs/RENAME.md](docs/RENAME.md).
+
+### Changed
+
+- **Launcher label and app name** are `Hearth` (English, German, French and the Google TV
+  flavour). The Settings version row reads `1.7.0 (… ) · Hearth (formerly PhairPlay)` so an
+  update never looks like a different app.
+- **Release asset** is `Hearth-<version>-googletv.apk`; the release title is `Hearth <version>
+  for Google TV`. The download page, README, CI workflows, issue templates and device-log tool
+  follow the new name.
+- **Gradle root project** is `Hearth`.
+
+### Unchanged on purpose (this is why your TV keeps working)
+
+- **`applicationId` is still `com.phairplay.googletv`** and the **signing key is unchanged**, so
+  the next release installs *over* the existing app — no uninstall, no lost settings.
+- **Gradle properties and the Kotlin package** stay `phairplay.*` / `com.phairplay.*`; DataStore
+  preference keys are untouched, so display name, toggles and the skipped-update choice survive.
+- **The updater still reads `PhairPlay-…` assets** as well as `Hearth-…` ones: every release
+  published before the rename must stay installable from inside the app (`UpdateInfoTest` covers
+  both names).
+- **The repository** is still `phairplay-archiver-fork-`, which is also the default
+  `phairplay.updateRepo`.
 
 ## [1.6.1] - 2026-10-03
 
@@ -83,8 +114,9 @@ device belongs to the TV's own features.
 ### Docs
 
 * New: [`docs/guides/APPLE_CASTING.md`](docs/guides/APPLE_CASTING.md) (connecting, stopping, and a
-  field guide to the connection log) and [`docs/RENAME_IDEAS.md`](docs/RENAME_IDEAS.md) (a rename
-  shortlist with a recommendation — **not applied**; see the checklist in that file).
+  field guide to the connection log) and a rename shortlist with a recommendation —
+  applied in 1.7.0 as **Hearth**; the shortlist is kept at
+  [`docs/archive/RENAME_IDEAS_2026-10-04.md`](docs/archive/RENAME_IDEAS_2026-10-04.md).
 
 ## [1.6] - 2026-10-03
 

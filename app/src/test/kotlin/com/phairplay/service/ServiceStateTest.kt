@@ -89,7 +89,7 @@ class ServiceStateTest {
     /**
      * "Cannot run on this TV" is deliberately not the same thing as "broke". A TV whose mDNS
      * responder refuses the record hits this state, and the card has to be able to say so without
-     * accusing PhairPlay of a bug.
+     * accusing Hearth of a bug.
      */
     @Test
     fun `ProtocolState has UNAVAILABLE state distinct from ERROR`() {
@@ -116,13 +116,13 @@ class ServiceStateTest {
     }
 
     /**
-     * PhairPlay has no Cast protocol any more: a Google TV's own Chromecast owns TCP 8008/8009
+     * Hearth has no Cast protocol any more: a Google TV's own Chromecast owns TCP 8008/8009
      * and `_googlecast._tcp`, so a second receiver here could only ever report a port clash.
      */
     @Test
     fun `Protocol has no CAST value - the TV's built-in receiver owns Cast`() {
         assertTrue(
-            "Cast must not come back as a PhairPlay protocol",
+            "Cast must not come back as a Hearth protocol",
             Protocol.values().none { it.name == "CAST" }
         )
     }

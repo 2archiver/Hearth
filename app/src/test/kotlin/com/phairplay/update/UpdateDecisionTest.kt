@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * UpdateDecisionTest — the rule that stops PhairPlay offering a downgrade.
+ * UpdateDecisionTest — the rule that stops Hearth offering a downgrade.
  *
  * WHY THIS FILE EXISTS: the updater reads the published build's versionCode out of the release
  * *notes* and compares it with the one baked into the running APK. Every way that comparison can
@@ -22,7 +22,7 @@ class UpdateDecisionTest {
         versionCode = versionCode,
         tagName = "latest",
         htmlUrl = "https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest",
-        apkName = "PhairPlay-$versionName-googletv.apk",
+        apkName = "Hearth-$versionName-googletv.apk",
         apkUrl = "https://example.invalid/apk",
         apkSizeBytes = 1,
         sha256 = null,

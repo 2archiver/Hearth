@@ -1,6 +1,6 @@
-# Contributing to PhairPlay
+# Contributing to Hearth
 
-Thank you for your interest in contributing to PhairPlay! This document explains how to contribute and the coding standards we follow.
+Thank you for your interest in contributing to Hearth! This document explains how to contribute and the coding standards we follow.
 
 ---
 
@@ -54,10 +54,10 @@ Every **class** must have a KDoc header comment explaining:
 
 ```kotlin
 /**
- * MdnsService — Advertises PhairPlay as an AirPlay 2 receiver on the local network.
+ * MdnsService — Advertises Hearth as an AirPlay 2 receiver on the local network.
  *
- * WHY: For macOS to show PhairPlay in the AirPlay menu, the device must announce
- * itself using mDNS. Without this, macOS would never know PhairPlay exists.
+ * WHY: For macOS to show Hearth in the AirPlay menu, the device must announce
+ * itself using mDNS. Without this, macOS would never know Hearth exists.
  *
  * Example:
  *   val mdns = MdnsService(context)

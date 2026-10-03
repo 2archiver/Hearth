@@ -93,8 +93,8 @@ class AppSettingsTest {
 
     @Test
     fun `effectiveDisplayName returns name unchanged when no surrounding whitespace`() {
-        val settings = AppSettings(displayName = "PhairPlay")
-        assertEquals("PhairPlay", settings.effectiveDisplayName)
+        val settings = AppSettings(displayName = "Hearth")
+        assertEquals("Hearth", settings.effectiveDisplayName)
     }
 
     @Test

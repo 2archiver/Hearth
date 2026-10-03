@@ -1,6 +1,6 @@
-// App module build configuration for PhairPlay.
+// App module build configuration for Hearth.
 //
-// PhairPlay ships for Google TV only (Android TV OS 10+; developed and tested against
+// Hearth ships for Google TV only (Android TV OS 10+; developed and tested against
 // Google TV 4K running Android TV OS 14, wired to Ethernet as well as on Wi-Fi).
 // The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...)
 // and the applicationId stay stable.
@@ -76,7 +76,7 @@ fun SigningKeySpec.canLoad(): Boolean = try {
  * with an existing package".
  *
  * WHY: Android refuses to install an APK over an installed one when the two are signed
- * with different keys, and reports exactly that error. PhairPlay is sideloaded (no Play
+ * with different keys, and reports exactly that error. Hearth is sideloaded (no Play
  * Store), so until now every build that did not carry the maintainer's private keystore
  * secrets fell back to a throw-away debug key that differed per run — meaning every
  * update had to be preceded by an uninstall.
@@ -127,7 +127,7 @@ val signingKeySpec: SigningKeySpec? = run {
         if (community != null && !community.canLoad()) {
             // Do not fail the build over this — but make it impossible to miss.
             logger.warn(
-                "PhairPlay: app/signing/phairplay.p12 could not be read with this JDK, so " +
+                "Hearth: app/signing/phairplay.p12 could not be read with this JDK, so " +
                     "this APK will NOT update an existing install. Regenerate it with " +
                     "tools/make-signing-key.sh, or point KEYSTORE_PATH at your own key."
             )
@@ -177,7 +177,7 @@ android {
     // Single flavor: Google TV. Flavor-specific resources and manifest entries live in
     // src/googletv/. (A Cast Connect receiver used to sit here — it is gone. A Google TV's own
     // Chromecast owns TCP 8008/8009 and the `_googlecast._tcp` record, so a second receiver in
-    // PhairPlay could only ever report a port clash; PhairPlay's job is AirPlay.)
+    // Hearth could only ever report a port clash; Hearth's job is AirPlay.)
     flavorDimensions += "platform"
     productFlavors {
         create("googletv") {
@@ -293,7 +293,7 @@ android {
             // Advisory: the project deliberately supports a wide API range for old TVs;
             // targetSdk is bumped deliberately, not on every new platform release.
             "OldTargetApi",
-            // PhairPlay ships for Google TV only, where every device is ARM (Chromecast with
+            // Hearth ships for Google TV only, where every device is ARM (Chromecast with
             // Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs). The native
             // FairPlay/ALAC libraries are built for armeabi-v7a and arm64-v8a to keep the APK
             // small; x86/x86_64 would only serve ChromeOS, which this app does not target.
@@ -334,10 +334,10 @@ android {
 val signingKeyForLog = signingKeySpec
 logger.lifecycle(
     if (signingKeyForLog == null) {
-        "PhairPlay signing: NO KEY FOUND — falling back to the Gradle debug key. " +
+        "Hearth signing: NO KEY FOUND — falling back to the Gradle debug key. " +
             "Add app/signing/phairplay.p12 or set KEYSTORE_PATH (see docs/RELEASING.md)."
     } else {
-        "PhairPlay signing: ${signingKeyForLog.store.name} " +
+        "Hearth signing: ${signingKeyForLog.store.name} " +
             "(${signingKeyForLog.storeType}, alias '${signingKeyForLog.keyAlias}')"
     }
 )

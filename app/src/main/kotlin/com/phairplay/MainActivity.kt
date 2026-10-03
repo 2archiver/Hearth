@@ -31,9 +31,9 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * MainActivity — The single Activity hosting PhairPlay's navigation and fragments.
+ * MainActivity — The single Activity hosting Hearth's navigation and fragments.
  *
- * WHY: PhairPlay uses a single-Activity architecture with Fragment-based navigation.
+ * WHY: Hearth uses a single-Activity architecture with Fragment-based navigation.
  * This is the recommended pattern for Android TV apps: one Activity with swappable
  * Fragments avoids the overhead of Activity transitions and keeps the Leanback
  * launcher integration simple.
@@ -316,7 +316,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * Requests POST_NOTIFICATIONS on Android 13+, for the foreground-service notification.
      *
-     * That is the only runtime permission PhairPlay still needs. The Wi-Fi Direct, location and
+     * That is the only runtime permission Hearth still needs. The Wi-Fi Direct, location and
      * "nearby devices" grants went away with the Miracast receiver, and AirPlay runs on ordinary
      * TCP/UDP sockets that need none.
      */

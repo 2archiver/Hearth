@@ -1,8 +1,8 @@
 # Apple Casting — screen mirroring from iPhone, iPad and Mac
 
-**What it is:** the *Apple Casting* card on PhairPlay's Home screen. It is the screen-mirroring
+**What it is:** the *Apple Casting* card on Hearth's Home screen. It is the screen-mirroring
 half of AirPlay: your iPhone/iPad/Mac renders its display, encodes it as H.264 and sends it to the
-TV, where PhairPlay decodes it in hardware and puts it on screen. Everything you can see on the
+TV, where Hearth decodes it in hardware and puts it on screen. Everything you can see on the
 phone — Photos, Safari, a game, a video app that does not offer AirPlay streaming — appears on the
 TV, and the TV remote's play/pause/skip keys are forwarded back to the sender when the app
 supports it.
@@ -27,19 +27,19 @@ through the TV"*, not a failure.
 2. Open **Control Centre** on iPhone/iPad (swipe down from the top-right corner) or the
    **Control Centre** / menu-bar item on the Mac.
 3. Tap **Screen Mirroring** (macOS: **AirPlay**).
-4. Pick the name the TV advertises — shown on PhairPlay's Home screen as *Visible as: …*
+4. Pick the name the TV advertises — shown on Hearth's Home screen as *Visible as: …*
    (default: **Apple TV**). If two devices share a name, Android renames this one to
    "… (2)", and the Home screen shows the name that was really registered.
 
-There is no PIN and no pairing dialog to accept: PhairPlay advertises itself as a legacy-pairing
+There is no PIN and no pairing dialog to accept: Hearth advertises itself as a legacy-pairing
 AirPlay receiver and any device on your LAN can connect, exactly like an old Apple TV. If someone
 else on your network can reach the TV, they can mirror to it — see *Access control* below.
 
 ## Stopping
 
 On the phone: **Screen Mirroring → Stop Mirroring**. On the TV: **Back** on the remote closes the
-session (PhairPlay asks the sender to stop). Locking the phone ends it too — the sender's socket
-closes and PhairPlay tears the session down.
+session (Hearth asks the sender to stop). Locking the phone ends it too — the sender's socket
+closes and Hearth tears the session down.
 
 ---
 
@@ -66,8 +66,8 @@ Where the log **stops** is the diagnosis:
 |---|---|---|
 | Nothing at all | The sender never reached the TV | Network/interface line on Home: phone and TV must be on the same subnet; a guest Wi-Fi or AP isolation blocks it |
 | `Connection from …` then nothing | A socket opened but no request arrived | Usually a stale probe; try again — the log will show a second connection |
-| `Pairing FAILED …` | The sender wanted a pairing dialect this receiver does not offer | Update PhairPlay; capture the log and report it |
-| `Encryption FAILED at fp-setup` | FairPlay key exchange rejected | Update PhairPlay; report the log |
+| `Pairing FAILED …` | The sender wanted a pairing dialect this receiver does not offer | Update Hearth; capture the log and report it |
+| `Encryption FAILED at fp-setup` | FairPlay key exchange rejected | Update Hearth; report the log |
 | `Mirroring FAILED at SETUP` | The stream request was malformed or keys were missing | Report the log |
 | `… waiting for the sender's video connection on port N` as the last line | Keys and streams are set up, but the sender never opened the video socket | Almost always the network path (AP isolation / VLAN / a firewall) or a full Wi-Fi airtime problem; try 5 GHz |
 | Video connects, screen stays black | Frames arrive but decode fails | Turn on **Settings → Debug overlay** and look for `fps`/`queue` on the TV |
@@ -80,7 +80,7 @@ The same log is mirrored to `adb logcat` if you are collecting device logs
 ## Notes for a wired (Ethernet) Google TV
 
 * AirPlay is TCP/UDP on the LAN. If the TV is on Ethernet and the phone is on Wi-Fi of the **same
-  router**, it works — that is the setup PhairPlay is developed against.
+  router**, it works — that is the setup Hearth is developed against.
 * The Home screen shows the interface and address actually being advertised
   (`Advertising on Ethernet · 192.168.1.42`). If that line is missing or says *Not advertised
   yet*, the TV's mDNS responder refused the record — press **Restart**; the app retries on its own
@@ -91,7 +91,7 @@ The same log is mirrored to `adb logcat` if you are collecting device logs
 
 ## Access control
 
-PhairPlay intentionally runs **open** (no PIN), because a PIN means HomeKit-style pairing, which
+Hearth intentionally runs **open** (no PIN), because a PIN means HomeKit-style pairing, which
 third-party AirPlay receivers cannot complete with a modern iPhone. If you need to keep other
 people off the TV, put it on a network only your devices can join (or a dedicated SSID/VLAN) —
 that is the only access control AirPlay-without-HomeKit can honestly offer.
@@ -99,7 +99,7 @@ that is the only access control AirPlay-without-HomeKit can honestly offer.
 ## What is *not* Apple Casting
 
 * **Google Cast** (the cast icon in Chrome/YouTube) — that is the TV's built-in Chromecast, which
-  always owns TCP 8008/8009. PhairPlay stays out of its way; see [CAST.md](CAST.md).
+  always owns TCP 8008/8009. Hearth stays out of its way; see [CAST.md](CAST.md).
 * **Miracast / Wi-Fi Display** (Android and Windows "wireless display") — removed in 1.6.1.
   Most Google TVs refuse Wi-Fi Direct to apps, so it could never work on the sets people own; the
   card that used to say *Unavailable* is gone.

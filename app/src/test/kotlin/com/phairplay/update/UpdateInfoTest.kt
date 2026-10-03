@@ -100,14 +100,14 @@ class UpdateInfoTest {
         val release = requireNotNull(ReleaseParser.parseRelease(releaseJson))
         val sums = ReleaseParser.parseSha256Sums(
             "deadbeef  PhairPlay-v1.3.0-googletv.apk\n" +
-                "cafebabe1234  PhairPlay-googletv.apk\n"
+                "cafebabe1234  Hearth-googletv.apk\n"
         )
         val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, null, sums))
         // "cafebabe1234" is not 64 hex chars, so it is rejected as a hash.
         assertNull(info.sha256)
 
         val goodSums = ReleaseParser.parseSha256Sums(
-            "0123456789012345678901234567890123456789012345678901234567890123 *PhairPlay-googletv.apk"
+            "0123456789012345678901234567890123456789012345678901234567890123 *Hearth-googletv.apk"
         )
         val goodInfo = requireNotNull(ReleaseParser.buildUpdateInfo(release, null, goodSums))
         assertEquals("0123456789012345678901234567890123456789012345678901234567890123", goodInfo.sha256)
@@ -124,7 +124,7 @@ class UpdateInfoTest {
 
     @Test
     fun `a release without an APK cannot produce an update`() {
-        val json = releaseJson.replace("PhairPlay-googletv.apk", "notes.txt")
+        val json = releaseJson.replace("Hearth-googletv.apk", "notes.txt")
         val release = requireNotNull(ReleaseParser.parseRelease(json))
         assertNull(ReleaseParser.buildUpdateInfo(release, null))
     }
@@ -139,12 +139,12 @@ class UpdateInfoTest {
         val json = """
         {
           "tag_name": "latest",
-          "name": "PhairPlay 1.6.0-main.42 for Google TV",
+          "name": "Hearth 1.6.1-main.44 for Google TV",
           "html_url": "https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest",
-          "body": "## Download and update\n\n**Download the APK**: [PhairPlay-1.6.0-main.42-googletv.apk](https://x)\n\n- **Version:** `1.6.0-main.42` · `versionCode 21021542`\n- **Size:** 24.9 MB · **SHA-256:** `9f2c1b64b17a4f3c0e7d2a55c8f61d4e0b3a77c2e1f4d8a6c5b3e1f0d9c8b7a6`\n",
+          "body": "## Download and update\n\n**Download the APK**: [Hearth-1.6.1-main.44-googletv.apk](https://x)\n\n- **Version:** `1.6.1-main.44` · `versionCode 21021542`\n- **Size:** 24.9 MB · **SHA-256:** `9f2c1b64b17a4f3c0e7d2a55c8f61d4e0b3a77c2e1f4d8a6c5b3e1f0d9c8b7a6`\n",
           "assets": [
-            { "name": "PhairPlay-1.6.0-main.42-googletv.apk",
-              "browser_download_url": "https://github.com/x/y/releases/download/latest/PhairPlay-1.6.0-main.42-googletv.apk",
+            { "name": "Hearth-1.6.1-main.44-googletv.apk",
+              "browser_download_url": "https://github.com/x/y/releases/download/latest/Hearth-1.6.1-main.44-googletv.apk",
               "size": 26112000 }
           ]
         }
@@ -153,10 +153,10 @@ class UpdateInfoTest {
         val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
 
         // Version name from the file that is actually installed, not from the release title.
-        assertEquals("1.6.0-main.42", info.versionName)
+        assertEquals("1.6.1-main.44", info.versionName)
         assertEquals(21021542, info.versionCode)
         assertEquals(26112000L, info.apkSizeBytes)
-        assertTrue(info.apkUrl.endsWith("PhairPlay-1.6.0-main.42-googletv.apk"))
+        assertTrue(info.apkUrl.endsWith("Hearth-1.6.1-main.44-googletv.apk"))
         assertEquals(
             "9f2c1b64b17a4f3c0e7d2a55c8f61d4e0b3a77c2e1f4d8a6c5b3e1f0d9c8b7a6",
             info.sha256
@@ -178,10 +178,40 @@ class UpdateInfoTest {
 
     @Test
     fun `the version is read out of the asset file name`() {
-        assertEquals("1.6.0-main.42", ReleaseParser.versionNameFromAssetName("PhairPlay-1.6.0-main.42-googletv.apk"))
-        assertEquals("1.5.0", ReleaseParser.versionNameFromAssetName("PhairPlay-1.5.0.apk"))
+        assertEquals("1.6.1-main.44", ReleaseParser.versionNameFromAssetName("Hearth-1.6.1-main.44-googletv.apk"))
+        assertEquals("1.5.0", ReleaseParser.versionNameFromAssetName("Hearth-1.5.0.apk"))
         assertNull(ReleaseParser.versionNameFromAssetName("app-release.apk"))
         assertNull(ReleaseParser.versionNameFromAssetName(null))
+    }
+
+    /**
+     * The pre-rename name must keep parsing: every release already published is `PhairPlay-…`,
+     * and a TV that has not updated yet is still offered whatever the `latest` release says.
+     */
+    @Test
+    fun `legacy PhairPlay asset names still yield their version`() {
+        assertEquals("1.6.0-main.42", ReleaseParser.versionNameFromAssetName("PhairPlay-1.6.0-main.42-googletv.apk"))
+        assertEquals("1.4.0", ReleaseParser.versionNameFromAssetName("PhairPlay-1.4.0.apk"))
+
+        val legacyJson = """
+        {
+          "tag_name": "latest",
+          "name": "PhairPlay latest (Google TV)",
+          "html_url": "",
+          "body": "**Version:** `1.4.0` · `versionCode 20000000`",
+          "assets": [
+            { "name": "PhairPlay-googletv.apk",
+              "browser_download_url": "https://github.com/x/y/releases/download/latest/PhairPlay-googletv.apk",
+              "size": 20000000 }
+          ]
+        }
+        """.trimIndent()
+        val release = requireNotNull(ReleaseParser.parseRelease(legacyJson))
+        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
+        assertEquals("PhairPlay-googletv.apk", info.apkName)
+        assertEquals(20000000, info.versionCode)
+        // The fixed file name carries no version, so "googletv" must not be mistaken for one.
+        assertEquals("PhairPlay latest (Google TV)", info.versionName)
     }
 
     @Test
@@ -191,7 +221,7 @@ class UpdateInfoTest {
             versionCode = 20432100,
             tagName = "latest",
             htmlUrl = "",
-            apkName = "PhairPlay-googletv.apk",
+            apkName = "Hearth-googletv.apk",
             apkUrl = "",
             apkSizeBytes = 0,
             sha256 = null,

@@ -10,16 +10,16 @@ import java.net.URL
 import java.security.MessageDigest
 
 /**
- * UpdateChecker — asks GitHub whether a newer PhairPlay APK exists and downloads it.
+ * UpdateChecker — asks GitHub whether a newer Hearth APK exists and downloads it.
  *
- * WHY: PhairPlay is sideloaded, so "update" meant opening Downloader on the TV, typing a
+ * WHY: Hearth is sideloaded, so "update" meant opening Downloader on the TV, typing a
  * long URL and hoping the APK was signed with the same key. Doing it from the TV itself
  * removes the whole ritual — and because the app knows its own versionCode it can tell
  * the difference between "nothing new" and "new build" without parsing release titles.
  *
  * HOW: ONE plain HTTPS call — no SDK, no dependency, and deliberately no second round trip:
  *   `GET https://api.github.com/repos/{repo}/releases/latest` → the release JSON.
- * A PhairPlay release carries exactly one asset, the version-named APK, so that response is the
+ * A Hearth release carries exactly one asset, the version-named APK, so that response is the
  * entire protocol: the version name comes from the asset's file name, the versionCode and the
  * APK's SHA-256 are scraped out of the release body the workflow writes. [download] then streams
  * that one asset to a file, checking its SHA-256 on the way.
@@ -179,7 +179,7 @@ class UpdateChecker(
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = true   // release assets redirect to a CDN
         connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.setRequestProperty("User-Agent", "PhairPlay/${BuildConfig.VERSION_NAME}")
+        connection.setRequestProperty("User-Agent", "Hearth/${BuildConfig.VERSION_NAME}")
         return connection
     }
 

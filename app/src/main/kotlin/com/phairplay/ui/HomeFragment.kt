@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * HomeFragment — The main screen of PhairPlay.
+ * HomeFragment — The main screen of Hearth.
  *
  * WHY: Shows the two things this TV can receive — **AirPlay** (music, video and photos from an
  * iPhone/iPad/Mac) and **Apple Casting** (screen mirroring from those same devices) — plus a live
@@ -269,7 +269,7 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Shows which network PhairPlay is advertising on.
+     * Shows which network Hearth is advertising on.
      *
      * WHY: "my iPhone cannot see the TV" is nearly always a network question. On a wired
      * Google TV the phone has to be on the same network as the *Ethernet* address shown
@@ -287,7 +287,7 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Shows a one-line hint when a newer PhairPlay build is already downloaded and waiting,
+     * Shows a one-line hint when a newer Hearth build is already downloaded and waiting,
      * or has been published but not downloaded. Tapping is not needed — Settings →
      * "Check for updates" drives it — but silently sitting on an update is worse than a line
      * of text on the Home screen.

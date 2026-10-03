@@ -170,7 +170,7 @@ object StreamStats {
     /** Human-readable multi-line HUD text. */
     fun summary(nowMillis: Long = System.currentTimeMillis()): String {
         val text = StringBuilder()
-        text.append("PhairPlay · debug\n")
+        text.append("Hearth · debug\n")
 
         val active = source
         text.append("SRC    ").append(if (active.isEmpty()) "idle — nothing streaming" else active)

@@ -70,7 +70,7 @@ class NetworkUtilsTest {
 
         assertNotNull("Device name should never be null", name)
         assertFalse("Device name should not be empty", name.isEmpty())
-        assertEquals("PhairPlay", name)
+        assertEquals("Hearth", name)
     }
 
     /**
