@@ -46,25 +46,6 @@ data class AppSettings(
      */
     val airPlayEnabled: Boolean = true,
 
-    /**
-     * Whether the Miracast (Wi-Fi Display) receiver is enabled.
-     *
-     * OFF by default, on purpose. Receiving Miracast means owning a Wi-Fi Direct group, and a
-     * Google TV either has no Wi-Fi radio switched on at all (wired sets) or keeps `WifiP2pManager`
-     * for the system. Enabled it used to start at every launch, fail to register, and leave a red
-     * "Wi-Fi Direct unavailable or permission denied" error on the Home screen of every TV where
-     * it can never work. Switch it on if this set genuinely takes Miracast.
-     */
-    val miracastEnabled: Boolean = false,
-
-    // ─── AirPlay specific ──────────────────────────────────────────────────
-    /**
-     * Whether AirPlay connections require PIN authentication.
-     * When true: the user must confirm a 4-digit PIN shown on screen.
-     * When false (default): any nearby Mac can connect without confirmation.
-     */
-    val airPlayPinAuthEnabled: Boolean = false,
-
     // ─── Service behavior ──────────────────────────────────────────────────
     /**
      * Whether PhairPlayService starts automatically on device boot.
@@ -167,11 +148,13 @@ data class AppSettings(
         get() = MdnsNames.sanitize(displayName)
 
     /**
-     * Returns true if at least one protocol is enabled.
-     * If both are disabled, the service has nothing to do.
+     * Returns true if the AirPlay receiver is enabled — the only receiver the service runs.
+     *
+     * Kept as a named concept because the service start-up gate and the notification read it,
+     * and "nothing to do" is a state the UI still has to explain.
      */
     val anyProtocolEnabled: Boolean
-        get() = airPlayEnabled || miracastEnabled
+        get() = airPlayEnabled
 
     companion object {
         /** The default settings instance used on first launch. */

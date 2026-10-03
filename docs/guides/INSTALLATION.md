@@ -117,8 +117,9 @@ produced nothing but a port-conflict error. See [Google Cast on a Google TV](CAS
 
 ## After Installation
 
-1. Launch PhairPlay — the **Home screen** appears with two protocol cards, AirPlay and Miracast.
-2. AirPlay is on by default and advertising; Miracast is off, because it needs Wi-Fi Direct and
+1. Launch PhairPlay — the **Home screen** appears with two cards, AirPlay and Apple Casting.
+2. AirPlay is on by default and advertising (the Apple Casting card is the same receiver, seen
+   from the video stream); there is nothing else to switch on.
    most Google TVs keep that to themselves. Switch it on in Settings if your set supports it.
 3. Read the AirPlay card: it says which network you are advertising on, e.g.
    `Advertising on Ethernet · 192.168.1.42`. Your sender has to be on that same network.
@@ -126,7 +127,7 @@ produced nothing but a port-conflict error. See [Google Cast on a Google TV](CAS
    (default **Apple TV**; tested with iPhone 14 on iOS 27.0.1)
 5. On your Mac: click the AirPlay icon → select the same name
 6. On Windows or an Android phone: **Connect** / **Cast** → the TV's own wireless-display
-   (Miracast) receiver. PhairPlay does not receive Miracast unless you enabled it, and never
+   receiver. PhairPlay asks for no Wi-Fi Direct or location permissions, and never
    receives Google Cast — see [CAST.md](CAST.md)
 7. On a 4K Google TV: **Settings → Higher resolution (up to 4K)** is on by default and advertises
    the panel's real resolution for a sharper mirror. Turn it off if the TV struggles to decode it.

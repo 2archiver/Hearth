@@ -66,19 +66,19 @@ class UpdateChecker(
             val info = ReleaseParser.buildUpdateInfo(release, descriptor = null)
                 ?: return UpdateCheck.Failed("That release has no APK to install.")
 
-            val installed = installedVersionCode()
-            if (info.versionCode > 0 && info.versionCode > installed) {
-                Logger.i("Update available: ${info.versionName} (${info.versionCode}) > installed $installed")
-                UpdateCheck.Available(info)
-            } else if (info.versionCode > 0 && info.versionCode < installed) {
-                // Local/development builds get a clock-derived code that can run ahead of
-                // the published one. Say so instead of silently claiming "up to date".
-                Logger.i("Installed $installed is newer than published ${info.versionCode}")
-                UpdateCheck.UpToDate(info, newerThanPublished = true)
-            } else {
-                Logger.i("Up to date: installed $installed, latest ${info.versionName}")
-                UpdateCheck.UpToDate(info, newerThanPublished = false)
+            val decision = UpdateDecision.evaluate(info, installedVersionCode())
+            when (decision) {
+                is UpdateCheck.Available ->
+                    Logger.i("Update available: ${info.versionName} (${info.versionCode}) > installed ${installedVersionCode()}")
+                is UpdateCheck.UpToDate ->
+                    Logger.i(
+                        "No update offered: installed ${installedVersionCode()}, published " +
+                            "${info.versionName} (${info.versionCode})" +
+                            if (decision.publishedVersionUnknown) " [release states no versionCode]" else ""
+                    )
+                else -> Unit
             }
+            decision
         } catch (e: InterruptedIOException) {
             UpdateCheck.Failed("The update check was interrupted.")
         } catch (e: IOException) {
@@ -234,6 +234,39 @@ class UpdateChecker(
     }
 }
 
+/**
+ * UpdateDecision — the rule that decides whether a published release may be offered.
+ *
+ * WHY IT IS ITS OWN OBJECT: this is the piece of the updater users actually feel. Getting it
+ * wrong in one direction nags about a build that is already installed; in the other it offers a
+ * *downgrade*, which Android then refuses to install (`INSTALL_FAILED_VERSION_DOWNGRADE`) after
+ * the download has already happened. Pulling the comparison out of the network code makes the
+ * rule directly unit-testable — see UpdateInfoTest.
+ */
+object UpdateDecision {
+
+    /**
+     * @param info                 the newest published release, as read from GitHub
+     * @param installedVersionCode BuildConfig.VERSION_CODE of the running APK
+     */
+    fun evaluate(info: UpdateInfo, installedVersionCode: Int): UpdateCheck = when {
+        // No readable versionCode — nothing can be compared, so nothing is offered, and the UI
+        // says exactly that rather than claiming "up to date" about a build it cannot identify.
+        info.versionCode <= 0 ->
+            UpdateCheck.UpToDate(info, newerThanPublished = false, publishedVersionUnknown = true)
+
+        info.versionCode > installedVersionCode -> UpdateCheck.Available(info)
+
+        // Published and installed are the same build. Not an update.
+        info.versionCode == installedVersionCode -> UpdateCheck.UpToDate(info, newerThanPublished = false)
+
+        // A *downgrade*: the release is older than what is installed (a locally built APK whose
+        // clock-derived code ran ahead, or an old release re-tagged `latest`). This is the case
+        // that must never be presented as "update available".
+        else -> UpdateCheck.UpToDate(info, newerThanPublished = true)
+    }
+}
+
 /** Why an update could not be completed; the UI uses this to choose useful next steps. */
 enum class UpdateFailureReason {
     /** The release lookup failed (network, GitHub, or malformed release metadata). */
@@ -244,6 +277,11 @@ enum class UpdateFailureReason {
     SIGNATURE_MISMATCH,
     /** The downloaded file is not a readable APK. */
     INVALID_APK,
+    /**
+     * The release — or the APK inside it — is older than (or the same build as) this install.
+     * Android would refuse the install as a downgrade, so it is never staged.
+     */
+    PUBLISHED_OLDER,
     /** The running app's signing certificate could not be read safely. */
     SIGNATURE_UNVERIFIED
 }
@@ -251,8 +289,14 @@ enum class UpdateFailureReason {
 /** Outcome of [UpdateChecker.check]. */
 sealed class UpdateCheck {
 
-    /** A newer build is published. [info] describes it. */
-    data class Available(val info: UpdateInfo) : UpdateCheck()
+    /**
+     * A newer build is published. [info] describes it.
+     *
+     * [skipped] means the user already pressed "Skip this version" for this exact build. The
+     * update still exists — a manual check keeps offering it — but nothing is announced, badged
+     * or auto-downloaded until a *newer* version arrives.
+     */
+    data class Available(val info: UpdateInfo, val skipped: Boolean = false) : UpdateCheck()
 
     /**
      * Nothing to do. [info] is the newest published build (so the UI can still show
@@ -260,7 +304,16 @@ sealed class UpdateCheck {
      * development case where the installed APK has a higher versionCode than the
      * published one — usually a locally built debug APK.
      */
-    data class UpToDate(val info: UpdateInfo, val newerThanPublished: Boolean) : UpdateCheck()
+    data class UpToDate(
+        val info: UpdateInfo,
+        val newerThanPublished: Boolean,
+        /**
+         * True when the release notes carried no versionCode at all, so the two builds cannot be
+         * compared. Distinct from [newerThanPublished] because the honest message differs: one is
+         * "you are ahead", the other is "the release does not say what it is".
+         */
+        val publishedVersionUnknown: Boolean = false
+    ) : UpdateCheck()
 
     /**
      * The check or install could not be completed. [message] is safe to show to the user;

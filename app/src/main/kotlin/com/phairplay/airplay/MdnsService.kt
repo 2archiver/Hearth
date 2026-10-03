@@ -6,7 +6,6 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.net.nsd.NsdServiceInfo
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
@@ -239,31 +238,15 @@ class MdnsService(
             serviceType = SERVICE_TYPE_AIRPLAY
             port = AIRPLAY_PORT
 
-            // Core identity TXT records
-            setAttribute("deviceid", NetworkUtils.getMacAddress())
-            setAttribute("features", AIRPLAY_FEATURES)
-            setAttribute("model", AIRPLAY_MODEL)
-            setAttribute("manufacturer", AIRPLAY_MANUFACTURER)
-            setAttribute("srcvers", AIRPLAY_SERVER_VERSION)
-            setAttribute("protovers", AIRPLAY_PROTOCOL_VERSION)
-            setAttribute("vv", "2")                             // AirPlay protocol version 2
-            setAttribute("pi", NetworkUtils.getPersistentUuid(context))
-            setAttribute("flags", "0x4")                        // Screen-mirroring receiver
+            // The identity (model, feature bits, flags, `pk`, `pi`, versions) lives in one place
+            // — [AirPlayIdentity] — so the record a sender browses cannot drift from the
+            // `GET /info` reply it reads a second later. See that file for why this is a
+            // legacy-pairing profile (bit 27 + model `AppleTV3,2`) rather than an AirPlay 2
+            // Apple TV.
+            AirPlayIdentity.airPlayTxt(context).forEach { (key, value) ->
+                setAttribute(key, value)
+            }
         }
-
-        // A real Apple TV advertises `pk` (the receiver's 32-byte Ed25519 public key) here
-        // and iOS reads it *while browsing*, before it opens a connection at all. Publishing
-        // it makes an iPhone treat us as an AirPlay 2 receiver during discovery rather than
-        // after `GET /info`, which is what makes the iPhone's picker and video-casting path
-        // behave the way they do with an Apple TV.
-        //
-        // The catch: NsdServiceInfo only grew a public setAttribute(String, byte[]) in
-        // Android 12 (API 31). Below that the only public setter takes a String, which
-        // re-encodes the value as UTF-8 and would mangle 32 raw key bytes — worse than
-        // omitting the record. So: publish on 12+, skip (and let `GET /info` carry `pk`,
-        // which it does) below that. Resolved reflectively so the compile SDK version does
-        // not decide whether older devices can build.
-        advertisePublicKey(serviceInfo)
 
         airPlayListener = createRegistrationListener(
             serviceLabel = SERVICE_TYPE_AIRPLAY,
@@ -314,15 +297,12 @@ class MdnsService(
             serviceType = SERVICE_TYPE_RAOP
             port = AIRPLAY_PORT
 
-            setAttribute("cn", "0,1,2,3")        // Cipher numbers (encryption types)
-            setAttribute("da", "true")             // Digest authentication capable
-            setAttribute("et", "0,3,5")            // Encryption types supported
-            setAttribute("md", "0,1,2")            // Metadata types supported
-            setAttribute("sv", "false")            // Software volume control
-            setAttribute("tp", "UDP")              // Transport for audio RTP
-            setAttribute("vn", "65537")            // Version number (required)
-            setAttribute("vs", AIRPLAY_SERVER_VERSION)
-            setAttribute("am", AIRPLAY_MODEL)
+            // Audio-only senders (Apple Music, macOS system audio) read these before they will
+            // stream: codecs, encryption types, metadata, and `pk`. Defined with the rest of
+            // the identity in [AirPlayIdentity].
+            AirPlayIdentity.raopTxt(context).forEach { (key, value) ->
+                setAttribute(key, value)
+            }
         }
 
         raopListener = createRegistrationListener(
@@ -502,29 +482,6 @@ class MdnsService(
     }
 
     /**
-     * Adds the `pk` TXT record (the receiver's Ed25519 public key) when the platform can
-     * carry raw bytes in an mDNS TXT record — Android 12+ only.
-     *
-     * Best-effort by design: a device whose NsdServiceInfo lacks the byte[] setter, or a
-     * raw key the mDNS daemon rejects, must not stop the AirPlay service from advertising.
-     * `GET /info` carries the same key, so iOS still gets it over that path.
-     */
-    private fun advertisePublicKey(serviceInfo: NsdServiceInfo) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val publicKey = com.phairplay.airplay.handshake.PairingKeys.get(context).edPublic
-        if (publicKey.isEmpty()) return
-        runCatching {
-            val setter = NsdServiceInfo::class.java.getMethod(
-                "setAttribute", String::class.java, ByteArray::class.java
-            )
-            setter.invoke(serviceInfo, "pk", publicKey)
-            Logger.d("mDNS: advertising the AirPlay `pk` TXT record (${publicKey.size} bytes)")
-        }.onFailure { error ->
-            Logger.w("mDNS: could not advertise `pk` — iOS will read it from GET /info instead (${error.message})")
-        }
-    }
-
-    /**
      * Creates an [NsdManager.RegistrationListener] with logging and callbacks.
      *
      * @param serviceLabel     Human-readable service type for log messages.
@@ -592,22 +549,9 @@ class MdnsService(
         /** Minimum gap between re-advertisements, so a network flap cannot spin the daemon. */
         private const val READVERTISE_COOLDOWN_MS = 5_000L
 
-        /**
-         * AirPlay feature bitmask: advertise screen mirroring, video, and audio support.
-         * See TECHNICAL_SPEC.md §8 for the full bit-level breakdown.
-         */
-        private const val AIRPLAY_FEATURES = "0x5A7FFFF7,0x1E"
-
-        /** Pretend to be an Apple TV so macOS uses the screen mirroring protocol. */
-        private const val AIRPLAY_MODEL = "AppleTV5,3"
-
-        /** Kept consistent with [AIRPLAY_MODEL] — senders pair the two when they probe a device. */
-        private const val AIRPLAY_MANUFACTURER = "Apple"
-
-        /** AirPlay 2 protocol version, as advertised by a real Apple TV. */
-        private const val AIRPLAY_PROTOCOL_VERSION = "1.1"
-
-        /** AirPlay server version — matches a real Apple TV for maximum compatibility. */
-        private const val AIRPLAY_SERVER_VERSION = "220.68"
+        // Every value a sender can read about this receiver — model, feature bits, flags, `pk`,
+        // `pi`, versions — comes from [AirPlayIdentity]. It used to be spread across this file
+        // and InfoResponder, and the two halves disagreed; see AirPlayIdentity's docs for why the
+        // profile is a legacy-pairing AirPlay 2 receiver and not an AirPlay 2 Apple TV.
     }
 }

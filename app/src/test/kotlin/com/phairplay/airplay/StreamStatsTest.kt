@@ -76,9 +76,9 @@ class StreamStatsTest {
         StreamStats.videoFps = 58
         StreamStats.audioActive = true
 
-        // A Miracast session starting must not inherit AirPlay's numbers.
-        StreamStats.beginSession(StreamStats.SOURCE_MIRACAST)
-        assertEquals(StreamStats.SOURCE_MIRACAST, StreamStats.source)
+        // A new Apple Casting session must not inherit the previous session's numbers.
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        assertEquals(StreamStats.SOURCE_AIRPLAY, StreamStats.source)
         assertEquals("", StreamStats.videoRes)
         assertEquals(0, StreamStats.videoFps)
         assertEquals(0, StreamStats.videoFramesIn)
@@ -134,13 +134,13 @@ class StreamStatsTest {
     @Test
     fun `the HUD names the receiver that owns the session`() {
         StreamStats.resetStreams()
-        StreamStats.beginSession(StreamStats.SOURCE_MIRACAST)
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 0L
         StreamStats.videoRes = "1920x1080"
         StreamStats.noteVideoPayload(4096)
 
         val text = StreamStats.summary(1_000L)
-        assertTrue("the source line must say which receiver is streaming", text.contains("Miracast"))
+        assertTrue("the source line must say which receiver is streaming", text.contains("AirPlay"))
         assertTrue(text.contains("1920x1080"))
         StreamStats.resetStreams()
     }
@@ -148,7 +148,7 @@ class StreamStatsTest {
     @Test
     fun `uptime formats past an hour`() {
         StreamStats.resetStreams()
-        StreamStats.beginSession(StreamStats.SOURCE_MIRACAST)
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 1_000L
         StreamStats.videoRes = "1280x720"
         assertTrue(StreamStats.summary(3_662_000L).contains("1:01:01"))

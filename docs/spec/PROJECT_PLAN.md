@@ -1,5 +1,8 @@
 # PhairPlay – Project Plan
 
+> **Note (1.6.1):** everything in this plan about Miracast (Phase 6, the 3-card Home screen)
+> is historical. Miracast was removed in 1.6.1 and Apple Casting took its place on Home.
+
 Version: 2.1
 Status: Active
 Date: 2026-03-23

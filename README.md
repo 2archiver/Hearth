@@ -1,6 +1,8 @@
 # PhairPlay
 
-PhairPlay is a free, open-source, ad-free AirPlay 2 receiver for Google TV. It lets your macOS or iOS/iPadOS device mirror its screen and audio directly to your TV — no Apple TV required.
+PhairPlay is a free, open-source, ad-free **AirPlay receiver for Google TV**. It lets your macOS or
+iOS/iPadOS device stream audio and video — and mirror its screen (**Apple Casting**) — directly to
+your TV, with no Apple TV required.
 
 ---
 
@@ -22,7 +24,7 @@ the in-app updater verifies against.
 
 **Update:** on the TV, choose **Settings → Updates → Check for updates**. PhairPlay reads the latest release in one request, checks the download against the SHA-256 published in that release's notes, and offers to install it. Builds signed with this repository's key install over the existing app; older or differently signed builds may need a one-time reinstall. See [keeping PhairPlay up to date](docs/UPDATES.md).
 
-**Help:** [Troubleshooting](docs/guides/TROUBLESHOOTING.md) · [Why there is no Google Cast receiver](docs/guides/CAST.md) · [Miracast](docs/guides/MIRACAST.md).
+**Help:** [Troubleshooting](docs/guides/TROUBLESHOOTING.md) · [Apple Casting (screen mirroring)](docs/guides/APPLE_CASTING.md) · [Why there is no Google Cast receiver](docs/guides/CAST.md) · [Rename ideas](docs/RENAME_IDEAS.md).
 
 **No APK yet?** GitHub Actions publishes one after a successful build from `main`. For a temporary test build, use **Actions → CI** and download `debug-apk-googletv`.
 
@@ -46,10 +48,13 @@ The [current release page](https://github.com/2archiver/phairplay-archiver-fork-
 
 PhairPlay's AirPlay 2 receiver includes mDNS advertising (with the multicast lock and re-advertising
 a wired TV needs), RTSP, pairing, FairPlay key handling, H.264 mirroring up to 4K, AAC/ALAC audio,
-NTP A/V sync, and DACP remote control. Real-device validation with macOS and iOS senders is ongoing.
-Miracast is opt-in and limited by what each TV's Wi-Fi Direct stack allows — see the
-[Miracast guide](docs/guides/MIRACAST.md). PhairPlay is *not* a Google Cast receiver, and
-[CAST.md](docs/guides/CAST.md) explains why that is the right trade on a Google TV.
+NTP A/V sync, and DACP remote control. Screen mirroring from iPhone/iPad/Mac is presented on Home
+as **Apple Casting** — the same receiver, reported from the video stream instead of the session —
+and every connection step is visible on the TV in the connection log (tap either card). See the
+[Apple Casting guide](docs/guides/APPLE_CASTING.md). Miracast was removed in 1.6.1: most Google TVs
+refuse Wi-Fi Direct to apps, so it could never work on the sets people own. PhairPlay is *not* a
+Google Cast receiver, and [CAST.md](docs/guides/CAST.md) explains why that is the right trade on a
+Google TV.
 
 Earlier releases added the spoofed device name and iOS discovery fixes (v1.3), automatic APK updates and the release pipeline (v1.2), and Miracast video playback (v1.1). The [changelog](CHANGELOG.md) has the full details.
 
@@ -58,7 +63,7 @@ Earlier releases added the spoofed device name and iOS discovery fixes (v1.3), a
 | Role | Device | Notes |
 |------|--------|-------|
 | Receiver | **Google TV 4K over Ethernet (wired)**, Android TV OS 14 (API 34) | **Primary target.** AirPlay discovery, mirroring and 4K advertisement verified on a wired set: mDNS runs over Ethernet, the multicast lock is held while advertising, and the Home card shows `Advertising on Ethernet · <IP>` |
-| Receiver | **Google TV 4K on Wi-Fi**, Android TV OS 14 | Same build; 5 GHz strongly preferred. Miracast needs Wi-Fi Direct and is reported as unavailable on sets that keep it to themselves |
+| Receiver | **Google TV 4K on Wi-Fi**, Android TV OS 14 | Same build; 5 GHz strongly preferred. mDNS and mirroring both work over Wi-Fi or Ethernet |
 | Receiver | Chromecast with Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips Google TV | ARM only (`armeabi-v7a`, `arm64-v8a`) |
 | Sender | **iPhone 14**, iOS 27.0.1 | Screen mirroring + photos; portrait streams are aspect-fitted, not stretched |
 | Sender | macOS 12+ | Mirroring, system audio, DACP reverse remote |
@@ -86,7 +91,7 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 - Google TV app shell with foreground service and status UI
 - Mirror audio toggle, PIN-auth toggle and resolution toggle in Settings
 - Built for Google TV (Android TV OS 10+, tested on Google TV 4K with Android TV OS 14); ARM-only APK for a smaller download
-- Miracast Wi-Fi Direct / WFD advertisement, RTSP control-plane, and H.264 video playback (hardware decode)
+- Apple Casting: AirPlay screen mirroring with H.264 hardware decode, a live connection log on the TV, and reconnect-tolerant media sockets
 - No Google Cast receiver, by design — the TV's built-in Chromecast owns ports 8008/8009 and `_googlecast._tcp`, so PhairPlay binds nothing and advertises nothing for Cast ([why](docs/guides/CAST.md))
 - Network summary on the Home screen: which interface and IP PhairPlay is advertising on (`Ethernet · 192.168.1.42`)
 - In-app update checker and self-updater with SHA-256 and signing-certificate verification
@@ -106,7 +111,8 @@ Report what you see on your hardware in a [bug report](.github/ISSUE_TEMPLATE/bu
 - **Apple Music in-app audio** — protected on every AirPlay path; use system audio output instead
 - **Buffered audio playback** (AirPlay 2 type 103) — accepted but not played back yet
 - **Cloud/remote streaming** — local network only
-- **Miracast audio playback** — v1.1 renders Miracast video; WFD audio is negotiated but not played yet
+- **Apple Casting audio** — mirroring audio (AAC-ELD) is decoded and played; if a sender's audio
+  stream destabilises a session, turn off **Settings → Mirror audio**
 - **Google Cast / appearing in another app's cast button** — that button searches for the TV's built-in Chromecast receiver, which permanently owns 8008/8009 and `_googlecast._tcp`. PhairPlay does not compete with it; use iOS **Screen Mirroring** (Control Centre) instead. See [Troubleshooting → Casting from an iPhone app](docs/guides/TROUBLESHOOTING.md#casting-from-an-iphone-app-rumble-youtube-) and [why there is no Cast receiver](docs/guides/CAST.md)
 
 ---
@@ -242,14 +248,17 @@ If Android refuses the update with `INSTALL_FAILED_VERSION_DOWNGRADE` or a signa
 - **Google Cast** is out of scope: a Google TV's built-in Chromecast owns the Cast ports and
   service record, so PhairPlay neither binds 8008/8009 nor advertises `_googlecast._tcp`. Use the
   TV's own Cast for apps that only offer a cast button, and AirPlay for mirroring.
-- **Miracast** — video decodes and renders (H.264 → hardware); audio playback and discovery both
-  depend on the TV's Wi-Fi Direct stack, which most Google TVs keep for themselves. Where it is
-  refused, the Miracast card says so as *Unavailable* with the reason instead of an error.
-- **A wired TV cannot receive Miracast at all** — Wi-Fi Direct needs the Wi-Fi radio, so on a TV on
-  Ethernet the card says exactly that. AirPlay over the cable is unaffected.
+- **Miracast / Wi-Fi Display was removed in 1.6.1.** Receiving it means owning a Wi-Fi Direct
+  group, and a Google TV either has no Wi-Fi radio switched on at all (wired sets) or keeps
+  `WifiP2pManager` for the system, so the card said *Unavailable* on every TV in the test matrix.
+  Apple Casting replaces it for Apple-device mirroring; Android-to-TV screen mirroring stays with
+  the TV's own features.
 - If your router has **AP isolation** or **multicast filtering** enabled, PhairPlay may not appear in the AirPlay menu. Disable these settings on your router.
 - On very busy 2.4 GHz Wi-Fi networks, you may experience latency above 100 ms. Use 5 GHz or Ethernet for best results.
-- **PIN auth is optional.** When disabled (default), any device on the same network can mirror to the TV. Enable PIN auth in Settings if you're on a shared network.
+- **There is no PIN.** PhairPlay connects without a code by design: a PIN means HomeKit-style
+  pairing, which no third-party AirPlay receiver can complete with a modern iPhone. Anything on
+  the same network can mirror to the TV — put the TV on a network only your devices can join if
+  that is not acceptable.
 
 For real-device failures, run `tools/collect-device-logs.sh` before restarting the app. It captures package state, memory, CPU, and filtered PhairPlay logs into `device-test-logs/`.
 

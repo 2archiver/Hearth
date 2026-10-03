@@ -27,7 +27,7 @@
     <string name="protocol_detail_connected">Streaming von %1$s</string>
     <string name="protocol_detail_connected_fallback">Wird gestreamt</string>
     <string name="protocol_detail_error_airplay">Empfängerfehler — Neustart versuchen</string>
-    <string name="protocol_detail_error_miracast">Wi-Fi Direct nicht verfügbar oder Berechtigung fehlt</string>
+    <string name="protocol_detail_error_casting">Spiegelung beendet – Verbindungsprotokoll unten öffnen</string>
 
     <!-- ── Service states ──────────────────────────────────────── -->
     <string name="service_state_running">Aktiv</string>
@@ -46,7 +46,7 @@
 
     <!-- ── Notification ────────────────────────────────────────── -->
     <string name="notification_channel_name">PhairPlay-Dienst</string>
-    <string name="notification_channel_description">Benachrichtigung für den AirPlay/Miracast/Cast-Empfänger-Dienst</string>
+    <string name="notification_channel_description">Dauerhafte Benachrichtigung für den AirPlay-Empfänger-Dienst</string>
     <string name="notification_status_running">Empfänger aktiv — Werbung im Netzwerk</string>
     <string name="notification_status_stopped">Empfänger gestoppt</string>
 
@@ -64,8 +64,6 @@
     <string name="setting_display_name_system_default">Systemname wird verwendet</string>
     <string name="setting_airplay_enabled">AirPlay-Empfänger</string>
     <string name="setting_airplay_subtitle">Verbindungen von macOS akzeptieren</string>
-    <string name="setting_miracast_enabled">Miracast-Empfänger</string>
-    <string name="setting_miracast_subtitle">Verbindungen von Windows und Android akzeptieren</string>
     <string name="setting_mirror_audio">Spiegel-Audio</string>
     <string name="setting_mirror_audio_subtitle">Den Ton des Macs beim Spiegeln wiedergeben</string>
     <string name="setting_start_on_boot">Beim Starten automatisch starten</string>
@@ -113,6 +111,5 @@
     <!-- ── Error messages ──────────────────────────────────────── -->
     <string name="error_network_unavailable">Keine WLAN-Verbindung. Bitte mit WLAN verbinden.</string>
     <string name="error_mdns_failed">Netzwerk-Ankündigung fehlgeschlagen.</string>
-    <string name="error_wifi_p2p_unavailable">Miracast wird auf diesem Gerät nicht unterstützt.</string>
 
 </resources>

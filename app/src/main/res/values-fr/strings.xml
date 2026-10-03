@@ -37,7 +37,7 @@
     <!-- ── Settings row labels ─────────────────────────────────── -->
     <string name="setting_display_name">Nom de l\'appareil</string>
     <string name="setting_airplay_enabled">Récepteur AirPlay</string>
-    <string name="setting_miracast_enabled">Récepteur Miracast</string>
+    <string name="protocol_apple_casting">Apple Casting</string>
     <string name="setting_reset_defaults">Réinitialiser les paramètres</string>
     <string name="setting_check_updates">Rechercher les mises à jour</string>
     <string name="setting_check_updates_subtitle">Rechercher la dernière version de PhairPlay</string>

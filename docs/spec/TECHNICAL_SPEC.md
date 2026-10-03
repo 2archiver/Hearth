@@ -1,5 +1,8 @@
 # PhairPlay – Technical Specification
 
+> **Note (1.6.1):** Miracast/WFD sections are historical; the receiver was removed in 1.6.1.
+> The two Home cards are AirPlay (session) and Apple Casting (mirror video).
+
 Version: 1.2
 Status: Active
 Date: 2026-03-23

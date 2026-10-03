@@ -60,9 +60,7 @@ class SettingsFragment : Fragment() {
     private lateinit var rowDisplayName: LinearLayout
     private lateinit var textDisplayNameValue: TextView
     private lateinit var rowAirPlay: View
-    private lateinit var rowMiracast: View
     private lateinit var rowMirrorAudio: View
-    private lateinit var rowPinAuth: View
     private lateinit var rowStartOnBoot: View
     private lateinit var rowDebugOverlay: View
     private lateinit var rowForceHighRes: View
@@ -118,9 +116,7 @@ class SettingsFragment : Fragment() {
         rowDisplayName      = view.findViewById(R.id.row_display_name)
         textDisplayNameValue = view.findViewById(R.id.text_display_name_value)
         rowAirPlay          = view.findViewById(R.id.row_airplay)
-        rowMiracast         = view.findViewById(R.id.row_miracast)
         rowMirrorAudio      = view.findViewById(R.id.row_mirror_audio)
-        rowPinAuth          = view.findViewById(R.id.row_pin_auth)
         rowStartOnBoot      = view.findViewById(R.id.row_start_on_boot)
         rowDebugOverlay     = view.findViewById(R.id.row_debug_overlay)
         rowForceHighRes     = view.findViewById(R.id.row_force_high_res)
@@ -150,9 +146,7 @@ class SettingsFragment : Fragment() {
     /** Sets all row labels and subtitles from string resources. */
     private fun setRowLabels() {
         configureToggleRow(rowAirPlay,      R.string.setting_airplay_enabled,    R.string.setting_airplay_subtitle)
-        configureToggleRow(rowMiracast,     R.string.setting_miracast_enabled,   R.string.setting_miracast_subtitle)
         configureToggleRow(rowMirrorAudio,  R.string.setting_mirror_audio,       R.string.setting_mirror_audio_subtitle)
-        configureToggleRow(rowPinAuth,      R.string.setting_pin_auth,           R.string.setting_pin_auth_subtitle)
         configureToggleRow(rowStartOnBoot,  R.string.setting_start_on_boot,      0)
         configureToggleRow(rowDebugOverlay, R.string.setting_debug_overlay,      R.string.setting_debug_overlay_subtitle)
         configureToggleRow(rowForceHighRes, R.string.setting_force_high_res,      R.string.setting_force_high_res_subtitle)
@@ -205,9 +199,7 @@ class SettingsFragment : Fragment() {
         // effectiveDisplayName is never empty — it falls back to MdnsNames.DEFAULT_DISPLAY_NAME.
         textDisplayNameValue.text = settings.effectiveDisplayName
         setToggle(rowAirPlay,      settings.airPlayEnabled)
-        setToggle(rowMiracast,     settings.miracastEnabled)
         setToggle(rowMirrorAudio,  settings.mirrorAudioEnabled)
-        setToggle(rowPinAuth,      settings.airPlayPinAuthEnabled)
         setToggle(rowStartOnBoot,  settings.startOnBoot)
         setToggle(rowDebugOverlay, settings.showDebugOverlay)
         setToggle(rowForceHighRes, settings.forceHighResolution)
@@ -245,12 +237,20 @@ class SettingsFragment : Fragment() {
                     badgeColor = R.color.status_transitioning
                 )
                 available != null -> setUpdateCardState(
-                    message = getString(R.string.update_available_message, available.shortLabel(), BuildConfig.VERSION_NAME),
+                    message = getString(
+                        R.string.update_available_message,
+                        available.shortLabel(),
+                        available.versionCode,
+                        BuildConfig.VERSION_NAME,
+                        BuildConfig.VERSION_CODE
+                    ),
                     badge = R.string.update_status_available,
                     action = R.string.update_action_download
                 )
                 else -> setUpdateCardState(
-                    message = getString(R.string.update_current_version, BuildConfig.VERSION_NAME),
+                    message = getString(
+                        R.string.update_current_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE
+                    ),
                     badge = null,
                     action = R.string.update_action_check_now
                 )
@@ -289,13 +289,8 @@ class SettingsFragment : Fragment() {
     private fun setupListeners() {
         rowDisplayName.setOnClickListener { showDisplayNameDialog() }
 
-        setToggleListener(rowAirPlay)      { enabled -> save { it.copy(airPlayEnabled = enabled) } }
-        // Restart, not just save: the Miracast receiver is only created while the service
-        // starts, so an "enable" that did not restart left the card at Disabled until the user
-        // happened to press Restart on the Home screen.
-        setToggleListener(rowMiracast)     { enabled -> saveAndRestart { it.copy(miracastEnabled = enabled) } }
+        setToggleListener(rowAirPlay)      { enabled -> saveAndRestart { it.copy(airPlayEnabled = enabled) } }
         setToggleListener(rowMirrorAudio)  { enabled -> saveAndRestart { it.copy(mirrorAudioEnabled = enabled) } }
-        setToggleListener(rowPinAuth)      { enabled -> saveAndRestart { it.copy(airPlayPinAuthEnabled = enabled) } }
         setToggleListener(rowStartOnBoot)  { enabled -> save { it.copy(startOnBoot = enabled) } }
         setToggleListener(rowDebugOverlay) { enabled -> save { it.copy(showDebugOverlay = enabled) } }
         // The mirror size is part of the `GET /info` capability record, which is built when the
@@ -360,12 +355,20 @@ class SettingsFragment : Fragment() {
                 when (result) {
                     is UpdateCheck.Available -> {
                         pendingAvailableUpdate = result.info
+                        val installed = com.phairplay.update.UpdateManager.get(requireContext())
+                            .installedVersionName()
                         setUpdateCardState(
-                            message = getString(
-                                R.string.update_available_message,
-                                result.info.shortLabel(),
-                                BuildConfig.VERSION_NAME
-                            ),
+                            message = if (result.skipped) {
+                                getString(R.string.update_skipped_message, result.info.shortLabel())
+                            } else {
+                                getString(
+                                    R.string.update_available_message,
+                                    result.info.shortLabel(),
+                                    result.info.versionCode,
+                                    installed,
+                                    BuildConfig.VERSION_CODE
+                                )
+                            },
                             badge = R.string.update_status_available,
                             action = R.string.update_action_download
                         )
@@ -373,14 +376,22 @@ class SettingsFragment : Fragment() {
                     }
 
                     is UpdateCheck.UpToDate -> {
-                        val message = if (result.newerThanPublished) {
-                            getString(
+                        val message = when {
+                            // The release does not carry a build number at all: nothing can be
+                            // compared, so nothing is offered — and the card says exactly that
+                            // instead of a "you are up to date" that might not be true.
+                            result.publishedVersionUnknown -> getString(
+                                R.string.update_up_to_date_unknown,
+                                result.info.versionName,
+                                BuildConfig.VERSION_NAME,
+                                BuildConfig.VERSION_CODE
+                            )
+                            result.newerThanPublished -> getString(
                                 R.string.update_up_to_date_ahead,
                                 BuildConfig.VERSION_NAME,
                                 result.info.shortLabel()
                             )
-                        } else {
-                            getString(R.string.update_up_to_date, result.info.shortLabel())
+                            else -> getString(R.string.update_up_to_date, result.info.shortLabel())
                         }
                         setUpdateCardState(
                             message = message,
@@ -420,17 +431,38 @@ class SettingsFragment : Fragment() {
         }
     }
 
+    /**
+     * The "an update is available" dialog: Download / Skip this version / Later.
+     *
+     * "Skip" is deliberately a separate, explicit choice rather than the same as "Later": Later
+     * means ask me again, Skip means stop mentioning *this build* (a newer one will still be
+     * offered). Both are stored in [com.phairplay.update.UpdatePreferences] so the background
+     * check honours them too, not just this screen.
+     */
     private fun showAvailableDialog(info: UpdateInfo) {
+        val installed = com.phairplay.update.UpdateManager.get(requireContext()).installedVersionName()
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.update_dialog_title)
             .setMessage(
                 getString(
                     R.string.update_available_message,
                     info.shortLabel(),
-                    BuildConfig.VERSION_NAME
+                    info.versionCode,
+                    installed,
+                    BuildConfig.VERSION_CODE
                 )
             )
             .setPositiveButton(R.string.update_action_download) { _, _ -> downloadAndOfferInstall(info) }
+            .setNeutralButton(R.string.update_action_skip) { _, _ ->
+                com.phairplay.update.UpdateManager.get(requireContext()).skipVersion(info.versionCode)
+                pendingAvailableUpdate = info
+                setUpdateCardState(
+                    message = getString(R.string.update_skipped_message, info.shortLabel()),
+                    badge = R.string.update_status_available,
+                    action = R.string.update_action_download
+                )
+                Logger.i("User skipped update ${info.shortLabel()}")
+            }
             .setNegativeButton(R.string.update_action_later, null)
             .show()
     }
@@ -581,8 +613,9 @@ class SettingsFragment : Fragment() {
     }
 
     /**
-     * Saves a setting that the AirPlay receiver only reads at startup (mirror-audio, PIN auth), then
-     * restarts the service so the change applies immediately instead of on the next manual restart.
+     * Saves a setting that the AirPlay receiver only reads at startup (the enable flag, mirror
+     * audio), then restarts the service so the change applies immediately instead of on the next
+     * manual restart.
      */
     private fun saveAndRestart(transform: (AppSettings) -> AppSettings) {
         viewLifecycleOwner.lifecycleScope.launch {

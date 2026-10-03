@@ -6,20 +6,21 @@ import com.phairplay.airplay.handshake.PairingKeys
 import com.phairplay.airplay.handshake.PairingSession
 import com.phairplay.airplay.handshake.PlistCodec
 import com.phairplay.util.Logger
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import java.io.OutputStream
-import java.net.ServerSocket
 import java.net.Socket
 
 /**
- * RtspHandler — Manages the RTSP session with the AirPlay sender (macOS).
+ * RtspHandler — the RTSP conversation with **one** AirPlay sender connection.
  *
- * AirPlay uses RTSP to negotiate codecs, ports, and encryption before media flows.
- * The handler accepts one sender at a time, parses ANNOUNCE SDP, acknowledges SETUP
- * and RECORD, then hands binary interleaved RTP frames to [RtpInterleaved].
+ * AirPlay uses RTSP to negotiate codecs, ports and encryption before media flows. This class
+ * parses ANNOUNCE SDP, acknowledges SETUP and RECORD, answers the AirPlay 2 pairing and key
+ * exchange, and hands binary interleaved RTP frames to [RtpInterleaved].
+ *
+ * One instance per connection: [RtspServer] accepts every socket a sender opens (control
+ * channel, event channel, probes, reconnects) and builds a handler for each. State that belongs
+ * to the *media session* rather than the socket — mirror stream keys, the data server, the event
+ * channel, the NTP client — lives in [AirPlayReceiver], because the receiver has to shut it all
+ * down as one unit.
  */
 open class RtspHandler(
     private val context: android.content.Context,
@@ -75,31 +76,33 @@ open class RtspHandler(
     private val onPlaybackInfo: () -> com.phairplay.airplay.PlaybackInfo? = { null },
     /** Sender's DACP reverse-control identity from RTSP headers (DACP-ID + Active-Remote token). */
     private val onRemoteControlInfo: (dacpId: String?, activeRemote: String?) -> Unit = { _, _ -> },
-    /** When true, require HomeKit-style SRP PIN pairing before streaming (gated by AppSettings). */
-    private val pinAuthEnabled: Boolean = false,
-    /** Persistent store of paired controllers' Ed25519 keys (for pair-verify). */
-    private val pairingStore: com.phairplay.airplay.handshake.PairingStore? = null,
-    /** Shows ([pin]) or hides (null) the on-screen pairing PIN during SRP pair-setup. */
-    private val onShowPin: (pin: String?) -> Unit = {}
-) {
+    /**
+     * The accepted socket this handler serves. Supplied by [RtspServer] through the connection
+     * factory; null in unit tests, which drive the request handlers directly.
+     */
+    private val socket: Socket? = null
+) : RtspConnection {
 
-    // ─── Legacy AirPlay SRP PIN pairing (only used when pinAuthEnabled) ───────
-    @Volatile private var legacyPin: com.phairplay.airplay.handshake.LegacyPairSetupPin? = null
-    // True once a controller has completed SRP PIN pairing. Until then, with PIN auth on, we reject
-    // pair-verify — which is what makes macOS fall back to the /pair-pin-start + /pair-setup-pin PIN
-    // flow (an accepted pair-verify means "already trusted, no PIN needed").
-    @Volatile private var pinPaired = false
+    /**
+     * One connection = one instance of this class.
+     *
+     * That is the whole concurrency model: [RtspServer] accepts every socket a sender opens and
+     * builds a handler for it, so pairing state, FairPlay state and the SDP session of one
+     * connection can never leak into another. Media that belongs to the *session* rather than the
+     * socket (symbol keys, the mirror data server, the event channel, the timing client) lives in
+     * [AirPlayReceiver]; everything below is per-connection by construction.
+     */
+
+    /** Set once the connection is closed, so late callbacks stop writing to a dead socket. */
+    @Volatile
+    private var closed = false
 
     /** Last volume the sender set (AirPlay dB); returned to GET_PARAMETER volume queries. */
     @Volatile private var currentVolume: Float = 0f
 
-    private var serverSocket: ServerSocket? = null
-
+    /** The live socket; set from the constructor, cleared on close. */
     @Volatile
-    private var activeClient: Socket? = null
-
-    @Volatile
-    private var running = false
+    private var client: Socket? = socket
 
     private var currentCSeq: Int = 0
 
@@ -142,168 +145,134 @@ open class RtspHandler(
     var onVideoNalUnit: ((nalUnit: ByteArray, ptsUs: Long) -> Unit)? = null
 
     /**
-     * True once this connection is past "a peer opened a socket" — i.e. a stream has been
-     * set up, a legacy SDP session exists, or a PIN handshake is waiting on the user.
-     * Used to decide whether an idle control connection is a live session (leave it alone)
-     * or an abandoned one (close it — see [handleClient]).
+     * True once this connection is past "a peer opened a socket" — i.e. a stream has been set up
+     * or a legacy SDP session exists. Used to decide whether an idle control connection is a live
+     * session (leave it alone) or an abandoned one (close it — see [serve]).
      */
     private fun isSessionActive(): Boolean =
-        isMirrorSession || setupCount > 0 || activeStreamTypes.isNotEmpty() ||
-            currentSession != null || legacyPin != null
-
-    /** Starts the RTSP server. */
-    fun start(scope: CoroutineScope) {
-        running = true
-        scope.launch(Dispatchers.IO) {
-            runServer(this)
-        }
-    }
-
-    /** Stops the RTSP server. */
-    fun stop() {
-        running = false
-        try {
-            activeClient?.close()
-            serverSocket?.close()
-        } catch (e: Exception) {
-            Logger.e("Error closing RTSP sockets (non-fatal)", e)
-        }
-        activeClient = null
-        serverSocket = null
-        Logger.i("RTSP handler stopped")
-    }
+        isMirrorSession || setupCount > 0 || activeStreamTypes.isNotEmpty() || currentSession != null
 
     /**
-     * Binds the RTSP port with SO_REUSEADDR, retrying briefly if a just-stopped instance hasn't
-     * released it yet. A quick service stop→start (the activity being destroyed and relaunched)
-     * could otherwise fail with EADDRINUSE, leaving PhairPlay advertising over mDNS while port 7000
-     * was dead — macOS would discover it and try to mirror but nothing could connect ("casting but
-     * nothing shows"). SO_REUSEADDR handles TIME_WAIT; the retry covers the close/rebind race.
+     * Serves one accepted connection until the peer goes away.
+     *
+     * Runs on a coroutine of its own ([RtspServer] launches it), which is what lets the event
+     * channel and the control channel be open at the same time.
      */
-    private fun bindRtspSocket(): ServerSocket {
-        var lastError: java.io.IOException? = null
-        repeat(BIND_MAX_ATTEMPTS) { attempt ->
-            if (!running) throw java.io.IOException("RTSP server stopped before bind")
-            try {
-                return ServerSocket().apply {
-                    reuseAddress = true
-                    bind(java.net.InetSocketAddress(RTSP_PORT))
-                }
-            } catch (e: java.io.IOException) {
-                lastError = e
-                Logger.w("RTSP port $RTSP_PORT busy (attempt ${attempt + 1}/$BIND_MAX_ATTEMPTS) — retrying in ${BIND_RETRY_MS}ms")
-                try { Thread.sleep(BIND_RETRY_MS) } catch (_: InterruptedException) { throw e }
-            }
-        }
-        throw lastError ?: java.io.IOException("RTSP bind to $RTSP_PORT failed")
-    }
-
-    private fun runServer(scope: CoroutineScope) {
-        try {
-            serverSocket = bindRtspSocket()
-            Logger.i("RTSP server listening on port $RTSP_PORT")
-
-            while (running && scope.isActive) {
-                val clientSocket = serverSocket!!.accept()
-                Logger.i("New client connected: ${clientSocket.inetAddress.hostAddress}")
-
-                if (activeClient != null && !activeClient!!.isClosed) {
-                    Logger.w("Rejecting second client — already streaming")
-                    sendServiceUnavailable(clientSocket)
-                    clientSocket.close()
-                    continue
-                }
-
-                activeClient = clientSocket
-                handleClient(clientSocket)
-            }
-        } catch (e: Exception) {
-            if (running) {
-                Logger.e("RTSP server error (unexpected)", e)
-            } else {
-                Logger.d("RTSP server socket closed (expected during shutdown)")
-            }
-        }
-    }
-
-    private fun handleClient(socket: Socket) {
+    override fun serve() {
+        val socket = client ?: return
         val inputStream = socket.getInputStream()
         val outputStream = socket.getOutputStream()
 
-        // Idle timeout for the *handshake* only (cleared below once a session exists).
+        // The first read is the one that has to be patient.
         //
-        // WHY: this server handles one client at a time, so a sender that walks away without
-        // closing (iPhone backgrounded mid-connect, Wi-Fi dropped, app force-quit) used to
-        // park here forever — the socket looks open from our side, `read()` blocks, and every
-        // later sender is rejected with 503 until someone hits Restart. From the user's side
-        // that reads as "the TV shows up but I can't connect any more". Two minutes of silence
-        // before a session exists means the peer is gone, not thinking.
-        socket.soTimeout = HANDSHAKE_IDLE_TIMEOUT_MS
+        // WHY: an Apple sender's *event channel* is a second TCP connection that sends **nothing**
+        // — the receiver writes to it. If the port is not "connected" for the sender, the session
+        // fails, so an idle connection here is normal and must not be dropped; it only has to be
+        // released when the session truly ends. Ten minutes of complete silence on a socket that
+        // has never sent a request is a dead peer.
+        socket.soTimeout = NO_REQUEST_IDLE_TIMEOUT_MS
 
-        // Fresh pairing + FairPlay state for each control connection.
+        currentRemoteAddress = socket.inetAddress
+        // Fresh pairing and FairPlay state per connection. Apple opens several connections to
+        // this port, so none of this may be shared: a pair-verify on the control connection and
+        // a probe on another must not see each other's handshake half-finished.
         pairingSession = PairingSession(PairingKeys.get(context))
         fairPlay = FairPlay()
-        // NOTE: legacyPin and pinPaired are deliberately NOT reset here. macOS runs the PIN handshake
-        // across SEPARATE TCP connections (/pair-pin-start on one, /pair-setup-pin on the next), so the
-        // PIN/verifier and the "paired" flag must survive a reconnect. They live for the receiver's
-        // lifetime — replaced by the next /pair-pin-start, set on a successful pairing.
-        currentRemoteAddress = socket.inetAddress
+        var sawRequest = false
 
         try {
-            while (running && !socket.isClosed) {
+            while (!closed && !socket.isClosed) {
                 val request = requestReader.read(inputStream) ?: break
+
+                if (!sawRequest) {
+                    sawRequest = true
+                    // From here on this is a control connection: short patience while the
+                    // handshake is in progress, none once a session exists.
+                    socket.soTimeout = HANDSHAKE_IDLE_TIMEOUT_MS
+                    trace("Control channel opened by ${request.headers["User-Agent"]?.takeIf { it.isNotBlank() } ?: "sender"}")
+                }
+
                 currentCSeq = request.headers["CSeq"]?.toIntOrNull() ?: 0
                 val response = routeRequest(request)
                 sendResponse(outputStream, response)
 
                 // Once a session exists the control channel may legitimately go quiet for
-                // minutes (video flows over its own data channel, or the user is reading a
-                // PIN off the screen), so stop timing the connection out.
+                // minutes (video flows over its own data channel, audio over UDP), so stop
+                // timing the connection out.
                 if (isSessionActive()) socket.soTimeout = 0
 
-                // After RECORD on a legacy SDP session: a session WITH video switches to interleaved
-                // RTP (video arrives $-framed over this TCP socket). An audio-only session (e.g. Apple
-                // Music) keeps the RTSP control loop — audio arrives on the UDP port, and macOS sends
-                // now-playing metadata / volume / FLUSH / TEARDOWN as RTSP requests here that we must
-                // keep handling (switching to interleaved mode would skip them → no metadata).
+                // After RECORD on a legacy SDP session: a session WITH video switches to
+                // interleaved RTP (video arrives $-framed over this TCP socket). An audio-only
+                // session (e.g. Apple Music) keeps the RTSP control loop — audio arrives on the
+                // UDP port, and the sender keeps sending metadata / volume / FLUSH / TEARDOWN as
+                // RTSP requests here that we must keep handling (switching to interleaved mode
+                // would skip them → no metadata).
                 if (request.method == "RECORD" && response.statusCode == 200 && !isMirrorSession &&
-                    currentSession?.hasVideo == true) {
+                    currentSession?.hasVideo == true
+                ) {
                     Logger.d("RTSP handshake complete — switching to interleaved RTP (video)")
                     break
                 }
             }
 
             val session = currentSession
-            if (session != null && session.hasVideo && running) {
+            if (session != null && session.hasVideo && !closed) {
                 RtpInterleaved.readLoop(
                     inputStream = inputStream,
-                    onVideoNalUnit = { nalUnit, ptsUs ->
-                        onVideoNalUnit?.invoke(nalUnit, ptsUs)
-                    },
-                    onStreamEnded = {
-                        Logger.i("RTP stream ended")
-                    }
+                    onVideoNalUnit = { nalUnit, ptsUs -> onVideoNalUnit?.invoke(nalUnit, ptsUs) },
+                    onStreamEnded = { Logger.i("RTP stream ended") }
                 )
             }
         } catch (e: java.net.SocketTimeoutException) {
-            // No session and no traffic for the handshake timeout — drop it so the next
-            // sender can connect (see the soTimeout note at the top of this method).
-            Logger.i("RTSP control connection idle for ${HANDSHAKE_IDLE_TIMEOUT_MS / 1000}s " +
-                     "with no session — closing it")
+            if (!sawRequest) {
+                // A connection that never said anything for ten minutes: either an event channel
+                // from a session that has long since ended, or a probe. Either way it is dead.
+                Logger.d("RTSP: idle connection with no requests — closing it")
+            } else {
+                Logger.i("RTSP control connection idle for ${HANDSHAKE_IDLE_TIMEOUT_MS / 1000}s with no session — closing it")
+                trace("Connection timed out mid-handshake")
+            }
         } catch (e: Exception) {
-            if (running) Logger.e("Error handling RTSP client", e)
+            if (!closed) Logger.e("Error handling RTSP client", e)
         } finally {
-            Logger.i("Client disconnected")
-            socket.close()
-            activeClient = null
-            currentSession = null
-            pairingSession = null
-            fairPlay = null
-            isMirrorSession = false
-            activeStreamTypes.clear()
-            setupCount = 0
+            Logger.i("RTSP connection closed (${client?.inetAddress?.hostAddress ?: "unknown"})")
+            closeQuietly()
+        }
+    }
+
+    /** Closes this connection. Called by [RtspServer.stop] and by [AirPlayReceiver.stop]. */
+    override fun close() {
+        closed = true
+        closeQuietly()
+    }
+
+    private fun closeQuietly() {
+        runCatching { client?.close() }
+        client = null
+        val wasMirror = isMirrorSession
+        currentSession = null
+        pairingSession = null
+        fairPlay = null
+        isMirrorSession = false
+        activeStreamTypes.clear()
+        setupCount = 0
+        if (wasMirror) {
+            // A closed control connection ends the mirroring session (the sender does not always
+            // send TEARDOWN — locking the phone or losing Wi-Fi just drops the socket).
             onStreamingStopped()
         }
+    }
+
+    /** Records a step for the on-TV connection log. */
+    private fun trace(message: String) = AirPlayTrace.record(message)
+
+    /** One-line description of an SDP session for the connection log. */
+    private fun sessionSummary(session: SessionDescription): String {
+        val parts = mutableListOf<String>()
+        if (session.hasVideo) parts += "screen video"
+        if (session.hasAudio) parts += "${session.audioCodec} audio"
+        if (parts.isEmpty()) parts += "no media"
+        return parts.joinToString(" + ")
     }
 
     private fun routeRequest(request: RtspRequest): RtspResponse {
@@ -348,9 +317,12 @@ open class RtspHandler(
     /** Routes AirPlay 2 POST requests by URI path. */
     private fun routePost(request: RtspRequest): RtspResponse = when (request.uri.substringBefore("?")) {
         "/pair-setup"  -> handlePairSetup(request)
-        "/pair-setup-pin" -> handleLegacyPairSetupPin(request)   // legacy AirPlay PIN SRP (plist)
-        "/pair-pin-start" -> handlePairPinStart(request)
         "/pair-verify" -> handlePairVerify(request)
+        // Apple's HomeKit PIN flows. PhairPlay advertises a legacy-pairing receiver (feature bit
+        // 27, model AppleTV3,2 — see [AirPlayIdentity]), so a well-behaved sender never asks for
+        // these. Answer 501 with a trace line rather than 470: "not implemented" is the truth,
+        // and a 470 would make the sender pop up a code prompt it can never satisfy.
+        "/pair-setup-pin", "/pair-pin-start" -> handleHomeKitPairingRequest(request)
         "/fp-setup"    -> handleFpSetup(request)
         "/feedback"    -> handleFeedback(request)
         "/audioMode"   -> RtspResponse(200, "OK", protocol = request.responseProtocol())
@@ -456,13 +428,17 @@ open class RtspHandler(
 
     /** GET /server-info — legacy XML plist of receiver identity for AirPlay video senders. */
     private fun handleServerInfo(request: RtspRequest): RtspResponse {
+        // Same identity as the TXT record and GET /info (see [AirPlayIdentity]) — a legacy
+        // video sender that sees a different model or feature set here than it read while
+        // browsing is entitled to walk away, and this used to answer AppleTV5,3/0x1E5A7FFFF7.
         val info = mapOf(
             "deviceid" to com.phairplay.util.NetworkUtils.getMacAddress(),
-            "features" to 0x1E5A7FFFF7L,
-            "model" to "AppleTV5,3",
+            "features" to AirPlayIdentity.FEATURES,
+            "model" to AirPlayIdentity.MODEL,
             "name" to com.phairplay.util.MdnsNames.sanitize(displayName),
-            "protovers" to "1.1",
-            "srcvers" to "220.68",
+            "protovers" to AirPlayIdentity.PROTOCOL_VERSION,
+            "srcvers" to AirPlayIdentity.SOURCE_VERSION,
+            "pk" to com.phairplay.airplay.handshake.PairingKeys.get(context).edPublic,
         )
         return RtspResponse(
             200, "OK",
@@ -509,20 +485,59 @@ open class RtspHandler(
         return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
-    /** GET /info — advertises receiver identity + capabilities (binary plist). */
-    private fun handleInfo(request: RtspRequest): RtspResponse = RtspResponse(
-        statusCode = 200,
-        statusMessage = "OK",
-        bodyBytes = InfoResponder.build(
-            context = context,
-            displayName = displayName,
-            width = displayWidth,
-            height = displayHeight,
-            pinRequired = pinAuthEnabled
-        ),
-        contentType = "application/x-apple-binary-plist",
-        protocol = request.responseProtocol()
-    )
+    /**
+     * GET /info — the sender's first probe.
+     *
+     * Two shapes arrive on this endpoint and they need different answers (see [InfoResponder]):
+     * a small `{qualifier: ["txtAirPlay"]}` body asks for the TXT record as a data blob, while an
+     * empty body asks for the capability dictionary. Answering the qualifier request with the
+     * capability dictionary leaves the sender without the record it needs at the moment it is
+     * deciding how to pair with us.
+     */
+    private fun handleInfo(request: RtspRequest): RtspResponse {
+        val qualifier = qualifierFrom(request)
+        if (qualifier != null) {
+            Logger.i("GET /info (qualifier=$qualifier) — answering with the TXT record")
+            trace("Discovery: sent the $qualifier record")
+            return RtspResponse(
+                statusCode = 200,
+                statusMessage = "OK",
+                bodyBytes = InfoResponder.buildTxtResponse(context, qualifier),
+                contentType = "application/x-apple-binary-plist",
+                protocol = request.responseProtocol()
+            )
+        }
+        Logger.i("GET /info — capability record sent (${displayWidth}x$displayHeight)")
+        trace("Discovery: answered GET /info as ${com.phairplay.airplay.AirPlayIdentity.MODEL}")
+        return RtspResponse(
+            statusCode = 200,
+            statusMessage = "OK",
+            bodyBytes = InfoResponder.build(
+                context = context,
+                displayName = displayName,
+                width = displayWidth,
+                height = displayHeight
+            ),
+            contentType = "application/x-apple-binary-plist",
+            protocol = request.responseProtocol()
+        )
+    }
+
+    /**
+     * Reads the `qualifier` array out of a `GET /info` body, e.g. `{qualifier: ["txtAirPlay"]}`.
+     * Returns `txtAirPlay` when the body is a plist that asks for a TXT record without naming one.
+     */
+    private fun qualifierFrom(request: RtspRequest): String? {
+        if (request.bodyBytes.size < 8 || !request.isPlistBody()) return null
+        val parsed = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull() ?: return null
+        val list = parsed["qualifier"] as? List<*> ?: return null
+        val name = list.firstOrNull() as? String ?: return InfoResponder.QUALIFIER_TXT_AIRPLAY
+        return when (name) {
+            InfoResponder.QUALIFIER_TXT_RAOP -> InfoResponder.QUALIFIER_TXT_RAOP
+            InfoResponder.QUALIFIER_TXT_AIRPLAY -> InfoResponder.QUALIFIER_TXT_AIRPLAY
+            else -> null
+        }
+    }
 
     /**
      * POST /pair-setup. With PIN auth off (default) this is the anonymous Ed25519 exchange. With PIN
@@ -534,6 +549,7 @@ open class RtspHandler(
         return try {
             val body = pairingSession!!.pairSetup(request.bodyBytes)
             Logger.i("pair-setup OK (returned ${body.size}-byte public key)")
+            trace("Pairing: first-time key exchange answered (legacy pairing)")
             RtspResponse(200, "OK", bodyBytes = body, contentType = OCTET_STREAM, protocol = request.responseProtocol())
         } catch (e: Exception) {
             // Two /pair-setup dialects exist in the wild and they are impossible to tell apart
@@ -546,8 +562,10 @@ open class RtspHandler(
             if (isHomeKitTlv8PairSetup(request.bodyBytes)) {
                 Logger.e("pair-setup is the HomeKit TLV8 dialect (${request.bodyBytes.size} bytes) " +
                          "— not implemented (only the raw 32-byte Ed25519 exchange is)", e)
+                trace("Pairing FAILED: sender wants HomeKit pairing, this receiver offers legacy pairing")
             } else {
                 Logger.e("pair-setup failed on a ${request.bodyBytes.size}-byte body", e)
+                trace("Pairing FAILED at pair-setup: ${e.message ?: e.javaClass.simpleName}")
             }
             RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
@@ -568,89 +586,49 @@ open class RtspHandler(
             (body[2].toInt() and 0xFF) == 0x01
 
     /**
-     * POST /pair-verify — the anonymous ECDH handshake. AirPlay uses this same raw exchange even with
-     * PIN access control on (the PIN is a SEPARATE /pair-pin-start + /pair-setup-pin layer), so this
-     * is never the HomeKit TLV8 variant.
+     * POST /pair-verify — the anonymous X25519 handshake.
+     *
+     * This is the second half of AirPlay's **legacy** pairing and the step the sender runs on
+     * every session after the first `pair-setup`:
+     *   M1 (`0x01 ‖ client ECDH pub ‖ client Ed25519 pub`) → `our ECDH pub ‖ encrypted signature`
+     *   M2 (`0x00 ‖ encrypted signature`)                  → empty 200
+     * The X25519 shared secret it produces is what the mirror stream keys are derived from, so a
+     * failure here is fatal to the session — hence the 470 (the status a sender understands as
+     * "you are not allowed to talk to me") and a trace line naming the step.
      */
     private fun handlePairVerify(request: RtspRequest): RtspResponse {
-        // PIN access control: refuse pair-verify until the controller has PIN-paired this connection.
-        // macOS responds to the rejection by starting the PIN flow (/pair-pin-start → /pair-setup-pin).
-        if (pinAuthEnabled && !pinPaired) {
-            Logger.i("pair-verify rejected — PIN pairing required first (triggers /pair-pin-start)")
-            return RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
-        }
+        val session = pairingSession
+            ?: return RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
         return try {
-            val body = pairingSession!!.pairVerify(request.bodyBytes)
-            Logger.i("pair-verify ${if (request.bodyBytes.firstOrNull()?.toInt() == 1) "M1" else "M2"} OK (returned ${body.size} bytes)")
+            val body = session.pairVerify(request.bodyBytes)
+            val step = if (request.bodyBytes.firstOrNull()?.toInt() == 1) "M1" else "M2"
+            Logger.i("pair-verify $step OK (returned ${body.size} bytes)")
+            if (step == "M1") {
+                trace("Pairing: verify M1 accepted — sender key exchange running")
+            } else {
+                trace("Pairing: verify complete — sender is trusted for this session")
+            }
             RtspResponse(200, "OK", bodyBytes = body, contentType = OCTET_STREAM, protocol = request.responseProtocol())
         } catch (e: Exception) {
             Logger.e("pair-verify failed", e)
+            trace("Pairing FAILED at pair-verify: ${e.message ?: e.javaClass.simpleName}")
             RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
         }
     }
 
     /**
-     * POST /pair-pin-start — macOS asks the receiver to begin PIN pairing and display the code. We
-     * generate + show the PIN and prime the SRP session, then reply 200; the SRP exchange follows on
-     * /pair-setup-pin. (This precedes pair-setup in the AirPlay PIN flow — see the logs.)
+     * The HomeKit (SRP/TLV8) pairing endpoints, answered honestly.
+     *
+     * PhairPlay does not implement HomeKit pairing: it advertises a legacy-pairing receiver, and
+     * legacy pairing is what the "no code, connect from anywhere on the LAN" setup uses. A sender
+     * only asks for these when a receiver advertises access control (a PIN or password bit in
+     * `statusFlags`, or the HomeKit pairing feature bits) — so reaching this code means the
+     * advertisement and the request disagree, which is exactly what the trace line should say.
      */
-    private fun handlePairPinStart(request: RtspRequest): RtspResponse {
-        if (!pinAuthEnabled) return handleUnknownInternal(request)
-        if ((pairingStore?.failedAttempts() ?: 0) >= MAX_PAIR_ATTEMPTS) {
-            Logger.w("pair-pin-start blocked — PIN auth locked ($MAX_PAIR_ATTEMPTS failed attempts)")
-            return RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
-        }
-        newSrpSession()
-        Logger.i("pair-pin-start — PIN shown, SRP session primed")
-        return RtspResponse(200, "OK", protocol = request.responseProtocol())
-    }
-
-    /** Generates a fresh 4-digit PIN, shows it on the TV, and primes the legacy SRP session. */
-    private fun newSrpSession() {
-        val pin = "%0${PIN_DIGITS}d".format(java.security.SecureRandom().nextInt(PIN_SPACE))
-        onShowPin(pin)
-        legacyPin = com.phairplay.airplay.handshake.LegacyPairSetupPin(pin, PairingKeys.get(context).edPublic)
-    }
-
-    /**
-     * POST /pair-setup-pin — the legacy AirPlay plist SRP exchange. Step 1 ({method,user}) returns
-     * {pk,salt}; step 2 ({pk,proof}) verifies the PIN and returns {proof}. On success the controller
-     * is allowed past pair-verify (→ streaming). Bounded by the failed-attempt lockout.
-     */
-    private fun handleLegacyPairSetupPin(request: RtspRequest): RtspResponse {
-        if (!pinAuthEnabled) return handleUnknownInternal(request)
-        if ((pairingStore?.failedAttempts() ?: 0) >= MAX_PAIR_ATTEMPTS) {
-            Logger.w("pair-setup-pin blocked — PIN auth locked ($MAX_PAIR_ATTEMPTS failed attempts)")
-            onShowPin(null)
-            return RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
-        }
-        return try {
-            val plist = PlistCodec.decode(request.bodyBytes)
-            if (legacyPin == null) newSrpSession()   // step 1 may arrive without a prior /pair-pin-start
-            val result = legacyPin!!.handle(plist)
-            if (result.failed) {
-                val n = pairingStore?.recordFailedAttempt() ?: 0
-                Logger.w("pair-setup-pin attempt failed ($n/$MAX_PAIR_ATTEMPTS)")
-                onShowPin(null); legacyPin = null
-                return RtspResponse(470, "Connection Authorization Required", protocol = request.responseProtocol())
-            }
-            if (result.complete) {
-                pairingStore?.resetFailedAttempts()   // legitimate pairing clears the lockout counter
-                pinPaired = true                       // now allow pair-verify → streaming proceeds
-                onShowPin(null); legacyPin = null
-                Logger.i("PIN pairing complete — pair-verify now permitted")
-            }
-            RtspResponse(
-                200, "OK",
-                bodyBytes = PlistCodec.encode(result.reply!!),
-                contentType = "application/x-apple-binary-plist",
-                protocol = request.responseProtocol()
-            )
-        } catch (e: Exception) {
-            Logger.e("pair-setup-pin failed", e)
-            onShowPin(null); legacyPin = null
-            RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
-        }
+    private fun handleHomeKitPairingRequest(request: RtspRequest): RtspResponse {
+        Logger.w("Sender asked for HomeKit/PIN pairing (${request.uri}) — this receiver only implements legacy pairing")
+        trace("Sender asked for PIN/HomeKit pairing — not offered by this receiver")
+        return RtspResponse(501, "Not Implemented", protocol = request.responseProtocol())
     }
 
     /** POST /fp-setup — FairPlay: 16-byte phase 1 → 142-byte reply; 164-byte phase 2 → 32-byte reply. */
@@ -667,9 +645,11 @@ open class RtspHandler(
             else -> throw IllegalArgumentException("unexpected fp-setup size ${b.size}")
         }
         Logger.i("fp-setup phase (${b.size}B in → ${body.size}B out)$verMode OK")
+        trace("Encryption: FairPlay key exchange OK (${b.size}-byte phase)")
         RtspResponse(200, "OK", bodyBytes = body, contentType = OCTET_STREAM, protocol = request.responseProtocol())
     } catch (e: Exception) {
         Logger.e("fp-setup failed", e)
+        trace("Encryption FAILED at fp-setup: ${e.message ?: e.javaClass.simpleName}")
         RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
     }
 
@@ -701,6 +681,7 @@ open class RtspHandler(
             val (eventPort, timingPort) = onMirrorSetupKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort)
             response["eventPort"] = eventPort.toLong()
             response["timingPort"] = timingPort.toLong()
+            trace("Mirroring: stream key decrypted — starting the media session")
             Logger.i("mirror SETUP keys OK — eventPort=$eventPort timingPort=$timingPort (sender timing $senderTimingPort)")
         }
 
@@ -714,6 +695,7 @@ open class RtspHandler(
                         val dataPort = onMirrorStreamStart(scid)
                         activeStreamTypes.add(110)
                         Logger.i("mirror stream type=110 streamConnectionID=$scid dataPort=$dataPort")
+                        trace("Mirroring: video stream set up — the sender can start sending frames")
                         mapOf("type" to 110L, "dataPort" to dataPort.toLong())
                     }
                     96 -> {
@@ -732,6 +714,7 @@ open class RtspHandler(
                         val (dataPort, controlPort) = onMirrorAudioStart(sr, ch, ct, spf)
                         activeStreamTypes.add(96)
                         Logger.i("audio stream type=96 (ct=$ct ${sr}Hz x$ch spf=$spf) dataPort=$dataPort controlPort=$controlPort")
+                        trace("Mirroring: audio stream set up (codec type $ct, ${sr}Hz)")
                         mapOf("type" to 96L, "dataPort" to dataPort.toLong(), "controlPort" to controlPort.toLong())
                     }
                     103 -> {
@@ -748,6 +731,7 @@ open class RtspHandler(
                         val dataPort = onBufferedAudioStart()
                         activeStreamTypes.add(103)
                         Logger.i("buffered audio stream type=103 dataPort=$dataPort")
+                        trace("Audio: buffered stream set up (Apple Music style playback)")
                         mapOf("type" to 103L, "dataPort" to dataPort.toLong())
                     }
                     else -> {
@@ -769,6 +753,7 @@ open class RtspHandler(
         )
     } catch (e: Exception) {
         Logger.e("mirror SETUP failed", e)
+        trace("Mirroring FAILED at SETUP: ${e.message ?: e.javaClass.simpleName}")
         RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
     }
 
@@ -795,6 +780,7 @@ open class RtspHandler(
 
         currentSession = parsed.copy(senderName = extractSenderName(request.headers["User-Agent"]))
         val s = currentSession!!
+        trace("Session announced: ${sessionSummary(s)}")
         Logger.i("Session: hasVideo=${s.hasVideo} hasAudio=${s.hasAudio} " +
                  "codec=${s.audioCodec} encrypted=${s.isAudioEncrypted} sender='${s.senderName}'")
 
@@ -825,6 +811,7 @@ open class RtspHandler(
         }
 
         Logger.d("SETUP #$setupCount — transport: $transport")
+        trace(if (isVideoSetup) "Media: video channel set up (interleaved)" else "Media: audio channel set up (UDP $AUDIO_RTP_PORT)")
         return RtspResponse(
             statusCode = 200,
             statusMessage = "OK",
@@ -863,6 +850,7 @@ open class RtspHandler(
             }
         }
         Logger.i("RECORD — streaming starting (audioOnly=${session.isAudioOnly}, encrypted=${session.isAudioEncrypted})")
+        trace("Streaming: RECORD received — playback starting")
         onStreamingStarted(session)
         return RtspResponse(statusCode = 200, statusMessage = "OK")
     }
@@ -895,6 +883,7 @@ open class RtspHandler(
             Logger.i("TEARDOWN (session, body=${request.bodyBytes.size}B) — streaming stopping")
         }
         activeStreamTypes.clear()
+        trace("Session ended by the sender (TEARDOWN)")
         onStreamingStopped()
         return RtspResponse(statusCode = 200, statusMessage = "OK", protocol = request.responseProtocol())
     }
@@ -1042,35 +1031,24 @@ open class RtspHandler(
         outputStream.flush()
     }
 
-    private fun sendServiceUnavailable(socket: Socket) {
-        try {
-            val response = "RTSP/1.0 503 Service Unavailable\r\nCSeq: 0\r\n\r\n"
-            socket.outputStream.write(response.toByteArray())
-            socket.outputStream.flush()
-        } catch (e: Exception) {
-            Logger.e("Error sending 503 response", e)
-        }
-    }
-
     companion object {
-        private const val RTSP_PORT = 7000
+        /** The AirPlay RTSP port. [MdnsService] advertises it and [RtspServer] listens on it. */
+        const val RTSP_PORT = 7000
 
-        // SRP PIN access control. macOS's AirPlay code-entry field is exactly 4 digits, so the PIN
-        // must be 4 digits to be enterable. A 4-digit space is low-entropy, so the load-bearing
-        // defense is the MAX_PAIR_ATTEMPTS lockout below (uniform random + hard attempt cap, NOT
-        // length). The PIN is still uniformly random — no biased truncation.
-        private const val PIN_DIGITS = 4
-        private const val PIN_SPACE = 10_000        // 10^PIN_DIGITS
-        private const val MAX_PAIR_ATTEMPTS = 10
-        private const val BIND_MAX_ATTEMPTS = 12      // ~3s total — covers a quick stop→start restart
-        private const val BIND_RETRY_MS = 250L
         /**
-         * How long a control connection may sit completely idle *before* a session exists.
-         * Long enough for a user to read a 4-digit PIN off the TV and type it in; short
-         * enough that an abandoned socket stops locking out the next sender. See
-         * [handleClient].
+         * How long a control connection may sit idle *while the handshake is in progress*.
+         * A sender that stops mid-handshake is gone, not thinking — and every later attempt
+         * gets its own connection now, so closing this one costs nothing.
          */
         private const val HANDSHAKE_IDLE_TIMEOUT_MS = 120_000
+
+        /**
+         * How long a connection that has never sent a request is kept open. This is the event
+         * channel, which is silent by design (the receiver writes to it), so it has to outlive
+         * the whole session rather than a handshake.
+         */
+        private const val NO_REQUEST_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+
         private const val MAX_MESSAGE_BYTES = 65536
         private const val OCTET_STREAM = "application/octet-stream"
         private const val TIMING_PORT = 6002   // matches TimingHandler's UDP NTP port

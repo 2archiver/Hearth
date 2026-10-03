@@ -6,11 +6,12 @@
     ┌──────────────────────────────────────────────────────────┐
     │  "Ready for connections"           [●] Service Running   │
     │                                                          │
-    │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐       │
-    │  │  📺 AirPlay │ │  📡 Miracast│ │  🔵 Cast    │       │
-    │  │  ●Running   │ │  ●Running   │ │  ●Running   │       │
-    │  │  Waiting... │ │  Waiting... │ │  Waiting... │       │
-    │  └─────────────┘ └─────────────┘ └─────────────┘       │
+    │  ┌─────────────┐ ┌──────────────────┐                  │
+    │  │  📺 AirPlay │ │ 🍎 Apple Casting │                  │
+    │  │  ●Running   │ │  ●Waiting        │                  │
+    │  │  Waiting... │ │  Screen Mirroring│                  │
+    │  └─────────────┘ └──────────────────┘                  │
+    │  Connection log: 12:01 mDNS registered…                 │
     │                                                          │
     │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
     │  │  ▶ Start │  │  ■ Stop  │  │  ↺ Restart│             │
@@ -139,9 +140,16 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="12dp" />
 
-            <!-- Miracast card -->
+            <!--
+                Apple Casting card — screen mirroring from an iPhone/iPad/Mac.
+
+                It is the same AirPlay receiver as the card on the left, but it reports a
+                different fact: this one is only "Connected" while mirror *video* is on screen.
+                That makes the pair honest — "AirPlay: connected" plus "Apple Casting: waiting"
+                means a Mac is streaming audio, not that a phone is mirroring.
+            -->
             <include
-                android:id="@+id/card_miracast"
+                android:id="@+id/card_apple_casting"
                 layout="@layout/card_protocol_status"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -149,6 +157,22 @@
                 android:layout_marginEnd="12dp" />
 
         </LinearLayout>
+
+        <!--
+            Connection log — the last few protocol steps from the current/last sender attempt,
+            newest last. On a TV this is the only way to see *where* a connection stopped
+            ("pairing failed", "video stream set up", "no video data arrived") instead of just
+            "nothing happened". Tapping either card shows the full history.
+        -->
+        <TextView
+            android:id="@+id/text_connection_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="28dp"
+            android:lineSpacingExtra="2dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/text_tertiary"
+            android:textSize="12sp" />
 
         <!-- ── Section: Service controls ──────────────────────────────── -->
         <TextView

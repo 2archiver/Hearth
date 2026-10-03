@@ -1,5 +1,9 @@
 # PhairPlay – Requirements
 
+> **Note (1.6.1):** FR-02 and §1.3 (Miracast) are historical. The Miracast receiver and its
+> Wi-Fi Direct permissions were removed in 1.6.1 — most Google TVs refuse Wi-Fi Direct to apps.
+> Apple Casting (AirPlay screen mirroring) replaced it; see docs/guides/APPLE_CASTING.md.
+
 Version: 2.2
 Status: Active
 Date: 2026-03-23

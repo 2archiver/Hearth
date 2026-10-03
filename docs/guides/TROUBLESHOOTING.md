@@ -2,7 +2,7 @@
 
 ---
 
-## Device not appearing in AirPlay / Miracast / Cast menu
+## Device not appearing in the AirPlay menu
 
 **Cause 1: Not on the same network**
 - Ensure your Mac/PC and the TV are connected to the **same Wi-Fi network** (same router, same subnet).
@@ -29,8 +29,9 @@
 - A phone on cellular (or on a guest SSID) will never see the TV — both must be on the same
   Wi-Fi subnet.
 
-**Cause 6: Wi-Fi P2P disabled (Miracast)**
-- Miracast requires Wi-Fi Direct. Some Android TVs disable this.
+**Cause 6: the sender and the TV are on different networks**
+- PhairPlay advertises on the TV's default network only (the line on Home says which). A phone on
+  a guest SSID, or on a VLAN the TV cannot multicast to, will never see it.
 - Check: Settings → System → About → verify Wi-Fi Direct is available.
 
 ---
@@ -81,7 +82,7 @@ and no Screen Mirroring, its video reaches the TV through Google's receiver or n
 [CAST.md](CAST.md) explains the boundary. Screen Mirroring is the route that always works, because
 it is AirPlay, and AirPlay is what PhairPlay advertises.
 
-**Miracast** — see [MIRACAST.md](MIRACAST.md). Note the platform ceiling: Android's public
+**Apple Casting (screen mirroring)** — see [APPLE_CASTING.md](APPLE_CASTING.md). Note the platform ceiling: Android's public
 Wi-Fi P2P APIs can advertise a WFD service and run discovery, but a third-party app cannot
 silently accept an incoming Wi-Fi Direct connection the way the system's own wireless-display
 feature can. If your TV already ships a "Screen mirroring" feature, prefer it. Miracast video
@@ -177,11 +178,11 @@ during a live session. If the HUD is blank:
 - **"DECODE waiting for SPS/PPS + surface"** with a rising `kbps`: the TV is receiving video it
   cannot decode yet. Give it a second; WFD senders repeat SPS/PPS with every keyframe.
 - **Never appears at all:** the overlay is drawn on the streaming screen, so it only shows while
-  AirPlay mirroring, Miracast, or a Cast sender with media loaded is on screen. AirPlay
+  AirPlay streaming or Apple Casting (mirror video) on screen. AirPlay
   *audio-only* shows the now-playing card instead, which has no HUD.
 
 Before 1.5 the toggle only took effect at receiver start-up (so it looked broken until you hit
-Restart), `fps` only refreshed every 300 packets, and Cast/Miracast sessions fed no counters at
+Restart), `fps` only refreshed every 300 packets, and mirroring sessions fed no counters at
 all. All three are fixed.
 
 ## High latency (>200ms)

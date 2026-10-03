@@ -48,6 +48,13 @@ object UpdateFlow {
         if (result !is UpdateCheck.Available) return result
         val info = result.info
 
+        if (result.skipped) {
+            // The user said "skip this version". Keep it in the result so Settings can still show
+            // and un-skip it, but do not notify, badge or download it — that is what skipping means.
+            Logger.i("Update ${info.versionName} available but skipped by the user — not announcing")
+            return result
+        }
+
         if (!autoDownload) {
             Logger.i("Update ${info.versionName} available — announcing, auto-download is off")
             onNotifyAvailable(info)

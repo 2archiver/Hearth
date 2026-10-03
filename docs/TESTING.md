@@ -241,7 +241,8 @@ Settings → Network so nothing can quietly fall back to it.
 
 1. Launch PhairPlay and read the Home screen:
    - **Expected:** AirPlay card = *Advertising*, detail names `Ethernet` and the TV's wired IP.
-   - **Expected:** Miracast card = *Unavailable* with a Wi-Fi Direct reason — grey, not red, and no
+   - **Expected:** Apple Casting card = *Advertising* (idle) and only *Connected* while mirror
+     video is on screen — grey/waiting, never a false "Connected"; no
      permission prompt. A wired TV has no usable radio for it; that is a limitation, not a failure.
 2. From a Mac on the same subnet, connect over AirPlay and mirror for two minutes.
    - **Expected:** picture at the panel's native size when

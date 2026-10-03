@@ -36,12 +36,10 @@ class AppSettingsTest {
     }
 
     @Test
-    fun `AirPlay is on by default and Miracast is not`() {
-        // AirPlay is the whole point of the app, so it runs on first launch. Miracast needs a
-        // Wi-Fi Direct group, which most Google TVs refuse an app — starting it regardless used
-        // to leave a red "Wi-Fi Direct unavailable or permission denied" card on every wired TV.
+    fun `AirPlay is on by default`() {
+        // AirPlay is the whole point of the app, so it runs on first launch. It also powers the
+        // Apple Casting card, so there is nothing else to switch on.
         assertTrue(AppSettings.DEFAULT.airPlayEnabled)
-        assertFalse(AppSettings.DEFAULT.miracastEnabled)
     }
 
     @Test
@@ -116,27 +114,9 @@ class AppSettingsTest {
     // ─── anyProtocolEnabled ───────────────────────────────────────────────────
 
     @Test
-    fun `anyProtocolEnabled is true when all protocols are enabled`() {
-        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = true)
-        assertTrue(settings.anyProtocolEnabled)
-    }
-
-    @Test
-    fun `anyProtocolEnabled is true when only AirPlay is enabled`() {
-        val settings = AppSettings(airPlayEnabled = true, miracastEnabled = false)
-        assertTrue(settings.anyProtocolEnabled)
-    }
-
-    @Test
-    fun `anyProtocolEnabled is true when only Miracast is enabled`() {
-        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = true)
-        assertTrue(settings.anyProtocolEnabled)
-    }
-
-    @Test
-    fun `anyProtocolEnabled is false when every protocol is disabled`() {
-        val settings = AppSettings(airPlayEnabled = false, miracastEnabled = false)
-        assertFalse(settings.anyProtocolEnabled)
+    fun `anyProtocolEnabled follows the AirPlay receiver`() {
+        assertTrue(AppSettings(airPlayEnabled = true).anyProtocolEnabled)
+        assertFalse(AppSettings(airPlayEnabled = false).anyProtocolEnabled)
     }
 
     // ─── copy() and equality ──────────────────────────────────────────────────

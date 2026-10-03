@@ -1,5 +1,8 @@
 # ADR-001: Multi-Protocol Support (AirPlay + Miracast + Cast)
 
+> **Note (1.6.1):** the Miracast half of this decision was reversed in 1.6.1 (removed). The
+> AirPlay/Cast half still stands: no Google Cast receiver, ever, because the TV owns it.
+
 **Date:** 2026-03-23
 **Status:** Accepted — partially superseded by ADR-006 (2026-10-03): AirPlay + Miracast remain,
 Google Cast was removed in v1.6

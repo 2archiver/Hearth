@@ -4,7 +4,7 @@
 
     Organized into sections matching the AppSettings data model:
     1. Display — device name shown in pickers
-    2. Protocols — enable/disable AirPlay, Miracast, Cast
+    2. Protocols — enable/disable the AirPlay receiver (which also powers Apple Casting)
     3. AirPlay — PIN authentication
     4. Service — start on boot
     5. Developer — debug overlay
@@ -92,11 +92,6 @@
             android:layout_width="match_parent"
             android:layout_height="72dp" />
 
-        <include layout="@layout/settings_toggle_row"
-            android:id="@+id/row_miracast"
-            android:layout_width="match_parent"
-            android:layout_height="72dp" />
-
         <!-- ── Section: AirPlay ───────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_airplay"
@@ -106,11 +101,6 @@
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_mirror_audio"
-            android:layout_width="match_parent"
-            android:layout_height="72dp" />
-
-        <include layout="@layout/settings_toggle_row"
-            android:id="@+id/row_pin_auth"
             android:layout_width="match_parent"
             android:layout_height="72dp" />
 

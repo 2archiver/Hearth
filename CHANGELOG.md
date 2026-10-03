@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.1] - 2026-10-03
+
+An AirPlay-connection release: the receiver can now hold a real session with an iPhone/iPad/Mac,
+the Home screen shows the two things a TV can actually receive, and the updater can no longer
+offer a build that is older than the one installed.
+
+### Fixed — AirPlay connections (the "it shows up in the list, then nothing" bug)
+
+**One sender connection at a time was the whole problem.** The RTSP listener served a single
+client and answered every other connection with `503 Service Unavailable`. An Apple sender never
+uses one socket: while it starts a session it opens the control channel *and* a second, silent
+**event channel**, plus short-lived probes. So the moment the sender opened its second socket the
+session was over — and because the first socket was still held by a coroutine blocked in `read()`,
+the next attempt was refused too. `RtspServer` now accepts **every** connection and gives each one
+its own handler (each with its own pairing and FairPlay state), keeps a bounded list of live
+connections, and retires the oldest instead of refusing a reconnect.
+
+**Asterisk-shaped discovery data.** The mDNS record, the `GET /info` capability reply and the
+`GET /server-info` reply each described a different device (`AppleTV5,3` with features
+`0x1E5A7FFFF7` in two of them, `0x5A7FFFF7`/`0x1E` in the third). A sender decides *how to pair*
+from those values, so it would start a pairing dialect this receiver does not implement and give
+up. All three now come from one place — `AirPlayIdentity` — advertising a legacy-pairing AirPlay
+receiver (`AppleTV3,2`, features `0x5A7FFEE6` with bit 27 *SupportsLegacyPairing* on, `srcvers`
+220.68) which is the profile the working open-source receivers use.
+
+**The record the sender asks for first.** `GET /info` with a `{qualifier: ["txtAirPlay"]}` body
+asked for the TXT record as a data blob and was answered with the capability dictionary. It now
+answers the qualifier request with the raw TXT record (and `txtRAOP` for `_raop._tcp`).
+
+**Mirroring sockets that could not be re-entered.** The video data server accepted exactly one TCP
+connection; after any interruption the listener stayed bound (so the SETUP reply stayed valid) but
+nothing was reading it, and the sender's reconnect died in the backlog. It now accepts in a loop,
+flags the decoder to resync at the next keyframe, and the event channel does the same.
+
+### Added — Apple Casting, and a connection log on the TV
+
+**Apple Casting** replaces the Miracast card on Home. It is the screen-mirroring half of AirPlay:
+the same receiver, reported from the **video stream** instead of the session, so the two cards are
+honest — "AirPlay: Connected · Apple Casting: Waiting" means a Mac is streaming audio, not that a
+phone is mirroring. The waiting line says exactly what to do (Control Centre → Screen Mirroring →
+the advertised name) and see `docs/guides/APPLE_CASTING.md` for the full guide.
+
+**The connection log** (the strip under the cards, or tap either card) lists every step of the
+most recent sender connection — discovery, pairing, FairPlay, stream setup, the sender's video
+connection — and a failure names the step it stopped at. On a TV this is the difference between
+"it doesn't work" and "it stopped at fp-setup".
+
+### Removed — Miracast
+
+The Miracast / Wi-Fi Direct receiver is gone: `com.phairplay.miracast.*`, its card, its Settings
+toggle, its tests and its `Wi-Fi Direct`, `ACCESS_FINE_LOCATION` / `NEARBY_WIFI_DEVICES`
+permissions. Every Google TV in the test matrix either had no Wi-Fi radio on (wired sets) or keeps
+Wi-Fi Direct to the system, so the receiver could only ever report *Unavailable*; it was a
+permission prompt and a grey card for a feature that never ran. Screen mirroring from an Android
+device belongs to the TV's own features.
+
+### Changed — updater: never offer a downgrade, and say what is happening
+
+* **A published build that is not newer than the installed one is never offered.** Equal
+  versionCodes are "up to date"; a *lower* one is reported as "the newest published build is
+  older than this install" (usual for a locally built APK, whose clock-derived code runs ahead).
+  A release whose notes carry no `versionCode` at all is reported as unidentifiable rather than
+  silently claimed to be current.
+* **The downloaded APK is inspected before it is staged** (`PackageManager` versionCode), and
+  anything not strictly newer than the install is deleted with an explanation — the release notes
+  are scraped text, the APK is the truth, and Android would refuse the install anyway
+  (`INSTALL_FAILED_VERSION_DOWNGRADE`).
+* **"Skip this version"** now exists as its own action (separate from "Later"), is remembered, and
+  suppresses background announcements/badges for exactly that build while a newer one is still
+  offered.
+* The update card shows **both builds**: "Version 1.6.1-main.7 (build 1451000) is available — you
+  have 1.6.0 (build 1450123)".
+
+### Docs
+
+* New: [`docs/guides/APPLE_CASTING.md`](docs/guides/APPLE_CASTING.md) (connecting, stopping, and a
+  field guide to the connection log) and [`docs/RENAME_IDEAS.md`](docs/RENAME_IDEAS.md) (a rename
+  shortlist with a recommendation — **not applied**; see the checklist in that file).
+
 ## [1.6] - 2026-10-03
 
 Built for the TV in front of it: a Google TV 4K on Ethernet. Everything that only worked on a
