@@ -52,11 +52,16 @@ class StreamingScreen @JvmOverloads constructor(
 
     // Optional debug HUD (Settings → "Debug overlay"), drawn on top of the video.
     private val debugView = TextView(context).apply {
-        setTextColor(Color.parseColor("#FF00FF66"))
-        setBackgroundColor(Color.parseColor("#A6000000"))
+        setTextColor(Color.parseColor("#FF34C759"))
+        val bg = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.parseColor("#CC000000"))
+            cornerRadius = (12 * resources.displayMetrics.density)
+        }
+        background = bg
         textSize = 13f
         typeface = Typeface.MONOSPACE
-        setPadding(24, 16, 24, 16)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        setPadding(pad * 2, pad, pad * 2, pad)
         visibility = GONE
     }
     // Last applied surface size, so we only re-layout on an actual change (rotation/resolution switch).

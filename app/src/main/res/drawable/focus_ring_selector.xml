@@ -1,50 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     focus_ring_selector.xml — Focus state drawable for all interactive TV elements.
-
-    Applies a visible blue border when a view has D-pad focus.
-    This is the primary focus indicator for PhairPlay's TV UI.
-    All interactive views (buttons, cards, toggles) must use this as their background.
-
-    Usage in layout XML:
-        android:background="@drawable/focus_ring_selector"
-    Or as foreground for cards:
-        android:foreground="@drawable/focus_ring_selector"
+    Modern Material 3 TV style: subtle surface with a soft blue glow on focus.
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Focused state: blue ring with slight background brightening -->
+    <!-- Focused state: bright blue ring with elevation glow and brightened surface -->
     <item android:state_focused="true">
         <layer-list>
+            <!-- Soft glow shadow for elevated look -->
             <item>
                 <shape android:shape="rectangle">
-                    <solid android:color="@color/background_surface_elevated" />
-                    <corners android:radius="12dp" />
+                    <solid android:color="@color/focus_glow" />
+                    <corners android:radius="16dp" />
                 </shape>
             </item>
-            <item>
+            <!-- Surface background -->
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
                 <shape android:shape="rectangle">
-                    <stroke android:width="3dp" android:color="@color/focus_ring" />
-                    <corners android:radius="12dp" />
+                    <solid android:color="@color/background_surface_high" />
+                    <corners android:radius="16dp" />
+                </shape>
+            </item>
+            <!-- Accent border ring -->
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <stroke android:width="2dp" android:color="@color/focus_ring" />
+                    <corners android:radius="16dp" />
                     <solid android:color="@android:color/transparent" />
                 </shape>
             </item>
         </layer-list>
     </item>
 
-    <!-- Pressed state: slightly dimmed -->
+    <!-- Pressed state: slightly dimmed accent -->
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/accent_blue_pressed" />
-            <corners android:radius="12dp" />
+            <solid android:color="@color/background_surface_elevated" />
+            <corners android:radius="16dp" />
         </shape>
     </item>
 
-    <!-- Normal state: surface card background -->
+    <!-- Normal state: subtle surface card with slight rounding -->
     <item>
         <shape android:shape="rectangle">
             <solid android:color="@color/background_surface" />
-            <corners android:radius="12dp" />
+            <corners android:radius="16dp" />
         </shape>
     </item>
 

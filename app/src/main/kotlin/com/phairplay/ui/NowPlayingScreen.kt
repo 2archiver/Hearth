@@ -51,9 +51,11 @@ class NowPlayingScreen @JvmOverloads constructor(
             // Rounded surface so the placeholder glyph (and any non-square art) sits on a card.
             background = GradientDrawable().apply {
                 setColor(color(R.color.background_surface))
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(24).toFloat()
             }
             clipToOutline = true
+            val pad = dp(24)
+            setPadding(pad, pad, pad, pad)
         }
 
         titleView = textView(TITLE_SP, R.color.text_primary, bold = true).apply {

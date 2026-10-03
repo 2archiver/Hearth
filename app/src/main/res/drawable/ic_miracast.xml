@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <size android:width="32dp" android:height="32dp" />
+<!-- Miracast protocol icon: rounded rectangle in brand green -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <size android:width="36dp" android:height="36dp" />
     <solid android:color="@color/protocol_miracast" />
+    <corners android:radius="10dp" />
 </shape>

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <size android:width="24dp" android:height="24dp" />
-    <solid android:color="@color/text_secondary" />
-</shape>
+<!-- Chevron right icon for navigable settings rows -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/text_tertiary">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M9.29,6.71L14.17,11.59a1,1 0,0 1,0 1.41L9.29,17.88a1,1 0,0 1,-1.41 -1.41L12.17,12 7.88,7.71a1,1 0,0 1,1.41,-1.41z" />
+</vector>

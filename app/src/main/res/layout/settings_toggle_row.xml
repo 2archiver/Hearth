@@ -6,7 +6,7 @@
     android:layout_height="72dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingHorizontal="16dp"
+    android:paddingHorizontal="20dp"
     android:background="@drawable/focus_ring_selector"
     android:focusable="true">
 
@@ -21,7 +21,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/text_primary"
-            android:textSize="18sp" />
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium" />
 
         <TextView
             android:id="@+id/text_setting_subtitle"
@@ -29,6 +30,7 @@
             android:layout_height="wrap_content"
             android:textColor="@color/text_secondary"
             android:textSize="13sp"
+            android:layout_marginTop="2dp"
             android:visibility="gone" />
 
     </LinearLayout>
@@ -38,6 +40,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:focusable="false"
-        android:clickable="false" />
+        android:clickable="false"
+        android:theme="@style/Theme.AppCompat.Leanback" />
 
 </LinearLayout>

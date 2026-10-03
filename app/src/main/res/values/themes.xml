@@ -1,20 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        Base theme — dark TV theme based on Google TV Streamer design language.
-        - True black background for OLED-friendly displays
-        - Accent blue for focus and active states
+        Base theme — dark TV theme in a modern Material 3 / Google TV Streamer style.
+        - True black OLED-friendly background
+        - Refined accent blue for focus and active states
         - Leanback parent for D-pad / TV launcher compatibility
+        - Modern typography scale
     -->
     <style name="Theme.PhairPlay" parent="@style/Theme.AppCompat.Leanback">
         <item name="android:windowBackground">@color/background_dark</item>
-        <item name="android:colorPrimary">@color/accent_blue</item>
+        <item name="android:colorPrimary">@color/accent_blue_dark</item>
         <item name="android:colorPrimaryDark">@color/background_dark</item>
         <item name="android:colorAccent">@color/accent_blue</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
         <item name="android:statusBarColor">@color/background_dark</item>
         <item name="android:navigationBarColor">@color/background_dark</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!-- Button style: modern, all caps off -->
+        <item name="android:buttonStyle">@style/PhairPlay.Button</item>
+        <item name="android:textAllCaps">false</item>
+        <!-- Default font family for a clean modern sans-serif -->
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <!-- Modern button style for the control bar -->
+    <style name="PhairPlay.Button" parent="Widget.AppCompat.Button">
+        <item name="android:background">@drawable/btn_control_selector</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 
     <!-- Fullscreen theme: hides status bar for StreamingScreen -->

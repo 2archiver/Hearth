@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AirPlay protocol status mark -->
+<!-- AirPlay protocol icon: rounded rectangle in brand blue (modern app icon style) -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <size android:width="32dp" android:height="32dp" />
+    android:shape="rectangle">
+    <size android:width="36dp" android:height="36dp" />
     <solid android:color="@color/protocol_airplay" />
+    <corners android:radius="10dp" />
 </shape>

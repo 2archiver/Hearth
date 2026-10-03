@@ -1,25 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     btn_control_selector.xml — Background for primary control buttons (Start/Stop/Restart).
-    Shows a blue background on focus, accent-pressed on press, and surface when idle.
+    Modern pill/rounded style with subtle elevation; focused state highlights with accent glow.
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/accent_blue" />
-            <corners android:radius="8dp" />
-        </shape>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/focus_glow" />
+                    <corners android:radius="28dp" />
+                </shape>
+            </item>
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/accent_blue_dark" />
+                    <corners android:radius="28dp" />
+                </shape>
+            </item>
+        </layer-list>
     </item>
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
             <solid android:color="@color/accent_blue_pressed" />
-            <corners android:radius="8dp" />
+            <corners android:radius="28dp" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="@color/background_surface_elevated" />
-            <corners android:radius="8dp" />
+            <solid android:color="@color/background_surface" />
+            <corners android:radius="28dp" />
+            <stroke android:width="1dp" android:color="@color/divider" />
         </shape>
     </item>
 </selector>

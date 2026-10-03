@@ -1,27 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    fragment_settings.xml — Settings screen layout.
-
-    Organized into sections matching the AppSettings data model:
-    1. Display — device name shown in pickers
-    2. Protocols — enable/disable AirPlay, Miracast, Cast
-    3. AirPlay — PIN authentication
-    4. Service — start on boot
-    5. Developer — debug overlay
-    6. About — version info, reset
+    fragment_settings.xml — Settings screen layout (modern Material 3 / Google TV style).
+    Organized into clearly-spaced sections with refined typography and spacing.
 -->
 <ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background_dark"
-    android:fillViewport="true">
+    android:fillViewport="true"
+    android:scrollbarStyle="outsideOverlay">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="32dp">
+        android:padding="48dp">
 
         <!-- Page title -->
         <TextView
@@ -29,9 +23,10 @@
             android:layout_height="wrap_content"
             android:text="@string/nav_settings"
             android:textColor="@color/text_primary"
-            android:textSize="32sp"
+            android:textSize="40sp"
             android:fontFamily="sans-serif-light"
-            android:layout_marginBottom="32dp" />
+            android:letterSpacing="-0.01"
+            android:layout_marginBottom="48dp" />
 
         <!-- ── Section: Display ────────────────────────────────── -->
         <include layout="@layout/settings_section_header"
@@ -44,9 +39,10 @@
             android:layout_height="72dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
+            android:paddingHorizontal="20dp"
             android:background="@drawable/focus_ring_selector"
-            android:focusable="true">
+            android:focusable="true"
+            android:layout_marginBottom="4dp">
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -59,14 +55,16 @@
                     android:layout_height="wrap_content"
                     android:text="@string/setting_display_name"
                     android:textColor="@color/text_primary"
-                    android:textSize="18sp" />
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium" />
 
                 <TextView
                     android:id="@+id/text_display_name_value"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
+                    android:textSize="14sp"
+                    android:layout_marginTop="2dp" />
             </LinearLayout>
 
             <ImageView
@@ -78,77 +76,87 @@
 
         <!-- Force higher mirroring resolution (up to 4K on a 4K Google TV) -->
         <include layout="@layout/settings_toggle_row"
-            android:id="@+id/row_force_high_res" />
+            android:id="@+id/row_force_high_res"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <!-- ── Section: Protocols ─────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_protocols"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="32dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_airplay"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_miracast"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_cast"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <!-- ── Section: AirPlay ───────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_airplay"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="32dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_mirror_audio"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_pin_auth"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <!-- ── Section: Service ───────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_service"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="32dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_start_on_boot"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <!-- ── Section: Developer ─────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_developer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="32dp" />
 
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_debug_overlay"
             android:layout_width="match_parent"
-            android:layout_height="72dp" />
+            android:layout_height="72dp"
+            android:layout_marginBottom="4dp" />
 
         <!-- ── Section: About ─────────────────────────────────── -->
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_about"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="32dp" />
 
         <LinearLayout
             android:id="@+id/row_version"
@@ -156,9 +164,10 @@
             android:layout_height="72dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
+            android:paddingHorizontal="20dp"
             android:background="@drawable/focus_ring_selector"
-            android:focusable="false">
+            android:focusable="false"
+            android:layout_marginBottom="4dp">
 
             <TextView
                 android:layout_width="0dp"
@@ -166,14 +175,16 @@
                 android:layout_weight="1"
                 android:text="@string/setting_version"
                 android:textColor="@color/text_primary"
-                android:textSize="18sp" />
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-medium" />
 
             <TextView
                 android:id="@+id/text_version_value"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/text_secondary"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:fontFamily="sans-serif" />
         </LinearLayout>
 
         <LinearLayout
@@ -182,7 +193,7 @@
             android:layout_height="72dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
+            android:paddingHorizontal="20dp"
             android:background="@drawable/focus_ring_selector"
             android:focusable="true">
 
@@ -191,7 +202,8 @@
                 android:layout_height="wrap_content"
                 android:text="@string/setting_reset_defaults"
                 android:textColor="@color/status_stopped"
-                android:textSize="18sp" />
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-medium" />
         </LinearLayout>
 
     </LinearLayout>

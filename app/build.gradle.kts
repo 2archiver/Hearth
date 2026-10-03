@@ -50,7 +50,7 @@ android {
         // The versionCode fallback increases with every build so a new APK updates the old one.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.3.0")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.4.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")

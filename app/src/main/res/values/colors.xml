@@ -7,40 +7,50 @@
     <color name="background_surface">#FF1C1C1E</color>
     <!-- Slightly lighter surface for hover/pressed states -->
     <color name="background_surface_elevated">#FF2C2C2E</color>
+    <!-- Highest elevation surface (active/focused card) -->
+    <color name="background_surface_high">#FF3A3A3C</color>
     <!-- Dividers and separators -->
-    <color name="divider">#FF38383A</color>
+    <color name="divider">#FF2C2C2E</color>
 
     <!-- ─── Text ─────────────────────────────────────────────── -->
     <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#FF8E8E93</color>
-    <color name="text_tertiary">#FF636366</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+    <color name="text_tertiary">#66FFFFFF</color>
     <color name="text_on_accent">#FFFFFFFF</color>
+    <color name="text_disabled">#40FFFFFF</color>
 
-    <!-- ─── Accent (Google TV blue) ─────────────────────────── -->
-    <color name="accent_blue">#FF1A73E8</color>
-    <color name="accent_blue_pressed">#FF1557B0</color>
-    <color name="focus_ring">#FF1A73E8</color>
+    <!-- ─── Accent (modern vibrant blue — Google TV / Material 3) ─────────────────────────── -->
+    <color name="accent_blue">#FF8AB4F8</color>
+    <color name="accent_blue_pressed">#FFD2E3FC</color>
+    <color name="accent_blue_dark">#FF1A73E8</color>
+    <color name="focus_ring">#FF8AB4F8</color>
+    <color name="focus_glow">#668AB4F8</color>
 
-    <!-- ─── Protocol status colors ──────────────────────────── -->
+    <!-- ─── Protocol status colors (Material 3 semantic) ──────────────────────────── -->
     <!-- Green: service running / connected -->
     <color name="status_running">#FF34C759</color>
     <!-- Red: service stopped / error -->
-    <color name="status_stopped">#FFFF3B30</color>
+    <color name="status_stopped">#FFFF453A</color>
     <!-- Gray: service disabled by user -->
-    <color name="status_disabled">#FF636366</color>
+    <color name="status_disabled">#FF8E8E93</color>
     <!-- Yellow: service starting / restarting -->
     <color name="status_transitioning">#FFFFD60A</color>
 
     <!-- ─── Protocol brand colors ────────────────────────────── -->
     <!-- AirPlay: Apple silver-blue -->
     <color name="protocol_airplay">#FF5AC8FA</color>
-    <!-- Miracast: neutral teal -->
+    <!-- Miracast: neutral teal/green -->
     <color name="protocol_miracast">#FF30D158</color>
     <!-- Cast: Google blue -->
-    <color name="protocol_cast">#FF4285F4</color>
+    <color name="protocol_cast">#FF8AB4F8</color>
 
     <!-- ─── Navigation ────────────────────────────────────────── -->
-    <color name="nav_panel_background">#FF111111</color>
-    <color name="nav_item_selected">#FF1A73E8</color>
-    <color name="nav_item_normal">#FF8E8E93</color>
+    <color name="nav_panel_background">#FF0A0A0A</color>
+    <color name="nav_item_selected">#1A8AB4F8</color>
+    <color name="nav_item_normal">#B3FFFFFF</color>
+
+    <!-- ─── Control button states ─────────────────────────────── -->
+    <color name="button_start">#FF34C759</color>
+    <color name="button_stop">#FFFF453A</color>
+    <color name="button_restart">#FFFF9F0A</color>
 </resources>

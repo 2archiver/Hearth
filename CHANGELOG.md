@@ -13,6 +13,26 @@ Nothing yet — changes collect here until the next version is cut.
 
 ---
 
+## [1.4] - 2026-10-03
+
+### Added
+- **Modernized UI/UX** — Refreshed Google TV / Material 3 inspired visual design:
+  - Refined color palette with more accessible text contrast and polished accent blue
+  - Smooth focus-ring glow states on cards and buttons (D-pad navigation highlights are now crisp and visible from across the room)
+  - Larger, softer rounded corners (16dp on cards, 28dp on pill buttons) matching modern TV design language
+  - Improved typography scale with better letter spacing, font weights, and visual hierarchy
+  - More generous spacing between sections and cards for a less cluttered look
+  - Modern vector chevron icon for the Device Name row
+  - Rounded rectangle protocol icons for a cleaner, app-icon-like look
+  - Improved debug HUD overlay with rounded background and improved margins
+
+### Fixed
+- **Android Lint CI** — Removed unused imports (`android.graphics.Color`, `android.widget.LinearLayout`) that caused `lintGoogletvDebug` to fail under `warningsAsErrors = true`.
+- **Navigation panel text color** — Nav items now consistently use the secondary text color rather than a separate gray that had lower contrast.
+- **Version bump** — Default version name updated to 1.4.0 across Gradle properties and build fallback.
+
+---
+
 ## [1.3] - 2026-10-02
 
 ### Fixed

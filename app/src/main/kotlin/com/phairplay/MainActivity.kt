@@ -229,7 +229,7 @@ class MainActivity : AppCompatActivity() {
     private fun setNavSelected(item: TextView, selected: Boolean) {
         item.isSelected = selected
         item.setTextColor(
-            getColor(if (selected) R.color.text_primary else R.color.nav_item_normal)
+            getColor(if (selected) R.color.text_primary else R.color.text_secondary)
         )
     }
 

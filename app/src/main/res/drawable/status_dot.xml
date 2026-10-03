@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status indicator dot — colored circle used in service status cards -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <size android:width="12dp" android:height="12dp" />
-    <solid android:color="@color/status_disabled" />
-</shape>
+<!-- Status indicator dot — colored circle with subtle outer glow ring for visibility -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <size android:width="12dp" android:height="12dp" />
+            <!-- Tinted by the view via setTint(); transparent solid for base shape -->
+            <solid android:color="@color/status_disabled" />
+        </shape>
+    </item>
+</layer-list>
