@@ -2,7 +2,10 @@
 # The APK keeps a stable download name; the GitHub release title is read from the
 # APK's embedded versionName, and its notes come from CHANGELOG.md (or recent commits).
 #
-# Direct download: https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-googletv.apk
+# Direct download (the single asset, named after its version):
+#   https://github.com/<owner>/<repo>/releases/download/latest/PhairPlay-<version>-googletv.apk
+# There is deliberately exactly ONE asset per release. The version name, version code and the
+# APK's SHA-256 are written into the release body, which is what the in-app updater reads.
 # The same release is marked as GitHub's "Latest", so the in-app updater and the
 # GitHub Releases page always point to the same build.
 
@@ -178,37 +181,22 @@ jobs:
             exit 1
           fi
 
+          # "One release, one asset": the ONLY thing published is the version-named APK.
+          # SHA256SUMS.txt and version.json used to be uploaded next to it so the in-app updater
+          # could verify what it downloaded — but two extra assets made the release look like a
+          # pile of build byproducts, and a browser/TV downloader that grabbed the wrong one had
+          # nothing telling it which was which. The checksum and the version code now live in the
+          # release body instead, which is where a person reads them anyway and where
+          # update/ReleaseParser can still scrape them.
+          apk_name="PhairPlay-${apk_version}.apk"
           mkdir -p dist
-          cp "$src" dist/PhairPlay-googletv.apk
-          (cd dist && sha256sum PhairPlay-googletv.apk > SHA256SUMS.txt)
-          apk_sha256=$(sha256sum dist/PhairPlay-googletv.apk | cut -d' ' -f1)
-          apk_size=$(stat -c%s dist/PhairPlay-googletv.apk)
+          cp "$src" "dist/$apk_name"
+          apk_sha256=$(sha256sum "dist/$apk_name" | cut -d' ' -f1)
+          apk_size=$(stat -c%s "dist/$apk_name")
           size_mb=$(python3 -c 'import sys; print(f"{int(sys.argv[1]) / 1048576:.1f}")' "$apk_size")
 
-          APK_VERSION_NAME="$apk_version" APK_VERSION_CODE="$apk_code" \
-          APK_SHA256="$apk_sha256" APK_SIZE="$apk_size" APK_TAG="latest" \
-          APK_COMMIT="$GITHUB_SHA" python3 - <<'PY'
-          import datetime
-          import json
-          import os
-
-          descriptor = {
-              "versionName": os.environ["APK_VERSION_NAME"],
-              "versionCode": int(os.environ["APK_VERSION_CODE"]),
-              "apk": "PhairPlay-googletv.apk",
-              "sha256": os.environ["APK_SHA256"],
-              "size": int(os.environ["APK_SIZE"]),
-              "tag": os.environ["APK_TAG"],
-              "commit": os.environ["APK_COMMIT"],
-              "builtAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-          }
-          with open("dist/version.json", "w", encoding="utf-8") as descriptor_file:
-              json.dump(descriptor, descriptor_file, indent=2)
-              descriptor_file.write("\n")
-          PY
-          python3 -c "import json; json.load(open('dist/version.json', encoding='utf-8'))"
-
           {
+            echo "apk_name=$apk_name"
             echo "version_name=$apk_version"
             echo "version_code=$apk_code"
             echo "sha256=$apk_sha256"
@@ -217,7 +205,7 @@ jobs:
           {
             echo "### Verified APK"
             echo
-            echo "- File: \`PhairPlay-googletv.apk\`"
+            echo "- Single release asset: \`$apk_name\`"
             echo "- Version from the APK: \`$apk_version\`"
             echo "- Download size: ${size_mb} MB"
             echo "- SHA-256: \`$apk_sha256\`"
@@ -226,6 +214,7 @@ jobs:
       - name: Verify the APK signature
         shell: bash
         env:
+          APK_NAME: ${{ steps.assets.outputs.apk_name }}
           EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 || 'b9cb7e4b4d5179870e672e850f5d3661f02c248f943dbaf10cd78cd0c047eaae' }}
         run: |
           set -euo pipefail
@@ -234,8 +223,8 @@ jobs:
             echo "::error::apksigner was not found in the installed Android build-tools."
             exit 1
           fi
-          "$apksigner" verify --verbose dist/PhairPlay-googletv.apk
-          fingerprint=$("$apksigner" verify --print-certs dist/PhairPlay-googletv.apk \
+          "$apksigner" verify --verbose dist/"$APK_NAME"
+          fingerprint=$("$apksigner" verify --print-certs dist/"$APK_NAME" \
             | grep -m1 'SHA-256' | sed -E 's/.*SHA-256 digest: *//' \
             | tr '[:upper:]' '[:lower:]' | tr -d ':')
           expected=$(printf '%s' "${EXPECTED_FINGERPRINT:-}" | tr '[:upper:]' '[:lower:]' | tr -d ':')
@@ -298,6 +287,7 @@ jobs:
           CODE: ${{ steps.assets.outputs.version_code }}
           APK_SHA256: ${{ steps.assets.outputs.sha256 }}
           APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
+          APK_NAME: ${{ steps.assets.outputs.apk_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -316,7 +306,7 @@ jobs:
 
           short_sha="${GITHUB_SHA:0:7}"
           title="PhairPlay ${VERSION} for Google TV"
-          apk_url="https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+          apk_url="https://github.com/${REPO}/releases/download/latest/${APK_NAME}"
           {
             echo "# What's new in this build"
             if [[ -s dist/changes-since-last-build.md ]]; then
@@ -335,12 +325,15 @@ jobs:
 
           ## Download and update
 
-          **Download the APK**: [PhairPlay-googletv.apk](${apk_url}) — this is the only APK in the release.
+          **Download the APK**: [${APK_NAME}](${apk_url}) — the release carries this one file and nothing else.
 
           - **Version:** \`${VERSION}\` · \`versionCode ${CODE}\`
           - **Size:** ${APK_SIZE_MB} MB · **SHA-256:** \`${APK_SHA256}\`
           - **TV update:** open **Settings → Updates → Check for updates**, or paste the direct APK link into Downloader.
-          - **Computer:** \`adb install -r PhairPlay-googletv.apk\`
+          - **Computer:** \`adb install -r ${APK_NAME}\`
+
+          - **SHA-256 of the file above:** \`${APK_SHA256}\` — the in-app updater compares this
+            before installing, so a truncated download is rejected rather than offered as an update.
 
           Builds from this repository use the same signing key, so updates install over the existing app. A one-time reinstall is needed only when switching from a differently signed build.
 
@@ -352,19 +345,19 @@ jobs:
 
           if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
             release_id=$(gh api "repos/$REPO/releases/tags/latest" --jq '.id')
+            # Delete every asset the release already has, not just the stale APKs: SHA256SUMS.txt
+            # and version.json are sitting on older releases and must not survive here, or "one
+            # file per release" is true only for releases published after this change.
             while IFS= read -r asset_id; do
               [[ -z "$asset_id" ]] || gh api --method DELETE "repos/$REPO/releases/assets/$asset_id"
-            done < <(gh api "repos/$REPO/releases/$release_id" \
-              --jq '.assets[] | select((.name | ascii_downcase | endswith(".apk")) and .name != "PhairPlay-googletv.apk") | .id')
-            gh release upload latest \
-              dist/PhairPlay-googletv.apk dist/SHA256SUMS.txt dist/version.json \
-              --repo "$REPO" --clobber
+            done < <(gh api "repos/$REPO/releases/$release_id" --jq '.assets[].id')
+            gh release upload latest dist/"$APK_NAME" --repo "$REPO" --clobber
             gh release edit latest --repo "$REPO" --title "$title" \
               --notes-file dist/release-notes.md --latest
             echo "Updated the current release."
           else
             gh release create latest \
-              dist/PhairPlay-googletv.apk dist/SHA256SUMS.txt dist/version.json \
+              dist/"$APK_NAME" \
               --repo "$REPO" --title "$title" --notes-file dist/release-notes.md \
               --target "$GITHUB_SHA" --verify-tag --latest
             echo "Created the current release."

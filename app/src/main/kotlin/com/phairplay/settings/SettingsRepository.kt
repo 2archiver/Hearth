@@ -108,13 +108,14 @@ class SettingsRepository(private val context: Context) {
     private fun Preferences.toAppSettings(): AppSettings = AppSettings(
         displayName        = this[Keys.DISPLAY_NAME]            ?: MdnsNames.DEFAULT_DISPLAY_NAME,
         airPlayEnabled     = this[Keys.AIRPLAY_ENABLED]         ?: true,
-        miracastEnabled    = this[Keys.MIRACAST_ENABLED]        ?: true,
-        castEnabled        = this[Keys.CAST_ENABLED]            ?: true,
-        castBridgeEnabled  = this[Keys.CAST_BRIDGE_ENABLED]     ?: true,
+        // Miracast defaults to off (see AppSettings). Cast was never a preference the app could
+        // honour — the TV's own Chromecast owns the ports — and no longer exists here at all, so
+        // any leftover "cast_*" key in an old DataStore file is simply ignored.
+        miracastEnabled    = this[Keys.MIRACAST_ENABLED]        ?: false,
         airPlayPinAuthEnabled = this[Keys.AIRPLAY_PIN_AUTH]     ?: false,
         startOnBoot        = this[Keys.START_ON_BOOT]           ?: false,
         showDebugOverlay   = this[Keys.SHOW_DEBUG_OVERLAY]      ?: false,
-        forceHighResolution = this[Keys.FORCE_HIGH_RESOLUTION]  ?: false,
+        forceHighResolution = this[Keys.FORCE_HIGH_RESOLUTION]  ?: true,
         mirrorAudioEnabled = this[Keys.MIRROR_AUDIO_ENABLED]    ?: true,
         autoCheckForUpdates  = this[Keys.AUTO_CHECK_UPDATES]    ?: true,
         autoDownloadUpdates  = this[Keys.AUTO_DOWNLOAD_UPDATES] ?: true,
@@ -129,8 +130,6 @@ class SettingsRepository(private val context: Context) {
         this[Keys.DISPLAY_NAME]         = settings.displayName
         this[Keys.AIRPLAY_ENABLED]      = settings.airPlayEnabled
         this[Keys.MIRACAST_ENABLED]     = settings.miracastEnabled
-        this[Keys.CAST_ENABLED]         = settings.castEnabled
-        this[Keys.CAST_BRIDGE_ENABLED]  = settings.castBridgeEnabled
         this[Keys.AIRPLAY_PIN_AUTH]     = settings.airPlayPinAuthEnabled
         this[Keys.START_ON_BOOT]        = settings.startOnBoot
         this[Keys.SHOW_DEBUG_OVERLAY]   = settings.showDebugOverlay
@@ -151,8 +150,6 @@ class SettingsRepository(private val context: Context) {
         val DISPLAY_NAME        = stringPreferencesKey("display_name")
         val AIRPLAY_ENABLED     = booleanPreferencesKey("airplay_enabled")
         val MIRACAST_ENABLED    = booleanPreferencesKey("miracast_enabled")
-        val CAST_ENABLED        = booleanPreferencesKey("cast_enabled")
-        val CAST_BRIDGE_ENABLED = booleanPreferencesKey("cast_bridge_enabled")
         val AIRPLAY_PIN_AUTH    = booleanPreferencesKey("airplay_pin_auth")
         val START_ON_BOOT       = booleanPreferencesKey("start_on_boot")
         val SHOW_DEBUG_OVERLAY  = booleanPreferencesKey("show_debug_overlay")

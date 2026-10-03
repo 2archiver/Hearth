@@ -7,15 +7,19 @@ numbered releases are kept as history; new builds do not create competing releas
 
 ## Download the current APK
 
-- **Install:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk>
-- **Release title, update notes, version, and build details:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest>
-- **Checksum:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/SHA256SUMS.txt>
+- **The release (one asset, the APK):** <https://github.com/2archiver/phairplay-archiver-fork-/releases/latest>
+- **Release title, update notes, version, checksum and build details:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest>
 - **Optional download page:** <https://2archiver.github.io/phairplay-archiver-fork-/>
 
-The APK keeps the stable filename `PhairPlay-googletv.apk` so saved links and the TV updater
-never break. The release title is read from the APK's embedded `versionName`; the release notes
-show what's changed. The release contains one APK, its checksum, and `version.json` for the
-in-app updater.
+A release carries **exactly one file**: `PhairPlay-<version>-googletv.apk`, named after the
+`versionName` embedded in it (the workflow reads that back out of the built APK with `aapt`).
+Nothing else is uploaded — no `SHA256SUMS.txt`, no `version.json`. What those files used to carry
+is now written into the release body, which is where a human reads it and where
+`ReleaseParser.scrapeVersionCode` / `scrapeSha256` find it for the in-app updater.
+
+Why one file: a release with three assets invites a TV to download the wrong one, and an
+un-versioned `PhairPlay-googletv.apk` cannot tell you which build it is once it lands in the
+Downloads folder. Both problems disappear when the file name *is* the version and it is alone.
 
 ## How publishing works
 
@@ -23,9 +27,9 @@ in-app updater.
 It builds, verifies, and publishes the APK only when that commit is still the current tip of
 `main`. A fixed concurrency group prevents two builds from racing over the `latest` tag.
 
-The workflow moves the `latest` tag to the current commit, removes extra APK files from that
-release, and publishes one APK plus its checksum and updater descriptor. It uses the version
-read from the built APK for the title and marks the release as GitHub's **Latest**. Notes show
+The workflow moves the `latest` tag to the current commit, deletes every asset the release already
+has, and publishes the single version-named APK. It uses the version read from the built APK for the
+file name and the title, and marks the release as GitHub's **Latest**. Notes show
 commit titles since the previous build plus the matching `CHANGELOG.md` summary. Older releases
 are left untouched as history.
 
@@ -42,8 +46,8 @@ No release tag or manual release editing is needed. To run the workflow manually
 ### Version numbers
 
 - **Version name:** CI builds `<phairplay.versionName>-main.<run number>`; the Google TV APK
-  adds the `-googletv` flavor suffix. The workflow reads the final version back from the APK
-  before setting the release title and writing `version.json`.
+  adds the `-googletv` flavor suffix — and that whole string becomes the release's asset file name,
+  so the file on GitHub and the file Android installs agree about which version they are.
 - **Version code:** a clock-based integer that is forced above the code in the current release.
   Android uses this number to determine whether an APK can update an installed app. A local
   `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides it.
@@ -138,23 +142,27 @@ Set `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` to sign wi
 otherwise the committed community key is used. Omit the `-P` flags to use the base version from
 `gradle.properties` and a clock-derived versionCode.
 
-## What the release workflow publishes now
+## What the release workflow publishes
 
-Alongside the APK and `SHA256SUMS.txt`, every release carries **`version.json`** — that is what
-PhairPlay's in-app updater reads:
+One asset, named after the version read back out of the built APK:
 
-```json
-{
-  "versionName": "1.5.0-main.131-googletv",
-  "versionCode": 1449351,
-  "apk": "PhairPlay-googletv.apk",
-  "sha256": "…",
-  "size": 12345678,
-  "tag": "latest",
-  "commit": "…",
-  "builtAt": "…"
-}
 ```
+PhairPlay-1.5.0-main.131-googletv.apk
+```
+
+and a release body that carries everything the side files used to:
+
+```markdown
+- **Version:** `1.5.0-main.131-googletv` · `versionCode 1449351`
+- **Size:** 24.9 MB · **SHA-256:** `…64 hex…`
+```
+
+That is the whole contract with the in-app updater (`update/ReleaseParser`): one request to
+`/releases/latest`, the version name from the asset file name, the code and digest scraped from the
+body. Releases published before this change also had `version.json` and `SHA256SUMS.txt`, and those
+parsers are still in place, so an old release resolves too — but nothing publishes them, and the
+publish step deletes every pre-existing asset so a re-run of an old release cannot leave them
+behind.
 
 Before publishing, the workflow verifies the APK's embedded version name and code, checks the
 signing certificate with `apksigner verify`, and refuses any build whose `versionCode` is not

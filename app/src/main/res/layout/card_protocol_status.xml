@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    card_protocol_status.xml — Reusable status card for one protocol (AirPlay/Miracast/Cast).
+    card_protocol_status.xml — Reusable status card for one protocol (AirPlay/Miracast).
 
     Visual design (Google TV Streamer card style):
     ┌──────────────────────┐
     │  [icon]              │
     │  Protocol Name       │  ← large, bold
     │  ● Running           │  ← colored status dot + state text
-    │  Waiting for sender  │  ← detail line (sender name or hint)
+    │  Waiting for sender  │  ← detail line (sender name, network, or reason)
     └──────────────────────┘
 
     When focused (D-pad): blue border ring appears
@@ -64,14 +64,19 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- Detail line: sender name when connected, hint when idle -->
+    <!--
+        Detail line: sender name while connected, the network it is advertised on, or the
+        reason a protocol cannot run. These are the only diagnostics the TV screen offers, so
+        they wrap instead of being cut off with an ellipsis — "Ports 8008, 8009 are already…"
+        was unreadable, which is what made people report it as a crash.
+    -->
     <TextView
         android:id="@+id/text_protocol_detail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="@color/text_tertiary"
         android:textSize="13sp"
-        android:maxLines="1"
-        android:ellipsize="end" />
+        android:maxLines="4"
+        android:ellipsize="none" />
 
 </LinearLayout>

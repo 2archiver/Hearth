@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Google TV flavour manifest.
+
+    There is deliberately no `com.google.android.gms.cast.tv.*` entry here. Declaring
+    RECEIVER_OPTIONS_PROVIDER_CLASS_NAME makes the Cast SDK initialise itself at process start,
+    which binds TCP 8008 and 8009 before PhairPlay has decided anything — on a Google TV those
+    ports belong to the set's own built-in Chromecast, so the clash surfaced as a permanent
+    "Ports 8008, 8009 are already in use" error on the Home screen while AirPlay was fighting an
+    mDNS responder that had also been asked to advertise a second `_googlecast._tcp` service.
+
+    PhairPlay is an AirPlay receiver; the TV already does Google Cast. That division of labour is
+    now written into the app instead of being patched over at runtime.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -11,9 +24,6 @@
         android:banner="@drawable/app_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name">
-        <meta-data
-            android:name="com.google.android.gms.cast.tv.RECEIVER_OPTIONS_PROVIDER_CLASS_NAME"
-            android:value="com.phairplay.cast.CastReceiverOptionsProvider" />
 
         <activity
             android:name=".MainActivity"
@@ -21,14 +31,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="com.google.android.gms.cast.tv.action.LAUNCH" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="com.google.android.gms.cast.tv.action.LOAD" />
-                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>

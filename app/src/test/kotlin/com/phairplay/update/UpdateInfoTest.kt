@@ -129,6 +129,61 @@ class UpdateInfoTest {
         assertNull(ReleaseParser.buildUpdateInfo(release, null))
     }
 
+    /**
+     * The protocol a release follows now: one asset, named after its version, with the versionCode
+     * and the digest written into the release body. If a new-style release ever needed a side file
+     * before this test fails loudly — and a TV would silently lose the ability to update itself.
+     */
+    @Test
+    fun `a single version-named APK is enough to describe an update`() {
+        val json = """
+        {
+          "tag_name": "latest",
+          "name": "PhairPlay 1.6.0-main.42 for Google TV",
+          "html_url": "https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest",
+          "body": "## Download and update\n\n**Download the APK**: [PhairPlay-1.6.0-main.42-googletv.apk](https://x)\n\n- **Version:** `1.6.0-main.42` · `versionCode 21021542`\n- **Size:** 24.9 MB · **SHA-256:** `9f2c1b64b17a4f3c0e7d2a55c8f61d4e0b3a77c2e1f4d8a6c5b3e1f0d9c8b7a6`\n",
+          "assets": [
+            { "name": "PhairPlay-1.6.0-main.42-googletv.apk",
+              "browser_download_url": "https://github.com/x/y/releases/download/latest/PhairPlay-1.6.0-main.42-googletv.apk",
+              "size": 26112000 }
+          ]
+        }
+        """.trimIndent()
+        val release = requireNotNull(ReleaseParser.parseRelease(json))
+        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
+
+        // Version name from the file that is actually installed, not from the release title.
+        assertEquals("1.6.0-main.42", info.versionName)
+        assertEquals(21021542, info.versionCode)
+        assertEquals(26112000L, info.apkSizeBytes)
+        assertTrue(info.apkUrl.endsWith("PhairPlay-1.6.0-main.42-googletv.apk"))
+        assertEquals(
+            "9f2c1b64b17a4f3c0e7d2a55c8f61d4e0b3a77c2e1f4d8a6c5b3e1f0d9c8b7a6",
+            info.sha256
+        )
+    }
+
+    /** A note that says "SHA-256" without a full digest must not be mistaken for one. */
+    @Test
+    fun `a truncated or prose digest in the notes is not used`() {
+        assertNull(ReleaseParser.scrapeSha256("Verify with SHA-256: `abc123` before installing."))
+        assertNull(ReleaseParser.scrapeSha256(null))
+        assertEquals(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            ReleaseParser.scrapeSha256(
+                "**SHA-256:** `0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF`"
+            )
+        )
+    }
+
+    @Test
+    fun `the version is read out of the asset file name`() {
+        assertEquals("1.6.0-main.42", ReleaseParser.versionNameFromAssetName("PhairPlay-1.6.0-main.42-googletv.apk"))
+        assertEquals("1.5.0", ReleaseParser.versionNameFromAssetName("PhairPlay-1.5.0.apk"))
+        assertNull(ReleaseParser.versionNameFromAssetName("app-release.apk"))
+        assertNull(ReleaseParser.versionNameFromAssetName(null))
+    }
+
     @Test
     fun `shortLabel shows version and code for support`() {
         val info = UpdateInfo(

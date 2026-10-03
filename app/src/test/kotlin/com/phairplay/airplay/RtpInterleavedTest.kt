@@ -94,6 +94,46 @@ class RtpInterleavedTest {
         assertTrue("NAL unit should be received after garbage bytes", nalReceived)
     }
 
+    /**
+     * The keep-alive regression: macOS/iOS send an RTSP `OPTIONS` on the same socket roughly
+     * every 30 s mid-stream. Skipping one byte used to make the reader interpret "PTIONS…" as
+     * a frame header, hit an invalid length, and end a healthy mirror — "video stops after a
+     * few seconds". Two frames must survive a request in between, in order.
+     */
+    @Test
+    fun `an embedded RTSP keep-alive does not end the stream`() {
+        val first = buildInterleavedFrame(0, buildMinimalVideoRtpFrame(timestampRtp90k = 90_000L))
+        val second = buildInterleavedFrame(0, buildMinimalVideoRtpFrame(timestampRtp90k = 180_000L))
+        val keepAlive = "OPTIONS rtsp://192.168.1.42:7000 RTSP/1.0\r\nCSeq: 7\r\n\r\n".toByteArray()
+
+        val timestamps = mutableListOf<Long>()
+        var ended = false
+        RtpInterleaved.readLoop(
+            inputStream = ByteArrayInputStream(first + keepAlive + second),
+            onVideoNalUnit = { _, pts -> timestamps.add(pts) },
+            onStreamEnded = { ended = true }
+        )
+
+        assertEquals("Both frames either side of the keep-alive must be delivered", 2, timestamps.size)
+        assertEquals(1_000_000L, timestamps[0])
+        assertEquals(2_000_000L, timestamps[1])
+        assertTrue("onStreamEnded still runs at EOF", ended)
+    }
+
+    @Test
+    fun `a stream with no further marker after RTSP text ends cleanly`() {
+        val frame = buildInterleavedFrame(0, buildMinimalVideoRtpFrame(timestampRtp90k = 90_000L))
+        var count = 0
+        var ended = false
+        RtpInterleaved.readLoop(
+            inputStream = ByteArrayInputStream(frame + "GET_PARAMETER rtsp/ RTSP/1.0\r\n".toByteArray()),
+            onVideoNalUnit = { _, _ -> count++ },
+            onStreamEnded = { ended = true }
+        )
+        assertEquals(1, count)
+        assertTrue("EOF while re-syncing must still report the stream as ended", ended)
+    }
+
     @Test
     fun `RTP timestamp zero produces zero presentation time`() {
         val rtp = buildMinimalVideoRtpFrame(timestampRtp90k = 0L)

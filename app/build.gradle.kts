@@ -1,11 +1,11 @@
 // App module build configuration for PhairPlay.
 //
 // PhairPlay ships for Google TV only (Android TV OS 10+; developed and tested against
-// Google TV 4K running Android TV OS 14).
-// The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...),
-// the applicationId, and the Cast SDK source set stay stable.
+// Google TV 4K running Android TV OS 14, wired to Ethernet as well as on Wi-Fi).
+// The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...)
+// and the applicationId stay stable.
 //
-// Shared code lives in src/main/. Google TV specific code lives in src/googletv/.
+// Shared code lives in src/main/. Google TV specific overrides live in src/googletv/.
 
 import java.security.KeyStore
 
@@ -30,11 +30,6 @@ fun String.escapedForBuildConfig(): String =
  * -Pphairplay.versionCode based on this clock and raises it above the last published APK if needed.
  */
 fun monotonicVersionCode(): Int = ((System.currentTimeMillis() / 60_000L) - 28_401_120L).toInt()
-
-val castAppId: String =
-    (providers.gradleProperty("phairplay.castAppId").orNull
-        ?: providers.environmentVariable("PHAIRPLAY_CAST_APP_ID").orNull
-        ?: "").trim()
 
 /**
  * GitHub repo the in-app update checker polls, as "owner/name".
@@ -159,7 +154,6 @@ android {
         versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.5.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "CAST_APP_ID", "\"${castAppId.escapedForBuildConfig()}\"")
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")
 
         // Native code (libplayfair.so, libalac) — Google TV hardware is ARM only
@@ -180,8 +174,10 @@ android {
         }
     }
 
-    // Single flavor: Google TV. Flavor-specific code (Cast Connect receiver),
-    // resources, and dependencies live in src/googletv/.
+    // Single flavor: Google TV. Flavor-specific resources and manifest entries live in
+    // src/googletv/. (A Cast Connect receiver used to sit here — it is gone. A Google TV's own
+    // Chromecast owns TCP 8008/8009 and the `_googlecast._tcp` record, so a second receiver in
+    // PhairPlay could only ever report a port clash; PhairPlay's job is AirPlay.)
     flavorDimensions += "platform"
     productFlavors {
         create("googletv") {
@@ -273,10 +269,8 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         warningsAsErrors = true
-        // Keep lint focused on PhairPlay sources. The Google Cast SDK pulls a
-        // large transitive graph that exceeds the small CI/dev VM during
-        // dependency lint analysis, while app-source lint still catches local
-        // manifest/resource/API regressions.
+        // Lint the app sources only — a full dependency graph walk needs the memory of a bigger
+        // runner than CI's, and app-source lint still catches manifest/resource/API regressions.
         checkDependencies = false
         disable += setOf(
             // Dependency freshness is tracked intentionally, but should not block
@@ -371,9 +365,6 @@ dependencies {
 
     // Binary property lists — AirPlay 2 handshake payloads (GET /info, SETUP)
     implementation(libs.ddplist)
-
-    // Google TV Cast Connect receiver SDK (needs Google Play Services, present on Google TV).
-    "googletvImplementation"(libs.play.services.cast.tv)
 
     // Unit Testing
     testImplementation(libs.junit)

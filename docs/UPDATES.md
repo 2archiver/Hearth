@@ -78,11 +78,16 @@ in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
 
 ## How the updater decides
 
-1. `GET https://api.github.com/repos/2archiver/phairplay-archiver-fork-/releases/latest`
-2. Download that release's `version.json` asset and read `versionCode`. (Falls back to
-   scraping `versionCode <n>` out of the release notes for releases published before 1.4.)
+1. `GET https://api.github.com/repos/2archiver/phairplay-archiver-fork-/releases/latest` — one
+   request. A PhairPlay release is that JSON plus a single asset, so nothing else is fetched.
+2. Read the version: `versionCode` is scraped from the release body (`versionCode <n>`), the
+   version name from the asset's file name, `PhairPlay-1.6.0-main.43-googletv.apk`. A release that
+   still publishes a `version.json` descriptor (anything before 1.6) is read from that instead,
+   because a descriptor beats a scrape.
 3. Compare with the installed `BuildConfig.VERSION_CODE`. Higher = update available.
-4. Download the APK, checking it against the published SHA-256 as it streams.
+4. Download the APK, checking it against the SHA-256 in the release body as it streams. The digest
+   must be a full 64 hex characters to be trusted; a release whose notes carry none is installed
+   after a size check only, and says so.
 5. Read the downloaded APK's signing certificate and compare it with PhairPlay's own.
    **Mismatch → refuse**, because that is exactly the "package conflicts" case.
 6. Hand it to `PackageInstaller`.

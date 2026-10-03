@@ -35,13 +35,13 @@ sealed class ServiceState {
 }
 
 /**
- * ProtocolState — Represents the state of a single receiver protocol (AirPlay / Miracast / Cast).
+ * ProtocolState — Represents the state of a single receiver protocol (AirPlay / Miracast).
  *
  * WHY: Each protocol has its own independent lifecycle. This enum lets the UI
  * show a fine-grained status per protocol card without conflating them.
  *
- * HOW: Each receiver component (AirPlayReceiver, MiracastReceiver, CastReceiver)
- * emits [ProtocolState] changes that are aggregated by [PhairPlayService].
+ * HOW: Each receiver component (AirPlayReceiver, MiracastReceiver) emits
+ * [ProtocolState] changes that are aggregated by [PhairPlayService].
  */
 enum class ProtocolState {
     /** Protocol is disabled in Settings. */
@@ -52,6 +52,17 @@ enum class ProtocolState {
 
     /** A sender is actively connected and streaming. */
     CONNECTED,
+
+    /**
+     * The protocol is enabled in Settings but cannot run on this hardware — a missing
+     * system service, unsupported radio, or a permission the platform refuses to grant.
+     *
+     * WHY A SEPARATE STATE: this is not a fault the user caused or a bug to report, so it
+     * must not be painted as a red ERROR the way it used to be. Miracast is the usual case:
+     * Google TVs keep Wi-Fi Direct to the system, so the receiver can never register a P2P
+     * service. The UI shows it grey with the reason and moves on.
+     */
+    UNAVAILABLE,
 
     /** The protocol encountered an error (e.g., port already in use). */
     ERROR
@@ -74,7 +85,7 @@ data class ActiveConnection(
         get() = (System.currentTimeMillis() - startedAt) / 1000L
 }
 
-/** Identifies one of the three supported protocols. */
+/** Identifies one of the protocols PhairPlay implements. */
 enum class Protocol {
-    AIRPLAY, MIRACAST, CAST
+    AIRPLAY, MIRACAST
 }

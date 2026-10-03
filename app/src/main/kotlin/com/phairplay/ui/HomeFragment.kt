@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 /**
  * HomeFragment — The main screen of PhairPlay.
  *
- * WHY: Shows the status of all three receiver protocols (AirPlay / Miracast / Cast)
+ * WHY: Shows the status of both receiver protocols (AirPlay / Miracast)
  * and provides Start / Stop / Restart controls. Designed for TV: large cards,
  * D-pad navigable, Google TV Streamer design language.
  *
@@ -71,7 +71,6 @@ class HomeFragment : Fragment() {
     private lateinit var dotServiceState: View
     private lateinit var cardAirPlay: View
     private lateinit var cardMiracast: View
-    private lateinit var cardCast: View
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
@@ -80,7 +79,6 @@ class HomeFragment : Fragment() {
     // detail line (per-protocol error text, real sender name while streaming).
     private var airPlayState = ProtocolState.DISABLED
     private var miracastState = ProtocolState.DISABLED
-    private var castState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
 
     /** The name mDNS actually registered (differs from the requested one on a collision). */
@@ -89,8 +87,13 @@ class HomeFragment : Fragment() {
     /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
     private var lastRequestedName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME
 
-    /** Honest explanation of the Cast card's state, published by PhairPlayService. */
-    private var castDetail: String? = null
+    /**
+     * Honest explanations of each card's state, published by [PhairPlayService] — which address
+     * the TV is advertising on, which record the mDNS responder refused, whether this set has a
+     * Wi-Fi Direct radio at all.
+     */
+    private var airPlayDetail: String? = null
+    private var miracastDetail: String? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_home, container, false)
@@ -134,7 +137,6 @@ class HomeFragment : Fragment() {
         dotServiceState  = view.findViewById(R.id.dot_service_state)
         cardAirPlay      = view.findViewById(R.id.card_airplay)
         cardMiracast     = view.findViewById(R.id.card_miracast)
-        cardCast         = view.findViewById(R.id.card_cast)
         btnStart         = view.findViewById(R.id.btn_start)
         btnStop          = view.findViewById(R.id.btn_stop)
         btnRestart       = view.findViewById(R.id.btn_restart)
@@ -147,7 +149,6 @@ class HomeFragment : Fragment() {
     private fun configureProtocolCards() {
         setupCard(cardAirPlay,   R.drawable.ic_airplay,  R.string.protocol_airplay)
         setupCard(cardMiracast,  R.drawable.ic_miracast, R.string.protocol_miracast)
-        setupCard(cardCast,      R.drawable.ic_cast,     R.string.protocol_cast)
     }
 
     private fun setupCard(card: View, iconRes: Int, nameRes: Int) {
@@ -269,7 +270,20 @@ class HomeFragment : Fragment() {
                 airPlayState = state
                 updateProtocolCard(
                     cardAirPlay, state,
-                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY
+                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
+                    detailOverride = airPlayDetail
+                )
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            // "Advertising on Ethernet · 192.168.1.42" / "the mDNS record was refused" — the
+            // difference between a working wired TV and an bug report that says "it doesn't work".
+            svc.airPlayDetail.collectLatest { detail ->
+                airPlayDetail = detail
+                updateProtocolCard(
+                    cardAirPlay, airPlayState,
+                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
+                    detailOverride = detail
                 )
             }
         }
@@ -278,22 +292,19 @@ class HomeFragment : Fragment() {
                 miracastState = state
                 updateProtocolCard(
                     cardMiracast, state,
-                    R.string.protocol_detail_error_miracast, Protocol.MIRACAST
+                    R.string.protocol_detail_error_miracast, Protocol.MIRACAST,
+                    detailOverride = miracastDetail
                 )
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            svc.castState.collectLatest { state ->
-                castState = state
-                updateCastCard()
-            }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            // "Ports 8008/8009 are in use — the built-in Chromecast is already serving Cast"
-            // is a far more useful Cast card than a bare "Error".
-            svc.castDetail.collectLatest { detail ->
-                castDetail = detail
-                updateCastCard()
+            svc.miracastDetail.collectLatest { detail ->
+                miracastDetail = detail
+                updateProtocolCard(
+                    cardMiracast, miracastState,
+                    R.string.protocol_detail_error_miracast, Protocol.MIRACAST,
+                    detailOverride = detail
+                )
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -304,27 +315,17 @@ class HomeFragment : Fragment() {
         }
     }
 
-    /** Re-renders the detail line of all three cards (used when the sender name changes). */
+    /** Re-renders the detail line of both cards (used when the sender name changes). */
     private fun refreshProtocolCardDetails() {
         updateProtocolCard(
             cardAirPlay, airPlayState,
-            R.string.protocol_detail_error_airplay, Protocol.AIRPLAY
+            R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
+            detailOverride = airPlayDetail
         )
         updateProtocolCard(
             cardMiracast, miracastState,
-            R.string.protocol_detail_error_miracast, Protocol.MIRACAST
-        )
-        updateCastCard()
-    }
-
-    /** Re-renders the Cast card, preferring the service's own explanation when it has one. */
-    private fun updateCastCard() {
-        updateProtocolCard(
-            card = cardCast,
-            state = castState,
-            errorDetailRes = R.string.protocol_detail_error_cast,
-            protocol = Protocol.CAST,
-            detailOverride = castDetail
+            R.string.protocol_detail_error_miracast, Protocol.MIRACAST,
+            detailOverride = miracastDetail
         )
     }
 
@@ -346,7 +347,7 @@ class HomeFragment : Fragment() {
     /**
      * Updates a single protocol status card with the current [ProtocolState].
      *
-     * @param card           The card root view (cardAirPlay, cardMiracast, or cardCast).
+     * @param card           The card root view (cardAirPlay or cardMiracast — there are exactly two).
      * @param state          The current state of this protocol.
      * @param errorDetailRes Honest, protocol-specific detail shown in the ERROR state
      *                       (never a generic "Check Wi-Fi settings" guess).
@@ -369,6 +370,8 @@ class HomeFragment : Fragment() {
             ProtocolState.DISABLED    -> Pair(R.string.protocol_state_disabled,    R.color.status_disabled)
             ProtocolState.ADVERTISING -> Pair(R.string.protocol_state_advertising, R.color.status_running)
             ProtocolState.CONNECTED   -> Pair(R.string.protocol_state_connected,   R.color.status_running)
+            // Grey, not red: nothing is broken, this TV simply cannot do it.
+            ProtocolState.UNAVAILABLE -> Pair(R.string.protocol_state_unavailable, R.color.status_disabled)
             ProtocolState.ERROR       -> Pair(R.string.protocol_state_error,       R.color.status_stopped)
         }
 
@@ -398,7 +401,10 @@ class HomeFragment : Fragment() {
                 }
             }
             state == ProtocolState.ERROR       -> detailOverride ?: getString(errorDetailRes)
+            state == ProtocolState.UNAVAILABLE -> detailOverride
+                ?: getString(R.string.protocol_detail_unavailable)
             state == ProtocolState.ADVERTISING -> detailOverride ?: getString(R.string.protocol_detail_waiting)
-            else                               -> getString(R.string.protocol_detail_disabled)
+            else -> if (detailOverride.isNullOrBlank()) getString(R.string.protocol_detail_disabled)
+                    else getString(R.string.protocol_detail_disabled) + " · " + detailOverride
         }
 }

@@ -127,10 +127,37 @@ class MirrorResolutionTest {
 
     // ─── AppSettings integration ─────────────────────────────────────────────
 
+    /**
+     * The default flipped in 1.6: a 4K Google TV on the shipping settings mirrors at 4K.
+     *
+     * Advertising 1080p by default was the visible-softness complaint on a wired 4K set — the
+     * sender obeyed the advertisement and never tried higher. The ceiling is still enforced by the
+     * panel and decoder arguments below, so a 1080p TV is unaffected by this default.
+     */
     @Test
-    fun `settings advertise 1080p by default on a 4K TV`() {
+    fun `settings advertise the panel's 4K by default when the decoder can take it`() {
         val res = AppSettings.DEFAULT.advertisedMirrorResolution(
             panelWidth = 3840, panelHeight = 2160,
+            decodeWidth = 3840, decodeHeight = 2160
+        )
+        assertEquals(MirrorResolution.UHD, res)
+    }
+
+    @Test
+    fun `turning high resolution off advertises 1080p on a 4K TV`() {
+        val settings = AppSettings(forceHighResolution = false)
+        val res = settings.advertisedMirrorResolution(
+            panelWidth = 3840, panelHeight = 2160,
+            decodeWidth = 3840, decodeHeight = 2160
+        )
+        assertEquals(MirrorResolution.FHD, res)
+    }
+
+    /** The default being on must not make a 1080p panel claim it can do 4K. */
+    @Test
+    fun `a 1080p panel still advertises 1080p with the 4K default on`() {
+        val res = AppSettings.DEFAULT.advertisedMirrorResolution(
+            panelWidth = 1920, panelHeight = 1080,
             decodeWidth = 3840, decodeHeight = 2160
         )
         assertEquals(MirrorResolution.FHD, res)

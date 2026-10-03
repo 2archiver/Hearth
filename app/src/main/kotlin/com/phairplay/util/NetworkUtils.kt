@@ -97,9 +97,10 @@ object NetworkUtils {
     /**
      * Returns this device's IPv4 address, or null when it has none.
      *
-     * Used for the DIAL `URLBase`/`Location` headers the Cast bridge sends, and for the
-     * network summary on the Home screen. Ethernet is preferred over Wi-Fi for the same
-     * stability reason as [getMacAddress].
+     * Used for the address shown under the AirPlay card — "Advertising on Ethernet ·
+     * 192.168.1.42" is what tells a wired TV's owner that the advertisement really is on the
+     * network the iPhone is joined to — and for the Home screen's network summary. Ethernet is
+     * preferred over Wi-Fi for the same stability reason as [getMacAddress].
      */
     fun getLocalIpAddress(): String? {
         return try {

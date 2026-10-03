@@ -9,7 +9,7 @@
 <resources>
 
     <!-- ── App-wide ────────────────────────────────────────────── -->
-    <!-- "(archiver)" tag shown in the launcher label, notification and Cast status text -->
+    <!-- "(archiver)" tag shown in the launcher label and the notification -->
     <string name="app_name">PhairPlay (archiver)</string>
 
     <!-- ── Navigation ──────────────────────────────────────────── -->
@@ -24,12 +24,14 @@
     <!-- ── Protocol names ──────────────────────────────────────── -->
     <string name="protocol_airplay">AirPlay</string>
     <string name="protocol_miracast">Miracast</string>
-    <string name="protocol_cast">Cast</string>
 
     <!-- ── Protocol states (shown in status cards) ─────────────── -->
     <string name="protocol_state_disabled">Disabled</string>
     <string name="protocol_state_advertising">Advertising</string>
     <string name="protocol_state_connected">Connected</string>
+    <!-- Enabled in Settings, but this TV cannot do it (no Wi-Fi Direct, for instance). Grey,
+         not red: nothing is broken and there is nothing to fix. -->
+    <string name="protocol_state_unavailable">Not available</string>
     <string name="protocol_state_error">Error</string>
 
     <!-- ── Protocol card detail lines ──────────────────────────── -->
@@ -45,7 +47,7 @@
          generic (and often fake) "Check Wi-Fi settings" hint. -->
     <string name="protocol_detail_error_airplay">Receiver error — try Restart</string>
     <string name="protocol_detail_error_miracast">Wi-Fi Direct unavailable or permission denied</string>
-    <string name="protocol_detail_error_cast">Cast App ID not set or Play Services unavailable</string>
+    <string name="protocol_detail_unavailable">This TV cannot receive it — nothing to fix in PhairPlay</string>
 
     <!-- ── Service states (header badge) ───────────────────────── -->
     <string name="service_state_running">Running</string>
@@ -89,9 +91,7 @@
     <string name="setting_airplay_enabled">AirPlay Receiver</string>
     <string name="setting_airplay_subtitle">Accept connections from macOS</string>
     <string name="setting_miracast_enabled">Miracast Receiver</string>
-    <string name="setting_miracast_subtitle">Accept connections from Windows and Android</string>
-    <string name="setting_cast_enabled">Google Cast Receiver</string>
-    <string name="setting_cast_subtitle">Accept connections from Chrome and Android</string>
+    <string name="setting_miracast_subtitle">Needs Wi-Fi Direct, which most Google TVs keep for themselves</string>
     <string name="setting_mirror_audio">Mirror audio</string>
     <string name="setting_mirror_audio_subtitle">Play the Mac\'s sound while mirroring</string>
     <string name="setting_pin_auth">Require pairing PIN</string>
@@ -100,7 +100,7 @@
     <string name="setting_debug_overlay">Debug overlay</string>
     <string name="setting_debug_overlay_subtitle">Show live FPS, queue and drop stats while streaming</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
-    <string name="setting_force_high_res_subtitle">Sharper mirroring on a 4K Google TV; needs more decode power. Off = 1080p</string>
+    <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
     <string name="setting_version">Version</string>
     <string name="setting_reset_defaults">Reset to defaults</string>
 
@@ -122,27 +122,11 @@
     <string name="error_network_unavailable">No Wi-Fi connection. Please connect to Wi-Fi.</string>
     <string name="error_mdns_failed">Failed to advertise on the network.</string>
     <string name="error_wifi_p2p_unavailable">Miracast is not supported on this device.</string>
-    <string name="error_cast_unavailable">Google Cast requires Google Play Services (not available on this device).</string>
 
     <!-- ── Accessibility ───────────────────────────────────────── -->
     <string name="content_desc_airplay_icon">AirPlay protocol icon</string>
     <string name="content_desc_miracast_icon">Miracast protocol icon</string>
-    <string name="content_desc_cast_icon">Google Cast protocol icon</string>
     <string name="content_desc_status_dot">Status indicator</string>
-
-    <!-- ── Google Cast (built-in receiver) ──────────────────────── -->
-    <!-- The Cast protocol does not expose a sender name for plain media casting -->
-    <string name="cast_sender_name">Cast Sender</string>
-    <!-- Shown on the Cast card when Cast is enabled but neither back-end can run -->
-    <string name="cast_detail_disabled">No Cast app ID is configured and the built-in bridge is turned off</string>
-    <!-- Shown on the Cast card when the bridge could not start -->
-    <string name="cast_detail_error">Cast receiver error — another app may be using ports 8008/8009</string>
-    <!-- Shown on the Cast card when PhairPlay is serving Cast itself -->
-    <string name="cast_detail_bridge_advertising">PhairPlay is serving Cast — no Google registration needed</string>
-    <!-- Shown on the Cast card when a build carries an official Cast App ID -->
-    <string name="cast_detail_connect_advertising">Using the official Cast SDK with a registered app ID</string>
-    <string name="setting_cast_bridge">Built-in Cast bridge</string>
-    <string name="setting_cast_bridge_subtitle">Serve Google Cast from PhairPlay itself, with no Google app ID</string>
 
     <!-- ── Home screen ─────────────────────────────────────────── -->
     <!-- %1$s = network summary, e.g. "Ethernet · 192.168.1.42" -->

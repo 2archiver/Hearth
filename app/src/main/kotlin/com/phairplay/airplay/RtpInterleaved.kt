@@ -3,6 +3,7 @@ package com.phairplay.airplay
 import com.phairplay.util.Logger
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.PushbackInputStream
 
 /**
  * RtpInterleaved — Reads binary RTP/RTCP frames from the RTSP TCP connection.
@@ -75,6 +76,9 @@ object RtpInterleaved {
      */
     private const val MAX_RTP_FRAME_BYTES = 2 * 1024 * 1024  // 2 MB
 
+    /** Room to push back exactly one byte: the '$' a re-sync found belongs to the outer loop. */
+    private const val PUSHBACK_BYTES = 1
+
     /**
      * Reads RTP interleaved frames from [inputStream] until the connection ends.
      *
@@ -97,24 +101,33 @@ object RtpInterleaved {
         // don't share state. Non-null means we are accumulating fragments for one NAL unit.
         var fuaAccumulator: ByteArrayOutputStream? = null
 
+        // Wrapped so a re-sync can push the '$' it found back into the stream (see
+        // [resyncPastEmbeddedRtsp]). PushbackInputStream delegates every other call through.
+        val pb = if (inputStream is PushbackInputStream) inputStream
+                 else PushbackInputStream(inputStream, PUSHBACK_BYTES)
+
         try {
             while (true) {
                 // Read the 4-byte interleaved frame header: $ channel(1) length(2)
-                val marker = inputStream.read()
+                val marker = pb.read()
                 if (marker == -1) break  // clean EOF — sender disconnected
 
-                // RTSP keeps-alive may send OPTIONS between RTP frames.
-                // If the byte is not '$', skip until we find one.
+                // A mid-stream RTSP request — the keep-alive OPTIONS every ~30 s, a
+                // GET_PARAMETER, a TEARDOWN — starts with ASCII text, not '$'. The old code
+                // skipped a single byte and carried on, so it read the next letters of
+                // "OPTIONS" as channel+length, decoded a garbage frame size, and tore the
+                // mirror down on a perfectly normal keep-alive ("video dies after a few
+                // seconds"). Scan forward to the next '$' instead and keep streaming.
                 if (marker != INTERLEAVED_MARKER) {
-                    Logger.v("RtpInterleaved: skipping non-$ byte 0x${marker.toString(16)}")
+                    if (!resyncPastEmbeddedRtsp(pb, marker)) break
                     continue
                 }
 
-                val channel = inputStream.read()
+                val channel = pb.read()
                 if (channel == -1) break
 
-                val lenHigh = inputStream.read()
-                val lenLow = inputStream.read()
+                val lenHigh = pb.read()
+                val lenLow = pb.read()
                 if (lenHigh == -1 || lenLow == -1) break
 
                 val frameLength = (lenHigh shl 8) or lenLow
@@ -128,7 +141,7 @@ object RtpInterleaved {
                 val frameData = ByteArray(frameLength)
                 var bytesRead = 0
                 while (bytesRead < frameLength) {
-                    val n = inputStream.read(frameData, bytesRead, frameLength - bytesRead)
+                    val n = pb.read(frameData, bytesRead, frameLength - bytesRead)
                     if (n == -1) {
                         Logger.w("RtpInterleaved: EOF mid-frame")
                         onStreamEnded()
@@ -148,6 +161,38 @@ object RtpInterleaved {
         }
 
         onStreamEnded()
+    }
+
+    /**
+     * Re-synchronises the interleaved reader after hitting a byte that is not `$`.
+     *
+     * Scans forward to the next `$` and pushes it back so the outer loop reads it as the start
+     * of a frame. RTSP request lines and headers are 7-bit ASCII and cannot contain `$`, so
+     * the marker is unambiguous and this cannot cut a frame in half. Whatever RTP was in
+     * flight when the request arrived is simply lost — senders retransmit, and the session
+     * survives, which is the entire point.
+     *
+     * @return false when no marker turns up within [MAX_RTP_FRAME_BYTES], i.e. the stream is
+     *   not recoverable and the caller should end the session.
+     */
+    private fun resyncPastEmbeddedRtsp(pb: PushbackInputStream, firstByte: Int): Boolean {
+        Logger.d(
+            "RtpInterleaved: embedded RTSP data between frames (first byte 0x" +
+                firstByte.toString(16) + ") — re-syncing to the next marker"
+        )
+        var scanned = 0
+        while (scanned < MAX_RTP_FRAME_BYTES) {
+            val b = pb.read()
+            if (b == -1) return false
+            scanned++
+            if (b == INTERLEAVED_MARKER) {
+                pb.unread(b)   // push '$' back for the outer loop to consume as a frame marker
+                Logger.d("RtpInterleaved: re-synced after $scanned byte(s)")
+                return true
+            }
+        }
+        Logger.w("RtpInterleaved: no marker within $MAX_RTP_FRAME_BYTES bytes — ending stream")
+        return false
     }
 
     /**
