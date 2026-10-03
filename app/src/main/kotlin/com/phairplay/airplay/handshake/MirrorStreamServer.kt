@@ -1,6 +1,7 @@
 package com.phairplay.airplay.handshake
 
 import android.view.Surface
+import com.phairplay.airplay.AirPlayTrace
 import com.phairplay.airplay.StreamStats
 import com.phairplay.airplay.VideoDecoder
 import com.phairplay.util.Logger
@@ -83,8 +84,40 @@ class MirrorStreamServer(
     private fun runReader() {
         try {
             Logger.i("MirrorStreamServer listening on data port $dataPort")
-            val socket = serverSocket.accept().also { client = it }
-            Logger.i("Mirror data connection from ${socket.inetAddress.hostAddress}")
+            // Accept repeatedly, not just once.
+            //
+            // WHY: the sender's data connection is a plain TCP socket that it re-opens after any
+            // interruption — a Wi-Fi blip, the phone sleeping and waking, or iOS handing the
+            // stream to a new process. With a single `accept()` the *listener* was still bound
+            // (so the SETUP reply stayed valid) but nothing was reading it any more, and the
+            // reconnect sat in the kernel's backlog until the sender timed out and dropped the
+            // whole mirror. Accepting in a loop costs one coroutine and turns that dead end into
+            // a one-second gap.
+            var connections = 0
+            while (running && !serverSocket.isClosed) {
+                val socket = serverSocket.accept().also { client = it }
+                connections++
+                Logger.i("Mirror data connection #$connections from ${socket.inetAddress.hostAddress}")
+                AirPlayTrace.record("Mirroring: sender connected the video stream (${socket.inetAddress.hostAddress})")
+                // A reconnect arrives with a fresh H.264 config packet; resync the decoder at the
+                // next keyframe instead of feeding it frames from a broken reference chain.
+                awaitingKeyframe = true
+                readConnection(socket)
+                runCatching { socket.close() }
+                client = null
+                if (running) Logger.i("Mirror data connection closed — waiting for a reconnect")
+            }
+        } catch (e: Exception) {
+            if (running) Logger.e("Mirror reader error", e)
+        } finally {
+            running = false
+            Logger.i("Mirror data connection ended")
+        }
+    }
+
+    /** Reads one sender data connection until it closes; returns when the socket ends. */
+    private fun readConnection(socket: Socket) {
+        try {
             val input = socket.getInputStream()
             val header = ByteArray(128)
             while (running && !socket.isClosed) {
@@ -109,10 +142,7 @@ class MirrorStreamServer(
                 }
             }
         } catch (e: Exception) {
-            if (running) Logger.e("Mirror reader error", e)
-        } finally {
-            running = false
-            Logger.i("Mirror data connection ended")
+            if (running) Logger.w("Mirror data connection ended: ${e.message}")
         }
     }
 

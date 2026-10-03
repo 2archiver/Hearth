@@ -58,8 +58,8 @@ object RtpInterleaved {
 
     /**
      * H.264 NAL unit type 24 = STAP-A (Single-Time Aggregation Packet).
-     * Carries several complete NAL units in one RTP packet — Miracast/WFD senders
-     * use it to ship SPS+PPS alongside the first packet of every keyframe (RFC 6184 §5.7.1).
+     * Carries several complete NAL units in one RTP packet — Apple senders use it to
+     * ship SPS+PPS alongside the first packet of every keyframe (RFC 6184 §5.7.1).
      */
     private const val NAL_TYPE_STAP_A = 24
 
@@ -371,9 +371,9 @@ object RtpInterleaved {
  * VideoRtpProcessor — stateful RTP → H.264 depacketizer for one media session.
  *
  * WHY: [RtpInterleaved.readLoop] owns its entire input stream, which fits AirPlay
- * (the connection switches completely to RTP after RECORD). The Miracast WFD media
- * loop must keep answering RTSP keep-alives on the same socket while RTP frames
- * flow, so it reads the `$`-framing itself and feeds complete RTP payloads here.
+ * (the connection switches completely to RTP after RECORD). A caller that has to keep
+ * answering RTSP keep-alives on the same socket while RTP frames flow reads the
+ * `$`-framing itself and feeds complete RTP payloads here instead.
  *
  * Holds the per-session FU-A reassembly state, exactly like [RtpInterleaved.readLoop].
  *

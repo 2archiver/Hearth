@@ -35,13 +35,13 @@ sealed class ServiceState {
 }
 
 /**
- * ProtocolState — Represents the state of a single receiver protocol (AirPlay / Miracast).
+ * ProtocolState — Represents the state of one receiver card on the Home screen.
  *
- * WHY: Each protocol has its own independent lifecycle. This enum lets the UI
- * show a fine-grained status per protocol card without conflating them.
- *
- * HOW: Each receiver component (AirPlayReceiver, MiracastReceiver) emits
- * [ProtocolState] changes that are aggregated by [PhairPlayService].
+ * WHY: One AirPlay receiver backs two cards — "AirPlay" (what is being streamed) and
+ * "Apple Casting" (screen mirroring from an iPhone/iPad/Mac). They report the same enum
+ * from different signals, so the cards can disagree honestly: the AirPlay card is CONNECTED
+ * while a sender holds a session, the Apple Casting card only while mirror video is on
+ * screen. See [PhairPlayService.appleCastingState].
  */
 enum class ProtocolState {
     /** Protocol is disabled in Settings. */
@@ -58,9 +58,8 @@ enum class ProtocolState {
      * system service, unsupported radio, or a permission the platform refuses to grant.
      *
      * WHY A SEPARATE STATE: this is not a fault the user caused or a bug to report, so it
-     * must not be painted as a red ERROR the way it used to be. Miracast is the usual case:
-     * Google TVs keep Wi-Fi Direct to the system, so the receiver can never register a P2P
-     * service. The UI shows it grey with the reason and moves on.
+     * must not be painted as a red ERROR the way it used to be. A TV whose mDNS responder
+     * refuses the record, for example, shows grey with the reason and moves on.
      */
     UNAVAILABLE,
 
@@ -85,7 +84,13 @@ data class ActiveConnection(
         get() = (System.currentTimeMillis() - startedAt) / 1000L
 }
 
-/** Identifies one of the protocols PhairPlay implements. */
+/**
+ * Identifies the receiver a connection belongs to.
+ *
+ * AirPlay is the only receiver Hearth runs. The Apple Casting card is not a second
+ * protocol — it is the mirroring half of the same AirPlay session — so it shares this value
+ * rather than inventing a protocol that does not exist.
+ */
 enum class Protocol {
-    AIRPLAY, MIRACAST
+    AIRPLAY
 }

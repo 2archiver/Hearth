@@ -1,9 +1,9 @@
 package com.phairplay.settings
 
 /**
- * MirrorResolution — the video size PhairPlay advertises to AirPlay senders in `GET /info`.
+ * MirrorResolution — the video size Hearth advertises to AirPlay senders in `GET /info`.
  *
- * WHAT: The three mirroring sizes PhairPlay can ask for (1080p / 1440p / 4K), plus the pure
+ * WHAT: The three mirroring sizes Hearth can ask for (1080p / 1440p / 4K), plus the pure
  *       policy that picks one for a given TV.
  *
  * WHY:  The sender renders and encodes the mirror at whatever size we advertise. A 4K Google TV

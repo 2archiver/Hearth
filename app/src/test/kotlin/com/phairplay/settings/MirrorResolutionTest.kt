@@ -6,7 +6,7 @@ import org.junit.Test
 /**
  * MirrorResolutionTest — Unit tests for the mirroring-resolution policy in [MirrorResolution].
  *
- * WHY: The size PhairPlay advertises in `GET /info` decides what the sender encodes. Asking a
+ * WHY: The size Hearth advertises in `GET /info` decides what the sender encodes. Asking a
  * 1080p TV (or a weak decoder) for 4K produces a stream it cannot decode — a black screen with
  * audio, the single most confusing AirPlay failure. These tests pin the rules down so the 4K
  * path can never widen without an explicit change here.

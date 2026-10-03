@@ -1,6 +1,6 @@
-# PhairPlay Architecture
+# Hearth Architecture
 
-This document explains how PhairPlay works — from the moment a macOS user clicks "AirPlay" to the moment video appears on the TV.
+This document explains how Hearth works — from the moment a macOS user clicks "AirPlay" to the moment video appears on the TV.
 
 ---
 
@@ -10,7 +10,7 @@ Imagine you want to show your Mac's screen on your TV. AirPlay 2 makes this happ
 
 ### Step 1: Your TV announces itself ("I'm here!")
 
-When PhairPlay starts, it uses a technology called **mDNS** (Multicast DNS) — the same thing as Apple's "Bonjour" — to broadcast a message on your local network. This message says:
+When Hearth starts, it uses a technology called **mDNS** (Multicast DNS) — the same thing as Apple's "Bonjour" — to broadcast a message on your local network. This message says:
 
 > "Hello! I'm a TV called 'My Living Room TV', I support AirPlay 2, and I'm listening on port 7000."
 
@@ -45,9 +45,9 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 
 | Component | File | What It Does |
 |---|---|---|
-| `PhairPlayApp` | `PhairPlayApp.kt` | App-level init (logging setup) |
+| `HearthApp` | `HearthApp.kt` | App-level init (logging setup) |
 | `MainActivity` | `MainActivity.kt` | Hosts the UI, manages app lifecycle |
-| `PhairPlayService` | `service/PhairPlayService.kt` | ForegroundService — keeps receiver alive |
+| `HearthService` | `service/HearthService.kt` | ForegroundService — keeps receiver alive |
 | `AirPlayReceiver` | `airplay/AirPlayReceiver.kt` | **Orchestrator** — starts/stops all sub-services |
 | `WaitingScreen` | `ui/WaitingScreen.kt` | Idle UI — "Ready for AirPlay" |
 | `StreamingScreen` | `ui/StreamingScreen.kt` | Video SurfaceView (aspect-fit letterbox) |
@@ -120,11 +120,11 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 ## Full Data Flow Diagram
 
 ```
-  macOS (sender)                          Android TV (PhairPlay)
+  macOS (sender)                          Android TV (Hearth)
   ─────────────                           ──────────────────────
 
   [App starts on TV]
-                                          PhairPlayApp.onCreate()
+                                          HearthApp.onCreate()
                                                │
                                           MainActivity.onCreate()
                                                │
@@ -141,13 +141,13 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
   [User opens AirPlay menu on Mac]
 
   mDNS query (multicast)  ──────────────► NsdManager responds automatically
-  ◄── mDNS response ────────────────────── ("PhairPlay" at 192.168.1.x:7000)
+  ◄── mDNS response ────────────────────── ("Hearth" at 192.168.1.x:7000)
 
   AirPlay device appears in macOS menu ✓
 
   ─────── HANDSHAKE ──────────────────────────────────────────────────────
 
-  [User clicks "PhairPlay" in AirPlay menu]
+  [User clicks "Hearth" in AirPlay menu]
 
   TCP connect → port 7000 ─────────────► RtspHandler.accept()
   OPTIONS rtsp://... ──────────────────► handleOptions() → 200 OK

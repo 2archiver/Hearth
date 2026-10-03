@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature or improvement for PhairPlay
+about: Suggest a new feature or improvement for Hearth
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
@@ -26,7 +26,7 @@ assignees: ''
 
 ## Scope Check
 
-Before requesting a feature, please confirm it is within PhairPlay's scope:
+Before requesting a feature, please confirm it is within Hearth's scope:
 - [ ] It works over local network (no internet required)
 - [ ] It doesn't require iOS support (v1 is macOS-only)
 - [ ] It doesn't require FairPlay DRM

@@ -20,23 +20,20 @@ import com.phairplay.service.PhairPlayService
 import com.phairplay.service.PhotoFrame
 import com.phairplay.service.ProtocolState
 import com.phairplay.service.ServiceController
-import com.phairplay.settings.SettingsRepository
 import com.phairplay.airplay.NowPlayingInfo
 import com.phairplay.ui.HomeFragment
 import com.phairplay.ui.NowPlayingScreen
 import com.phairplay.ui.PhotoScreen
-import com.phairplay.ui.PinScreen
 import com.phairplay.ui.SettingsFragment
 import com.phairplay.ui.StreamingScreen
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * MainActivity — The single Activity hosting PhairPlay's navigation and fragments.
+ * MainActivity — The single Activity hosting Hearth's navigation and fragments.
  *
- * WHY: PhairPlay uses a single-Activity architecture with Fragment-based navigation.
+ * WHY: Hearth uses a single-Activity architecture with Fragment-based navigation.
  * This is the recommended pattern for Android TV apps: one Activity with swappable
  * Fragments avoids the overhead of Activity transitions and keeps the Leanback
  * launcher integration simple.
@@ -63,16 +60,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var streamingScreen: StreamingScreen
     private lateinit var photoScreen: PhotoScreen
     private lateinit var nowPlayingScreen: NowPlayingScreen
-    private lateinit var pinScreen: PinScreen
 
     // Service binding — gives access to state flows for showing/hiding the streaming overlay
     private var service: PhairPlayService? = null
     private var isBound = false
     private var currentAirPlayState = ProtocolState.DISABLED
-    private var currentMiracastState = ProtocolState.DISABLED
+    /**
+     * Apple Casting (AirPlay screen mirroring) state. Same receiver as [currentAirPlayState] —
+     * this one is only CONNECTED while a mirror *video* stream is really on screen, which is what
+     * decides whether to put the full-screen Surface up.
+     */
+    private var currentAppleCastingState = ProtocolState.DISABLED
     private var currentPhotoFrame: PhotoFrame? = null
     private var currentNowPlaying: NowPlayingInfo? = null
-    private var currentPin: String? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -114,11 +114,11 @@ class MainActivity : AppCompatActivity() {
         // Start the service immediately so it's running before any sender discovers us
         ServiceController.start(this)
 
-        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS. Wi-Fi Direct
-        // permissions (ACCESS_FINE_LOCATION / NEARBY_WIFI_DEVICES) are needed too, but only by
-        // Miracast — so they are asked for only while that receiver is switched on in Settings.
-        // Demanding a "nearby devices" permission from a TV owner whose set is wired to Ethernet,
-        // for a receiver that can never run there, was the first thing PhairPlay did on launch.
+        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS. Nothing else is
+        // needed any more: the Wi-Fi Direct / location permissions existed only for the Miracast
+        // receiver, which is gone — AirPlay is an ordinary TCP/UDP server and needs no runtime
+        // permission at all. Asking a wired TV owner for "nearby devices" on first launch was a
+        // prompt with no receiver behind it.
         lifecycleScope.launch { requestRuntimePermissions() }
     }
 
@@ -171,14 +171,11 @@ class MainActivity : AppCompatActivity() {
         streamingScreen = StreamingScreen(this)
         photoScreen = PhotoScreen(this)
         nowPlayingScreen = NowPlayingScreen(this)
-        pinScreen = PinScreen(this)
         streamingContainer.addView(streamingScreen)
         streamingContainer.addView(photoScreen)
         streamingContainer.addView(nowPlayingScreen)
-        streamingContainer.addView(pinScreen)
         photoScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.GONE
-        pinScreen.visibility = View.GONE
     }
 
     /**
@@ -244,7 +241,6 @@ class MainActivity : AppCompatActivity() {
         photoScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.GONE
         nowPlayingScreen.clear()
-        pinScreen.visibility = View.GONE
         streamingScreen.visibility = View.VISIBLE
         streamingContainer.visibility = View.VISIBLE
         streamingContainer.bringToFront()
@@ -254,8 +250,7 @@ class MainActivity : AppCompatActivity() {
         if (photoScreen.showPhoto(photoFrame.bytes)) {
             streamingScreen.visibility = View.GONE
             nowPlayingScreen.visibility = View.GONE
-            pinScreen.visibility = View.GONE
-            photoScreen.visibility = View.VISIBLE
+                photoScreen.visibility = View.VISIBLE
             streamingContainer.visibility = View.VISIBLE
             streamingContainer.bringToFront()
         }
@@ -266,7 +261,6 @@ class MainActivity : AppCompatActivity() {
         nowPlayingScreen.update(info)
         streamingScreen.visibility = View.GONE
         photoScreen.visibility = View.GONE
-        pinScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.VISIBLE
         streamingContainer.visibility = View.VISIBLE
         streamingContainer.bringToFront()
@@ -281,7 +275,6 @@ class MainActivity : AppCompatActivity() {
         photoScreen.visibility = View.GONE
         nowPlayingScreen.clear()
         nowPlayingScreen.visibility = View.GONE
-        pinScreen.visibility = View.GONE
         streamingScreen.visibility = View.VISIBLE
         streamingContainer.visibility = View.GONE
     }
@@ -297,7 +290,7 @@ class MainActivity : AppCompatActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         val overlayActive = currentNowPlaying != null ||
             currentAirPlayState == ProtocolState.CONNECTED ||
-            currentMiracastState == ProtocolState.CONNECTED
+            currentAppleCastingState == ProtocolState.CONNECTED
         if (overlayActive) {
             val command = when (keyCode) {
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -321,61 +314,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Requests the runtime permissions this TV actually needs, in a single call:
-     * - POST_NOTIFICATIONS (Android 13+) for the foreground-service notification
-     * - ACCESS_FINE_LOCATION (all versions) + NEARBY_WIFI_DEVICES (Android 13+) — but only
-     *   while Settings → Miracast is on. The Wi-Fi P2P API refuses `addLocalService` without
-     *   one of them, which is what used to make the Miracast card blame the user's Wi-Fi
-     *   settings; asking for them when Miracast is off buys a permission prompt and nothing else.
+     * Requests POST_NOTIFICATIONS on Android 13+, for the foreground-service notification.
      *
-     * Suspending because the Miracast setting has to come from DataStore first. Call it from
-     * [lifecycleScope]. One combined request avoids the system dropping a second
-     * `requestPermissions()` call made while a dialog is already up.
+     * That is the only runtime permission Hearth still needs. The Wi-Fi Direct, location and
+     * "nearby devices" grants went away with the Miracast receiver, and AirPlay runs on ordinary
+     * TCP/UDP sockets that need none.
      */
     private suspend fun requestRuntimePermissions() {
-        val miracastWanted = runCatching {
-            SettingsRepository(this).settingsFlow.first().miracastEnabled
-        }.getOrDefault(false)
-
-        val missing = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
+            ) == PackageManager.PERMISSION_GRANTED
         ) {
-            missing += android.Manifest.permission.POST_NOTIFICATIONS
+            return
         }
-        if (miracastWanted && ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            missing += android.Manifest.permission.ACCESS_FINE_LOCATION
-        }
-        if (miracastWanted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                this, PERMISSION_NEARBY_WIFI_DEVICES
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            missing += PERMISSION_NEARBY_WIFI_DEVICES
-        }
-        if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(
-                this,
-                missing.toTypedArray(),
-                PERMISSION_REQUEST_RUNTIME
-            )
-        }
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+            PERMISSION_REQUEST_NOTIFICATIONS
+        )
     }
 
     companion object {
-        private const val PERMISSION_REQUEST_RUNTIME = 1001
-        private const val PERMISSION_NEARBY_WIFI_DEVICES = "android.permission.NEARBY_WIFI_DEVICES"
+        private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
     }
 
-    // ─── Streaming overlay ────────────────────────────────────────────────────
+    // ─── Streaming overlay ────────────────────────────────────────────────────    // ─── Streaming overlay ────────────────────────────────────────────────────
 
     /**
-     * Observes [PhairPlayService.airPlayState], [PhairPlayService.miracastState],
+     * Observes [PhairPlayService.airPlayState], [PhairPlayService.appleCastingState],
      * [PhairPlayService.photoFrame] and shows the appropriate full-screen overlay.
      *
      * Called once after the service is bound. The coroutine is automatically cancelled
@@ -390,8 +357,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch {
-            svc.miracastState.collectLatest { state ->
-                currentMiracastState = state
+            svc.appleCastingState.collectLatest { state ->
+                currentAppleCastingState = state
                 updateOverlay()
             }
         }
@@ -407,40 +374,21 @@ class MainActivity : AppCompatActivity() {
                 updateOverlay()
             }
         }
-        lifecycleScope.launch {
-            svc.pairingPin.collectLatest { pin ->
-                currentPin = pin
-                updateOverlay()
-            }
-        }
     }
 
     private fun updateOverlay() {
         val photoFrame = currentPhotoFrame
         val nowPlaying = currentNowPlaying
-        val pin = currentPin
         when {
-            // PIN pairing (access control) happens before streaming — show the code over everything.
-            pin != null -> showPinScreen(pin)
             // Audio-only AirPlay (system audio, Music, podcasts): show the now-playing card instead
             // of the black video surface. Set whenever audio plays without video.
             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
-            // Full-screen video: AirPlay mirroring or a Miracast (WFD) session.
-            currentAirPlayState == ProtocolState.CONNECTED ||
-                currentMiracastState == ProtocolState.CONNECTED -> showStreamingScreen()
+            // Full-screen video: Apple Casting (AirPlay screen mirroring) or an AirPlay video
+            // session. Either one means there are frames to show.
+            currentAppleCastingState == ProtocolState.CONNECTED ||
+                currentAirPlayState == ProtocolState.CONNECTED -> showStreamingScreen()
             photoFrame != null -> showPhotoScreen(photoFrame)
             else -> hideStreamingScreen()
         }
-    }
-
-    /** Shows the AirPlay pairing PIN over the full screen during SRP pair-setup. */
-    fun showPinScreen(pin: String) {
-        pinScreen.setPin(pin)
-        streamingScreen.visibility = View.GONE
-        photoScreen.visibility = View.GONE
-        nowPlayingScreen.visibility = View.GONE
-        pinScreen.visibility = View.VISIBLE
-        streamingContainer.visibility = View.VISIBLE
-        streamingContainer.bringToFront()
     }
 }

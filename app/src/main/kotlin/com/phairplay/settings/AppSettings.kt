@@ -3,7 +3,7 @@ package com.phairplay.settings
 import com.phairplay.util.MdnsNames
 
 /**
- * AppSettings — Immutable data model for all user-configurable PhairPlay settings.
+ * AppSettings — Immutable data model for all user-configurable Hearth settings.
  *
  * WHY: Centralizing all settings in one data class gives a single source of truth.
  * Any component that needs a setting reads from here. Any component that changes a
@@ -31,7 +31,7 @@ data class AppSettings(
      * It defaults to [MdnsNames.DEFAULT_DISPLAY_NAME] ("Apple TV") rather than to empty:
      * a blank value used to fall back to the Android device name, which meant the name a
      * sender showed was whatever the TV was called in Android settings and could not be
-     * controlled from inside PhairPlay.
+     * controlled from inside Hearth.
      *
      * Validated via [effectiveDisplayName]: trimmed, stripped of characters that break
      * mDNS/pickers, and capped at 63 UTF-8 bytes. Setting it back to blank restores the
@@ -45,25 +45,6 @@ data class AppSettings(
      * When false: mDNS advertisement is stopped, RTSP port 7000 is not opened.
      */
     val airPlayEnabled: Boolean = true,
-
-    /**
-     * Whether the Miracast (Wi-Fi Display) receiver is enabled.
-     *
-     * OFF by default, on purpose. Receiving Miracast means owning a Wi-Fi Direct group, and a
-     * Google TV either has no Wi-Fi radio switched on at all (wired sets) or keeps `WifiP2pManager`
-     * for the system. Enabled it used to start at every launch, fail to register, and leave a red
-     * "Wi-Fi Direct unavailable or permission denied" error on the Home screen of every TV where
-     * it can never work. Switch it on if this set genuinely takes Miracast.
-     */
-    val miracastEnabled: Boolean = false,
-
-    // ─── AirPlay specific ──────────────────────────────────────────────────
-    /**
-     * Whether AirPlay connections require PIN authentication.
-     * When true: the user must confirm a 4-digit PIN shown on screen.
-     * When false (default): any nearby Mac can connect without confirmation.
-     */
-    val airPlayPinAuthEnabled: Boolean = false,
 
     // ─── Service behavior ──────────────────────────────────────────────────
     /**
@@ -90,7 +71,7 @@ data class AppSettings(
      * (supersampling: sharper text) at the cost of more decode work.
      *
      * It ships ON because the panel is what a wired Google TV 4K owner is looking at: a 1080p
-     * mirror on a 4K set is visibly soft, and every Google TV in PhairPlay's test matrix decodes
+     * mirror on a 4K set is visibly soft, and every Google TV in Hearth's test matrix decodes
      * 4K. The size actually advertised is still capped by what this TV can show and decode —
      * see [advertisedMirrorResolution] — so a 1080p or 1440p panel never gets asked to decode 4K,
      * and a slow SoC can opt out here without touching anything else.
@@ -107,7 +88,7 @@ data class AppSettings(
 
     // ─── Updates ────────────────────────────────────────────────────────────
     /**
-     * Check GitHub for a newer PhairPlay build in the background while the receiver service
+     * Check GitHub for a newer Hearth build in the background while the receiver service
      * is running, at most once every few hours.
      */
     val autoCheckForUpdates: Boolean = true,
@@ -115,7 +96,7 @@ data class AppSettings(
     /**
      * Download a found update without asking, then show "Update ready — Install".
      *
-     * Android still shows its own confirmation unless the platform allows PhairPlay to
+     * Android still shows its own confirmation unless the platform allows Hearth to
      * replace itself silently (Android 12+ normally does). Nothing is ever installed
      * without the user pressing Install except in that platform-supported self-update case.
      */
@@ -167,11 +148,13 @@ data class AppSettings(
         get() = MdnsNames.sanitize(displayName)
 
     /**
-     * Returns true if at least one protocol is enabled.
-     * If both are disabled, the service has nothing to do.
+     * Returns true if the AirPlay receiver is enabled — the only receiver the service runs.
+     *
+     * Kept as a named concept because the service start-up gate and the notification read it,
+     * and "nothing to do" is a state the UI still has to explain.
      */
     val anyProtocolEnabled: Boolean
-        get() = airPlayEnabled || miracastEnabled
+        get() = airPlayEnabled
 
     companion object {
         /** The default settings instance used on first launch. */

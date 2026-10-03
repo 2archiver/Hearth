@@ -1,6 +1,6 @@
 # Publishes the download page (site/) to GitHub Pages.
 #
-# The APK download does NOT depend on this page — releases/download/latest/PhairPlay-googletv.apk
+# The APK download does NOT depend on this page — releases/download/latest/Hearth-googletv.apk
 # works on its own. The page is a nicer front door, and it reads the release list from the GitHub
 # API in the browser, so publishing a new APK never requires redeploying it.
 #
@@ -61,7 +61,7 @@ jobs:
             echo "Settings → Pages → Build and deployment → **Source: GitHub Actions**, then re-run"
             echo "this workflow (or push any change under \`site/\`)."
             echo ""
-            echo "The APK is unaffected: https://github.com/${REPO}/releases/download/latest/PhairPlay-googletv.apk"
+            echo "The APK is unaffected: https://github.com/${REPO}/releases/download/latest/Hearth-googletv.apk"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the page

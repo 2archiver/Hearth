@@ -52,7 +52,16 @@ class UpdateManager(private val context: Context) {
             Logger.d("Update check skipped — last check was less than 6h ago")
             return@withContext UpdateCheck.Skipped("Checked recently.")
         }
-        val result = checker.check()
+        var result = checker.check()
+        // "Skip this version" is an instruction about *that* build, not about updating: a manual
+        // check still shows it (so the decision can be reversed), but the background loop must
+        // stop mentioning it. Marked here — the one place both the service and the UI pass
+        // through — so neither can forget.
+        if (result is UpdateCheck.Available &&
+            prefs.skippedVersionCode != 0 && prefs.skippedVersionCode == result.info.versionCode
+        ) {
+            result = result.copy(skipped = true)
+        }
         when (result) {
             is UpdateCheck.Available -> {
                 prefs.lastCheckMillis = System.currentTimeMillis()
@@ -92,12 +101,40 @@ class UpdateManager(private val context: Context) {
         info: UpdateInfo,
         onProgress: (percent: Int) -> Unit = {}
     ): StageResult = withContext(Dispatchers.IO) {
+        // Refuse before spending the user's bandwidth: the release is not newer than this install.
+        val installed = installedVersionCode()
+        if (info.versionCode in 1..installed) {
+            Logger.w("Refusing ${info.versionName} (${info.versionCode}): not newer than installed $installed")
+            return@withContext StageResult.Failed(
+                "The published build (${info.versionName}, build ${info.versionCode}) is not newer " +
+                    "than the one already on this TV (build $installed), so there is nothing to install.",
+                UpdateFailureReason.PUBLISHED_OLDER
+            )
+        }
+
         val file = destinationFor(info)
         val downloaded = checker.download(info, file, onProgress)
             ?: return@withContext StageResult.Failed(
                 "Download failed. Check the TV's connection and try again.",
                 UpdateFailureReason.DOWNLOAD_FAILED
             )
+
+        // The release notes are scraped text; the APK is the truth. Reading the versionCode out
+        // of the downloaded package catches the case the notes got wrong (or a release that was
+        // published from an older commit) *before* it becomes an install Android will reject.
+        val realVersionCode = apkVersionCode(downloaded)
+        if (realVersionCode != null && realVersionCode <= installed) {
+            Logger.w(
+                "Downloaded APK is build $realVersionCode, installed is $installed — " +
+                    "that is a downgrade; deleting it rather than offering an install"
+            )
+            downloaded.delete()
+            return@withContext StageResult.Failed(
+                "The download turned out to be older than the build on this TV " +
+                    "(build $realVersionCode vs $installed). It was deleted — nothing to install.",
+                UpdateFailureReason.PUBLISHED_OLDER
+            )
+        }
 
         when (installer.verifySignature(downloaded)) {
             SignatureCheck.Match -> {
@@ -111,7 +148,7 @@ class UpdateManager(private val context: Context) {
                 // would be rejected with "package conflicts with an existing package".
                 downloaded.delete()
                 StageResult.Failed(
-                    "Android cannot install this update over the current PhairPlay because the " +
+                    "Android cannot install this update over the current Hearth because the " +
                         "signing keys differ. Use an APK signed with this install's key, or make " +
                         "a one-time manual switch to the new source.",
                     UpdateFailureReason.SIGNATURE_MISMATCH
@@ -181,6 +218,22 @@ class UpdateManager(private val context: Context) {
     /** Deletes any staged download (after a successful install, or when the user declines). */
     fun clearDownload() = prefs.clearStaged()
 
+    /**
+     * The versionCode stored inside [apk], or null when it cannot be read.
+     *
+     * WHY: the update check reads a versionCode out of the release *notes* (the release workflow
+     * writes it there), and notes can be wrong — an old release re-tagged `latest`, a manual
+     * upload, a copy-paste in the release body. The APK's own manifest is what Android compares
+     * against to decide whether an install is a downgrade, so that is what the updater must
+     * compare too.
+     */
+    fun apkVersionCode(apk: File): Int? = runCatching {
+        @Suppress("DEPRECATION")
+        val info = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+        info?.let { if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else it.versionCode }
+    }.onFailure { Logger.w("Could not read the downloaded APK's versionCode: ${it.message}") }
+        .getOrNull()
+
     /** Remembers that the user does not want to be nagged about [versionCode] again. */
     fun skipVersion(versionCode: Int) {
         prefs.skippedVersionCode = versionCode
@@ -193,7 +246,7 @@ class UpdateManager(private val context: Context) {
 
     private fun destinationFor(info: UpdateInfo): File = File(
         File(context.applicationContext.cacheDir, UPDATE_DIR),
-        "PhairPlay-${info.versionCode}.apk"
+        "Hearth-${info.versionCode}.apk"
     )
 
     companion object {

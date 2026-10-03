@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ic_apple_casting.xml — Apple Casting (AirPlay screen mirroring) card icon.
+
+    A TV with the four-step "casting" arc in the corner: the same shape family as a phone's
+    Screen Mirroring button, drawn in the app's palette so it reads at 10 feet.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Screen + stand -->
+    <path
+        android:fillColor="#FFEDEDED"
+        android:pathData="M3,4 h18 a1,1 0 0 1 1,1 v11 a1,1 0 0 1 -1,1 h-6 v2 h2 v1 H7 v-1 h2 v-2 H3 a1,1 0 0 1 -1,-1 V5 a1,1 0 0 1 1,-1 z" />
+
+    <!-- Cast dot + arcs -->
+    <path
+        android:fillColor="#FF34A853"
+        android:pathData="M5,17.5 m-1.5,0 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0 z" />
+    <path
+        android:fillColor="#FF34A853"
+        android:pathData="M3,13 v2 a4,4 0 0,1 4,4 h2 a6,6 0 0 0 -6,-6 z" />
+    <path
+        android:fillColor="#FF34A853"
+        android:pathData="M3,9.5 v2 a7.5,7.5 0 0,1 7.5,7.5 h2 a9.5,9.5 0 0 0 -9.5,-9.5 z" />
+</vector>

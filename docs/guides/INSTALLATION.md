@@ -1,12 +1,12 @@
 # Installation Guide
 
-This guide covers every way to install PhairPlay on your Google TV (Android TV OS 10+, tested on
+This guide covers every way to install Hearth on your Google TV (Android TV OS 10+, tested on
 Google TV 4K running Android TV OS 14).
 
 **The APK, always the newest build:**
 
 ```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk
+https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk
 ```
 
 It is rebuilt on every merge to `main` — no tag hunting. See [docs/RELEASING.md](../RELEASING.md)
@@ -14,7 +14,7 @@ for every other place the APK can be found.
 
 **Updating:** once installed on this repository's community signing key, future APKs install
 straight over the old one. Older 1.4 builds or APKs signed by another source may need a one-time
-uninstall/reinstall; PhairPlay checks for this and explains the steps. Or skip the computer for
+uninstall/reinstall; Hearth checks for this and explains the steps. Or skip the computer for
 same-key updates: **Settings → Updates → Check for updates** on the TV. See
 [docs/UPDATES.md](../UPDATES.md).
 
@@ -53,7 +53,7 @@ Confirm the connection prompt that appears on your TV.
 ### Step 4: Install
 
 ```bash
-adb install -r PhairPlay-googletv.apk
+adb install -r Hearth-googletv.apk
 ```
 
 If adb reports `INSTALL_FAILED_VERSION_DOWNGRADE` or a signature mismatch, the previous install was
@@ -61,12 +61,12 @@ signed with a different key:
 
 ```bash
 adb uninstall com.phairplay.googletv
-adb install PhairPlay-googletv.apk
+adb install Hearth-googletv.apk
 ```
 
 ### Step 5: Launch
 
-Find **PhairPlay** in your app list and launch it.
+Find **Hearth** in your app list and launch it.
 
 ---
 
@@ -77,13 +77,13 @@ Use the **Downloader** app (free, from the Google Play Store) to fetch the APK s
 1. Install **Downloader** from the Google Play Store on your TV
 2. Settings → Apps → Security & restrictions → **Install unknown apps** → allow **Downloader**
 3. Open Downloader and enter:
-   `https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk`
+   `https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk`
    (the [download page](https://2archiver.github.io/phairplay-archiver-fork-/) works too, if Pages is enabled)
 4. Choose **Install**, then **Open**
 
-Downloader keeps the file name `PhairPlay-googletv.apk`, so re-downloading a newer build and
+Downloader keeps the file name `Hearth-googletv.apk`, so re-downloading a newer build and
 choosing **Install** updates the app in place — provided both builds are signed with the same key.
-If the TV refuses, uninstall PhairPlay once (Settings → Apps → PhairPlay → Uninstall) and install
+If the TV refuses, uninstall Hearth once (Settings → Apps → Hearth → Uninstall) and install
 again.
 
 ---
@@ -106,9 +106,9 @@ cd phairplay-archiver-fork-
 
 The version comes from `phairplay.versionName` in `gradle.properties` and the versionCode is
 derived from the clock, so a local build always installs over the previous one. The published
-release names its single APK after that version (`PhairPlay-<version>-googletv.apk`).
+release names its single APK after that version (`Hearth-<version>-googletv.apk`).
 
-PhairPlay is an AirPlay receiver only. It does not implement Google Cast in any build — not a
+Hearth is an AirPlay receiver only. It does not implement Google Cast in any build — not a
 built-in bridge, not Cast Connect behind a registered app ID — because a Google TV's own
 Chromecast permanently owns TCP 8008/8009 and the `_googlecast._tcp` record, and claiming them
 produced nothing but a port-conflict error. See [Google Cast on a Google TV](CAST.md).
@@ -117,8 +117,9 @@ produced nothing but a port-conflict error. See [Google Cast on a Google TV](CAS
 
 ## After Installation
 
-1. Launch PhairPlay — the **Home screen** appears with two protocol cards, AirPlay and Miracast.
-2. AirPlay is on by default and advertising; Miracast is off, because it needs Wi-Fi Direct and
+1. Launch Hearth — the **Home screen** appears with two cards, AirPlay and Apple Casting.
+2. AirPlay is on by default and advertising (the Apple Casting card is the same receiver, seen
+   from the video stream); there is nothing else to switch on.
    most Google TVs keep that to themselves. Switch it on in Settings if your set supports it.
 3. Read the AirPlay card: it says which network you are advertising on, e.g.
    `Advertising on Ethernet · 192.168.1.42`. Your sender has to be on that same network.
@@ -126,7 +127,7 @@ produced nothing but a port-conflict error. See [Google Cast on a Google TV](CAS
    (default **Apple TV**; tested with iPhone 14 on iOS 27.0.1)
 5. On your Mac: click the AirPlay icon → select the same name
 6. On Windows or an Android phone: **Connect** / **Cast** → the TV's own wireless-display
-   (Miracast) receiver. PhairPlay does not receive Miracast unless you enabled it, and never
+   receiver. Hearth asks for no Wi-Fi Direct or location permissions, and never
    receives Google Cast — see [CAST.md](CAST.md)
 7. On a 4K Google TV: **Settings → Higher resolution (up to 4K)** is on by default and advertises
    the panel's real resolution for a sharper mirror. Turn it off if the TV struggles to decode it.

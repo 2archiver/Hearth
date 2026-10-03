@@ -108,11 +108,9 @@ class SettingsRepository(private val context: Context) {
     private fun Preferences.toAppSettings(): AppSettings = AppSettings(
         displayName        = this[Keys.DISPLAY_NAME]            ?: MdnsNames.DEFAULT_DISPLAY_NAME,
         airPlayEnabled     = this[Keys.AIRPLAY_ENABLED]         ?: true,
-        // Miracast defaults to off (see AppSettings). Cast was never a preference the app could
-        // honour — the TV's own Chromecast owns the ports — and no longer exists here at all, so
-        // any leftover "cast_*" key in an old DataStore file is simply ignored.
-        miracastEnabled    = this[Keys.MIRACAST_ENABLED]        ?: false,
-        airPlayPinAuthEnabled = this[Keys.AIRPLAY_PIN_AUTH]     ?: false,
+        // Keys for receivers this app no longer runs ("miracast_enabled", "cast_*", and the PIN
+        // toggle) are simply not read: a leftover value in an old DataStore file is ignored
+        // rather than migrated, because there is nothing left to migrate it to.
         startOnBoot        = this[Keys.START_ON_BOOT]           ?: false,
         showDebugOverlay   = this[Keys.SHOW_DEBUG_OVERLAY]      ?: false,
         forceHighResolution = this[Keys.FORCE_HIGH_RESOLUTION]  ?: true,
@@ -129,8 +127,6 @@ class SettingsRepository(private val context: Context) {
     private fun MutablePreferences.fromAppSettings(settings: AppSettings) {
         this[Keys.DISPLAY_NAME]         = settings.displayName
         this[Keys.AIRPLAY_ENABLED]      = settings.airPlayEnabled
-        this[Keys.MIRACAST_ENABLED]     = settings.miracastEnabled
-        this[Keys.AIRPLAY_PIN_AUTH]     = settings.airPlayPinAuthEnabled
         this[Keys.START_ON_BOOT]        = settings.startOnBoot
         this[Keys.SHOW_DEBUG_OVERLAY]   = settings.showDebugOverlay
         this[Keys.FORCE_HIGH_RESOLUTION] = settings.forceHighResolution
@@ -149,8 +145,6 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val DISPLAY_NAME        = stringPreferencesKey("display_name")
         val AIRPLAY_ENABLED     = booleanPreferencesKey("airplay_enabled")
-        val MIRACAST_ENABLED    = booleanPreferencesKey("miracast_enabled")
-        val AIRPLAY_PIN_AUTH    = booleanPreferencesKey("airplay_pin_auth")
         val START_ON_BOOT       = booleanPreferencesKey("start_on_boot")
         val SHOW_DEBUG_OVERLAY  = booleanPreferencesKey("show_debug_overlay")
         val FORCE_HIGH_RESOLUTION = booleanPreferencesKey("force_high_resolution")

@@ -149,7 +149,7 @@ class RtpInterleavedTest {
         assertEquals(0L, ptsReceived)
     }
 
-    // ─── STAP-A aggregation (Miracast/WFD senders ship SPS+PPS this way) ──────
+    // ─── STAP-A aggregation (senders that ship SPS+PPS in one RTP packet) ────
 
     @Test
     fun `STAP-A packet delivers each contained NAL unit`() {
@@ -194,7 +194,7 @@ class RtpInterleavedTest {
         assertEquals("Malformed STAP-A must deliver nothing", 0, callbackCount)
     }
 
-    // ─── VideoRtpProcessor (incremental API used by the Miracast media loop) ──
+    // ─── VideoRtpProcessor (incremental API used by the RTP media loop) ──────
 
     @Test
     fun `VideoRtpProcessor depackets without owning the input stream`() {

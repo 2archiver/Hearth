@@ -1,5 +1,8 @@
 # ADR-001: Multi-Protocol Support (AirPlay + Miracast + Cast)
 
+> **Note (1.6.1):** the Miracast half of this decision was reversed in 1.6.1 (removed). The
+> AirPlay/Cast half still stands: no Google Cast receiver, ever, because the TV owns it.
+
 **Date:** 2026-03-23
 **Status:** Accepted — partially superseded by ADR-006 (2026-10-03): AirPlay + Miracast remain,
 Google Cast was removed in v1.6
@@ -8,7 +11,7 @@ Google Cast was removed in v1.6
 
 ## Context
 
-PhairPlay v1.0 was scoped to AirPlay 2 only (macOS senders). User feedback indicated demand for Miracast (Windows/Android senders) and Google Cast (Chrome/Android senders). Supporting all three makes PhairPlay a universal wireless display receiver.
+Hearth v1.0 was scoped to AirPlay 2 only (macOS senders). User feedback indicated demand for Miracast (Windows/Android senders) and Google Cast (Chrome/Android senders). Supporting all three makes Hearth a universal wireless display receiver.
 
 ## Decision
 
@@ -21,7 +24,7 @@ Each protocol is implemented as an independent component that can be enabled/dis
 
 ## Rationale
 
-1. **User experience**: Users should not need to know which protocol their sender uses. PhairPlay simply works.
+1. **User experience**: Users should not need to know which protocol their sender uses. Hearth simply works.
 2. **Independence**: Protocols don't share network ports or state. One can fail without affecting others.
 3. **Graceful degradation**: If a protocol is unavailable (e.g., Cast without Google Play Services), it is hidden in the UI.
 
@@ -48,13 +51,13 @@ this platform, and it is why the third protocol is gone:
   1900 (SSDP)**, plus the `_googlecast._tcp` mDNS record. A third-party receiver cannot bind them,
   so "independent protocols" was only true on devices with no Chromecast — which excludes every
   Google TV this app targets.
-- PhairPlay's own bridge advertised a second `_googlecast._tcp` record through the same
+- Hearth's own bridge advertised a second `_googlecast._tcp` record through the same
   `NsdManager` that AirPlay needs, and the Home screen carried a permanent red card about the port
   clash. The Cast code was therefore a *dependency of the thing we actually ship*, not an optional
   extra.
 - "Cast a video URL" (the Default Media Receiver) worked in tests but is not what people wanted;
   the apps they named (YouTube, Netflix) speak private receiver channels and hand off to the TV's
-  own installed apps — which work fine without PhairPlay in the path.
+  own installed apps — which work fine without Hearth in the path.
 
 Miracast stays: it uses Wi-Fi Direct (`WifiP2pManager`) rather than a contested TCP port, so the
 original independence argument still holds — though it is now reported as **Unavailable** with the

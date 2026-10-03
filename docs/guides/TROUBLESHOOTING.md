@@ -2,7 +2,7 @@
 
 ---
 
-## Device not appearing in AirPlay / Miracast / Cast menu
+## Device not appearing in the AirPlay menu
 
 **Cause 1: Not on the same network**
 - Ensure your Mac/PC and the TV are connected to the **same Wi-Fi network** (same router, same subnet).
@@ -16,21 +16,22 @@
 - mDNS (used by AirPlay) requires multicast traffic. Some routers block this.
 - Look for "Enable Multicast", "IGMP Snooping", or "mDNS" options in your router's advanced settings.
 
-**Cause 4: PhairPlay service is stopped**
+**Cause 4: Hearth service is stopped**
 - Check the HomeScreen: all service cards should show "Running".
 - If stopped, press the **Start** button or swipe to the control card.
 
 **Cause 5: iOS caches the AirPlay device list**
 - On iPhone/iPad (tested with iPhone 14 on iOS 27.0.1), the picker is **Control Centre → Screen
   Mirroring**, not Settings.
-- If the TV does not appear: restart PhairPlay on the TV (HomeScreen → Restart), then toggle
+- If the TV does not appear: restart Hearth on the TV (HomeScreen → Restart), then toggle
   Wi-Fi off and on on the phone. iOS keeps a stale Bonjour cache for a few minutes after a
   receiver disappears.
 - A phone on cellular (or on a guest SSID) will never see the TV — both must be on the same
   Wi-Fi subnet.
 
-**Cause 6: Wi-Fi P2P disabled (Miracast)**
-- Miracast requires Wi-Fi Direct. Some Android TVs disable this.
+**Cause 6: the sender and the TV are on different networks**
+- Hearth advertises on the TV's default network only (the line on Home says which). A phone on
+  a guest SSID, or on a VLAN the TV cannot multicast to, will never see it.
 - Check: Settings → System → About → verify Wi-Fi Direct is available.
 
 ---
@@ -58,7 +59,7 @@ If the name still looks wrong:
 - **Check what was really registered.** The Home screen shows *Visible as: …*. If you see
   **Apple TV (2)**, another device on your network already owns that name and Android's mDNS
   responder renamed us to resolve the collision — pick a different name in Settings.
-- **A name can be silently shortened.** mDNS service names are capped at 63 bytes, and PhairPlay
+- **A name can be silently shortened.** mDNS service names are capped at 63 bytes, and Hearth
   drops characters that would corrupt a Bonjour record (emoji and punctuation). What you typed
   and what gets advertised can therefore differ; the Settings row shows the cleaned value.
 
@@ -71,29 +72,29 @@ Two different things get called "casting". Which you want decides the route:
 **Screen mirroring (always works)** — the whole phone screen, including any video:
 
 1. On the iPhone, open **Control Centre → Screen Mirroring**.
-2. Pick the name PhairPlay advertises (**Apple TV** by default).
+2. Pick the name Hearth advertises (**Apple TV** by default).
 3. Open the app and play.
 
-**Google Cast — not PhairPlay.** A cast icon inside an app looks for the TV's built-in Chromecast,
-which permanently owns TCP 8008/8009 and the `_googlecast._tcp` record; PhairPlay does not register
+**Google Cast — not Hearth.** A cast icon inside an app looks for the TV's built-in Chromecast,
+which permanently owns TCP 8008/8009 and the `_googlecast._tcp` record; Hearth does not register
 a Cast receiver and never will, so it cannot appear in that list. If an app offers only a cast button
 and no Screen Mirroring, its video reaches the TV through Google's receiver or not at all —
 [CAST.md](CAST.md) explains the boundary. Screen Mirroring is the route that always works, because
-it is AirPlay, and AirPlay is what PhairPlay advertises.
+it is AirPlay, and AirPlay is what Hearth advertises.
 
-**Miracast** — see [MIRACAST.md](MIRACAST.md). Note the platform ceiling: Android's public
-Wi-Fi P2P APIs can advertise a WFD service and run discovery, but a third-party app cannot
-silently accept an incoming Wi-Fi Direct connection the way the system's own wireless-display
-feature can. If your TV already ships a "Screen mirroring" feature, prefer it. Miracast video
-works; **WFD audio is not decoded** (it is carried in an MPEG-2 transport stream).
+**Apple Casting (screen mirroring)** — the card on Hearth's Home screen of the same name; it
+mirrors the whole screen (video and audio) from an iPhone, iPad or Mac and is what
+[APPLE_CASTING.md](APPLE_CASTING.md) covers. If the card says **Waiting**, the receiver is up and
+the sender has not started a mirroring session yet — compare the card's line with the step list
+in that guide.
 
-Anything mentioning **8008/8009** means an old build is still installed: 1.6 removed PhairPlay's
+Anything mentioning **8008/8009** means an old build is still installed: 1.6 removed Hearth's
 Cast bridge, so those ports are never bound and that conflict cannot be reported. Reinstall the
 current APK if a card still says it.
 
 ### If the iPhone cannot see the TV at all
 
-Read the AirPlay card on PhairPlay's Home screen first — it names the interface and address the
+Read the AirPlay card on Hearth's Home screen first — it names the interface and address the
 advertisement is live on (`Advertising on Ethernet · 192.168.1.42`). Three cases:
 
 - **It says "Advertising" and shows an address** → discovery is running; the problem is between the
@@ -105,7 +106,7 @@ advertisement is live on (`Advertising on Ethernet · 192.168.1.42`). Three case
 
 ## Ethernet (wired Google TV)
 
-Nothing in PhairPlay's AirPlay receiver assumes Wi-Fi. Sockets bind all interfaces, the multicast
+Nothing in Hearth's AirPlay receiver assumes Wi-Fi. Sockets bind all interfaces, the multicast
 lock is taken on whatever network is up, and discovery is mDNS, which behaves identically over
 Ethernet — a wired 4K Google TV is the **primary tested target**, and the mirror is capped at 4K by
 the panel rather than by the network.
@@ -119,7 +120,7 @@ What wiring does change is how many networks there are. In order:
    its wired and wireless segments (sometimes sold as "IGMP snooping" or "multicast enhancement")
    makes discovery impossible from the phone's side, and no app can work around it.
 3. **Is the TV joined to Wi-Fi as well as wired?** Then it has two addresses and the phone can pick a
-   route the TV never advertises on. PhairPlay advertises on the interface it is reachable by
+   route the TV never advertises on. Hearth advertises on the interface it is reachable by
    (Ethernet wins), and the card tells you which. Either match it on the phone, or forget the Wi-Fi
    network on the TV.
 
@@ -130,8 +131,8 @@ dns-sd -B _airplay._tcp             # macOS: list AirPlay receivers
 avahi-browse -rt _airplay._tcp      # Linux
 ```
 
-If PhairPlay appears there but not on the iPhone, it is multicast or segmentation. If it does not
-appear at all, PhairPlay is not advertising — press **Restart** on the Home screen and read the
+If Hearth appears there but not on the iPhone, it is multicast or segmentation. If it does not
+appear at all, Hearth is not advertising — press **Restart** on the Home screen and read the
 error line on the AirPlay card.
 
 ### If Screen Mirroring connects but the video is black
@@ -149,20 +150,20 @@ That is a different problem, and usually one of:
 
 **Cause 1: FairPlay-protected content**
 - Netflix, Disney+, Apple TV+, and other streaming services use FairPlay DRM.
-- Apple blocks mirroring of protected content by design. This is not a PhairPlay limitation.
+- Apple blocks mirroring of protected content by design. This is not a Hearth limitation.
 - Solution: use a different app/tab on your Mac.
 
 **Cause 2: Mirroring resolution above what the TV can decode**
 - Turn **Settings → Higher resolution (up to 4K)** off and restart the receiver: that setting
   advertises a bigger mirror (up to 3840×2160 on a 4K Google TV) and a marginal decoder can fail
   to configure at that size.
-- PhairPlay already caps the advertisement at what the panel shows and what the H.264 decoder
+- Hearth already caps the advertisement at what the panel shows and what the H.264 decoder
   reports it supports; check logcat for the line `AirPlay mirror advertised at …` to see what was
   chosen and why.
 
 **Cause 3: MediaCodec decoder unavailable**
 - Rare: some cheap Android TV boxes lack H.264 hardware decode.
-- Check logcat: `adb logcat -s PhairPlay` — look for "MediaCodec" errors.
+- Check logcat: `adb logcat -s Hearth` — look for "MediaCodec" errors.
 - Solution: not fixable in software; the TV box needs hardware H.264 support.
 
 ---
@@ -177,11 +178,11 @@ during a live session. If the HUD is blank:
 - **"DECODE waiting for SPS/PPS + surface"** with a rising `kbps`: the TV is receiving video it
   cannot decode yet. Give it a second; WFD senders repeat SPS/PPS with every keyframe.
 - **Never appears at all:** the overlay is drawn on the streaming screen, so it only shows while
-  AirPlay mirroring, Miracast, or a Cast sender with media loaded is on screen. AirPlay
+  AirPlay streaming or Apple Casting (mirror video) on screen. AirPlay
   *audio-only* shows the now-playing card instead, which has no HUD.
 
 Before 1.5 the toggle only took effect at receiver start-up (so it looked broken until you hit
-Restart), `fps` only refreshed every 300 packets, and Cast/Miracast sessions fed no counters at
+Restart), `fps` only refreshed every 300 packets, and mirroring sessions fed no counters at
 all. All three are fixed.
 
 ## High latency (>200ms)
@@ -195,7 +196,7 @@ all. All three are fixed.
 ## Audio out of sync
 
 1. Try stopping and restarting the stream from your Mac.
-2. Restart the PhairPlay service (HomeScreen → Restart button).
+2. Restart the Hearth service (HomeScreen → Restart button).
 3. If persistent, check logcat for NTP timing errors.
 
 ---
@@ -211,7 +212,7 @@ For a sharper image:
    noticeably crisper.
 
 If frames drop or the TV struggles, turn it back off — a 4K mirror costs real decode work, and
-5 GHz Wi-Fi or Ethernet is effectively mandatory for it. PhairPlay will not advertise more than
+5 GHz Wi-Fi or Ethernet is effectively mandatory for it. Hearth will not advertise more than
 the panel and the hardware H.264 decoder support, so on a 1080p TV this setting tops out at 1080p.
 
 Portrait mirroring from an iPhone (Screen Mirroring while the phone is held vertically) is
@@ -241,13 +242,13 @@ before installing it. A different-key APK is never passed to Android's installer
 
 **"Install blocked" / the install dialog never appears**
 - Allow installs from this source: **Settings → Apps → Special access → Install unknown apps →
-  PhairPlay → Allow**.
+  Hearth → Allow**.
 
 **`INSTALL_FAILED_VERSION_DOWNGRADE`**
 - You are installing an older APK over a newer one. Every build published by CI has a higher
   versionCode than the one before it, so this means the file is old — re-download from the
   [current `latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest).
-- Forcing it: `adb install -r -d PhairPlay-googletv.apk`.
+- Forcing it: `adb install -r -d Hearth-googletv.apk`.
 
 **The download link returns 404**
 - The release is created by GitHub Actions on the first push to `main` after
@@ -258,7 +259,7 @@ before installing it. A different-key APK is never passed to Android's installer
 
 ## App crashes on startup
 
-1. Check you installed `PhairPlay-googletv.apk` and your TV runs Android TV OS 10 or newer.
+1. Check you installed `Hearth-googletv.apk` and your TV runs Android TV OS 10 or newer.
 2. Try reinstalling: `adb uninstall com.phairplay.googletv` then install again.
 3. Report the crash: attach `adb logcat -d` output to a GitHub Issue.
 
@@ -269,7 +270,7 @@ before installing it. A different-key APK is never passed to Android's installer
 Open an issue at <https://github.com/2archiver/phairplay-archiver-fork-/issues> with:
 - Your TV model and OS version (e.g. Google TV Streamer 4K, Android TV OS 14)
 - Your sender and its version (e.g. iPhone 14, iOS 27.0.1; macOS 15.3)
-- The PhairPlay version from **Settings → Version** on the TV
+- The Hearth version from **Settings → Version** on the TV
 - The protocol you were trying to use
 - A description of what happened
-- `adb logcat -d | grep PhairPlay` output (or `tools/collect-device-logs.sh` before restarting)
+- `adb logcat -d | grep Hearth` output (or `tools/collect-device-logs.sh` before restarting)

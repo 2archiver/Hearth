@@ -14,9 +14,9 @@ import org.junit.Test
 /**
  * MdnsServiceTest — Unit tests for MdnsService.
  *
- * WHY: MdnsService is the gateway between PhairPlay and macOS discovery.
+ * WHY: MdnsService is the gateway between Hearth and macOS discovery.
  * If the mDNS registration is wrong (wrong service type, missing TXT records),
- * macOS will never show PhairPlay in the AirPlay menu. These tests verify that
+ * macOS will never show Hearth in the AirPlay menu. These tests verify that
  * the registration is correct without actually using the network.
  *
  * HOW: We mock the Android [NsdManager] and [Context] to avoid needing a real
@@ -83,7 +83,7 @@ class MdnsServiceTest {
      *
      * WHY: When the app closes, mDNS services must be unregistered so they
      * disappear from the macOS AirPlay menu. Failing to unregister means the
-     * device stays in the menu even when PhairPlay is not running.
+     * device stays in the menu even when Hearth is not running.
      */
     @Test
     fun `stop unregisters services after start`() {
@@ -113,7 +113,7 @@ class MdnsServiceTest {
      * Test: AIRPLAY_PORT is 7000 (the standard AirPlay port).
      *
      * WHY: AirPlay requires exactly port 7000. Using any other port means
-     * macOS won't be able to connect to PhairPlay.
+     * macOS won't be able to connect to Hearth.
      */
     @Test
     fun `AIRPLAY_PORT is 7000`() {
@@ -147,7 +147,7 @@ class MdnsServiceTest {
      *
      * WHY: `NsdManager.registerService` throws when the TV's mDNS daemon rejects the record
      * (or when the app is backgrounded at exactly the wrong moment). A crash here kills the
-     * receiver process, which looks to the user like "PhairPlay keeps restarting"; the card
+     * receiver process, which looks to the user like "Hearth keeps restarting"; the card
      * instead has to go red with an explanation. Excluded from `:test-runner` (it mocks
      * NsdManager), so this runs with the app's own JVM test task.
      */

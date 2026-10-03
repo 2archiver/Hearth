@@ -9,6 +9,7 @@ import com.phairplay.airplay.handshake.MirrorStreamServer
 import com.phairplay.service.ProtocolState
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
+import com.phairplay.util.NetworkUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,8 +64,6 @@ class AirPlayReceiver(
     private val mirrorHeight: Int = 1080,
     /** Whether to accept the mirroring audio stream (experimental — see AppSettings.mirrorAudioEnabled). */
     private val audioEnabled: Boolean = false,
-    /** Require HomeKit-style SRP PIN pairing before streaming (AppSettings.airPlayPinAuthEnabled). */
-    private val pinAuthEnabled: Boolean = false,
     /** Lazy Surface provider — called only for video streams when RECORD arrives. */
     private val videoSurfaceProvider: () -> Surface?,
     private val onStateChanged: (ProtocolState) -> Unit,
@@ -96,8 +95,14 @@ class AirPlayReceiver(
      * surface; emits null when video is mirroring (the video screen takes over) or audio stops.
      */
     private val onNowPlayingChanged: (NowPlayingInfo?) -> Unit = {},
-    /** Pairing PIN to show ([pin]) or hide (null) on the TV during SRP pair-setup. */
-    private val onPinChanged: (pin: String?) -> Unit = {},
+    /**
+     * Screen mirroring started ([true]) or stopped ([false]).
+     *
+     * Separate from [onStateChanged] on purpose: the AirPlay card is "connected" as soon as a
+     * sender has set up its keys, but the *Apple Casting* card — the one that says a phone is
+     * putting its screen on the TV — should only light up when a video stream is really there.
+     */
+    private val onMirroringChanged: (Boolean) -> Unit = {},
     /**
      * One-line honesty about the advertisement itself — which interface and address the mDNS
      * record went out on, or which half of it the TV's responder refused.
@@ -118,16 +123,14 @@ class AirPlayReceiver(
      */
     private val advertisedName: String = MdnsNames.sanitize(displayName)
 
-    // Persistent store of paired controllers (for PIN access control / pair-verify).
-    private val pairingStore = com.phairplay.airplay.handshake.PairingStore(context)
-
     // SupervisorJob: child coroutine failures don't propagate to siblings.
     private val job = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + job)
 
     // Child components
     private var mdnsService: MdnsService? = null
-    private var rtspHandler: RtspHandler? = null
+    /** The listener on port 7000; it builds one [RtspHandler] per connection a sender opens. */
+    private var rtspServer: RtspServer? = null
     private var timingHandler: TimingHandler? = null
     private var videoDecoder: VideoDecoder? = null
     private var audioPlayer: AudioPlayer? = null
@@ -183,7 +186,7 @@ class AirPlayReceiver(
             // that already know it, and a later advertising retry recovers fully.
             runCatching { startTimingHandler() }
                 .onFailure { Logger.w("AirPlay: NTP timing server failed to start: ${it.message}") }
-            runCatching { startRtspHandler() }
+            runCatching { startRtspServer() }
                 .onFailure {
                     Logger.e("Failed to start the AirPlay RTSP server", it)
                     emitState(ProtocolState.ERROR)
@@ -197,7 +200,7 @@ class AirPlayReceiver(
      *
      * [NsdManager] attaches its registration callbacks to the Looper of the calling thread and
      * refuses to run on a thread that has none — and the receiver's scope is `Dispatchers.IO`,
-     * whose pooled workers have none. Registering from there is what left PhairPlay permanently
+     * whose pooled workers have none. Registering from there is what left Hearth permanently
      * in ERROR on a Google TV: the RTSP server was listening, but no Mac or iPhone could ever
      * find the address to dial. The main looper always exists, and the callback work here is
      * two flags and a state emit, so it costs that thread nothing.
@@ -230,8 +233,14 @@ class AirPlayReceiver(
      */
     private fun onAdvertiseState(state: ProtocolState) {
         when (state) {
-            ProtocolState.ADVERTISING -> advertiseAttempts = 0
-            ProtocolState.ERROR -> scheduleAdvertiseRetry()
+            ProtocolState.ADVERTISING -> {
+                advertiseAttempts = 0
+                AirPlayTrace.record("Ready: advertised as '$advertisedName' on ${NetworkUtils.getNetworkSummary(context).label()}")
+            }
+            ProtocolState.ERROR -> {
+                AirPlayTrace.record("Discovery problem: this TV's mDNS responder refused the record — retrying")
+                scheduleAdvertiseRetry()
+            }
             else -> Unit
         }
         emitState(state)
@@ -268,7 +277,7 @@ class AirPlayReceiver(
         // otherwise a stop could register the advertisement right after we tore it down.
         stopped = true
         try {
-            rtspHandler?.stop()
+            rtspServer?.stop()
             timingHandler?.stop()
             mdnsService?.stop()
             dacpClient.stop()
@@ -297,47 +306,69 @@ class AirPlayReceiver(
         Logger.d("Timing handler started on UDP port ${TimingHandler.TIMING_PORT}")
     }
 
-    private fun startRtspHandler() {
-        rtspHandler = RtspHandler(
-            context = context,
-            displayName = advertisedName,
-            displayWidth = mirrorWidth,
-            displayHeight = mirrorHeight,
-            audioEnabled = audioEnabled,
-            videoSurfaceProvider = videoSurfaceProvider,
-            onStreamingStarted = { session -> onStreamingStarted(session) },
-            onStreamingStopped = { onStreamingStopped() },
-            onPhotoReceived = { bytes, imageType -> onPhotoReceived(bytes, imageType) },
-            onPhotoCleared = { onPhotoCleared() },
-            onMirrorSetupKeys = { aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort ->
-                startMirrorKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort)
-            },
-            onMirrorStreamStart = { streamConnectionId -> startMirrorStream(streamConnectionId) },
-            onMirrorAudioStart = { sampleRate, channels, ct, spf -> startMirrorAudio(sampleRate, channels, ct, spf) },
-            onMirrorAudioStop = { stopMirrorAudio() },
-            onMirrorVideoStop = { stopMirrorVideo() },
-            onBufferedAudioStart = { startBufferedAudio() },
-            onBufferedAudioStop = { stopBufferedAudio() },
-            onVolume = { v -> audioServer?.setVolume(v) },
-            onNowPlayingMetadata = { title, artist, album ->
-                npTitle = title; npArtist = artist; npAlbum = album
-                emitNowPlaying()
-            },
-            onArtwork = { bytes ->
-                npArtwork = bytes.takeIf { it.isNotEmpty() }
-                emitNowPlaying()
-            },
-            onVideoPlay = { url, start -> startUrlVideo(url, start) },
-            onVideoRate = { rate -> urlVideoPlayer?.setRate(rate) },
-            onVideoScrub = { pos -> urlVideoPlayer?.scrub(pos) },
-            onVideoStop = { stopUrlVideo() },
-            onPlaybackInfo = { urlVideoPlayer?.info() },
-            onRemoteControlInfo = { dacpId, activeRemote -> dacpClient.configure(dacpId, activeRemote) },
-            pinAuthEnabled = pinAuthEnabled,
-            pairingStore = pairingStore,
-            onShowPin = { pin -> onPinChanged(pin) }
-        ).also { it.start(scope) }
-        Logger.i("RTSP handler started on port 7000 (audioEnabled=$audioEnabled pinAuth=$pinAuthEnabled)")
+    /**
+     * Opens the RTSP port with a **connection factory**, not a single handler.
+     *
+     * WHY: an Apple sender holds more than one socket open at a time (control channel + a silent
+     * event channel + probes), and the previous single-client server answered every extra
+     * connection with `503 Service Unavailable` — which is what made a discovered TV impossible to
+     * connect to. [RtspServer] accepts all of them and builds one [RtspHandler] per socket, so a
+     * second connection can never disturb the first.
+     *
+     * The media pipeline stays here (one decoder, one mirror data server, one event channel),
+     * shared by whichever connection owns the session, so a reconnect cannot leave a half-shut
+     * pipeline behind.
+     */
+    private fun startRtspServer() {
+        val server = RtspServer(RtspHandler.RTSP_PORT) { socket ->
+            RtspHandler(
+                context = context,
+                displayName = advertisedName,
+                displayWidth = mirrorWidth,
+                displayHeight = mirrorHeight,
+                audioEnabled = audioEnabled,
+                videoSurfaceProvider = videoSurfaceProvider,
+                onStreamingStarted = { session -> onStreamingStarted(session) },
+                onStreamingStopped = { onStreamingStopped() },
+                onPhotoReceived = { bytes, imageType -> onPhotoReceived(bytes, imageType) },
+                onPhotoCleared = { onPhotoCleared() },
+                onMirrorSetupKeys = { aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort ->
+                    startMirrorKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort)
+                },
+                onMirrorStreamStart = { streamConnectionId -> startMirrorStream(streamConnectionId) },
+                onMirrorAudioStart = { sampleRate, channels, ct, spf ->
+                    startMirrorAudio(sampleRate, channels, ct, spf)
+                },
+                onMirrorAudioStop = { stopMirrorAudio() },
+                onMirrorVideoStop = { stopMirrorVideo() },
+                onBufferedAudioStart = { startBufferedAudio() },
+                onBufferedAudioStop = { stopBufferedAudio() },
+                onVolume = { v -> audioServer?.setVolume(v) },
+                onNowPlayingMetadata = { title, artist, album ->
+                    npTitle = title; npArtist = artist; npAlbum = album
+                    emitNowPlaying()
+                },
+                onArtwork = { bytes ->
+                    npArtwork = bytes.takeIf { it.isNotEmpty() }
+                    emitNowPlaying()
+                },
+                onVideoPlay = { url, start -> startUrlVideo(url, start) },
+                onVideoRate = { rate -> urlVideoPlayer?.setRate(rate) },
+                onVideoScrub = { pos -> urlVideoPlayer?.scrub(pos) },
+                onVideoStop = { stopUrlVideo() },
+                onPlaybackInfo = { urlVideoPlayer?.info() },
+                onRemoteControlInfo = { dacpId, activeRemote -> dacpClient.configure(dacpId, activeRemote) },
+                socket = socket
+            ).also { handler ->
+                // Interleaved RTP (the legacy SDP path) feeds the one receiver-level decoder.
+                handler.onVideoNalUnit = { nalUnit, ptsUs ->
+                    videoDecoder?.decodeNalUnit(nalUnit, ptsUs)
+                }
+            }
+        }
+        rtspServer = server
+        server.start(scope)
+        Logger.i("RTSP server started on port ${RtspHandler.RTSP_PORT} (audioEnabled=$audioEnabled)")
     }
 
     // ─── Private: streaming lifecycle ────────────────────────────────────────
@@ -367,6 +398,7 @@ class AirPlayReceiver(
                 // Notify PhairPlayService of the sender name BEFORE emitting CONNECTED,
                 // so the name is ready when the ActiveConnection is created.
                 onSenderNameChanged(session.senderName)
+                AirPlayTrace.record("Streaming from ${session.senderName} — ${sessionSummary(session)}")
                 emitState(ProtocolState.CONNECTED)
             } catch (e: Exception) {
                 Logger.e("Failed to start media pipeline", e)
@@ -383,6 +415,7 @@ class AirPlayReceiver(
      */
     private fun onStreamingStopped() {
         Logger.i("Streaming stopped — releasing media components")
+        AirPlayTrace.record("Streaming stopped — ready for the next sender")
         releaseMediaComponents()
         emitState(ProtocolState.ADVERTISING)
 
@@ -423,9 +456,6 @@ class AirPlayReceiver(
 
         videoDecoder = VideoDecoder(surface).also { decoder ->
             decoder.initialize(sps, pps, DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT)
-            rtspHandler?.onVideoNalUnit = { nalUnit, ptsUs ->
-                decoder.decodeNalUnit(nalUnit, ptsUs)
-            }
         }
         Logger.i("VideoDecoder started (${DEFAULT_VIDEO_WIDTH}x${DEFAULT_VIDEO_HEIGHT} hint)")
     }
@@ -507,21 +537,35 @@ class AirPlayReceiver(
         mirrorAesKey = aesKey
         mirrorEcdhSecret = ecdhSecret
         mirrorAesIv = aesIv
+        // The event channel is a fresh listener, not the RTSP port: the sender dials the port we
+        // return here and then never writes to it (the receiver is the side that sends events).
+        // Accept in a loop rather than once — a sender that reconnects (Wi-Fi blip, screen unlock)
+        // opens a new event connection, and a listener that had already accepted one and moved on
+        // would leave that reconnect hanging with no one reading it.
+        runCatching { eventSocket?.close() }
         val event = ServerSocket(0)
         eventSocket = event
-        // Accept + drain the event connection. We don't act on events yet, but macOS expects
-        // the advertised event port to be connectable, so keep it open and readable.
         scope.launch(Dispatchers.IO) {
             try {
-                event.accept().use { s ->
-                    eventClientSocket = s
-                    Logger.i("Event channel: macOS connected from ${s.inetAddress.hostAddress}")
-                    val buf = ByteArray(4096)
-                    val input = s.getInputStream()
-                    while (isActive && input.read(buf) != -1) { /* drain */ }
+                while (isActive && !event.isClosed) {
+                    val s = event.accept()
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            eventClientSocket = s
+                            Logger.i("Event channel: sender connected from ${s.inetAddress.hostAddress}")
+                            AirPlayTrace.record("Mirroring: event channel connected by the sender")
+                            val buf = ByteArray(4096)
+                            val input = s.getInputStream()
+                            while (isActive && input.read(buf) != -1) { /* drain */ }
+                        } catch (e: Exception) {
+                            Logger.d("Event channel connection ended: ${e.message}")
+                        } finally {
+                            runCatching { s.close() }
+                        }
+                    }
                 }
             } catch (e: Exception) {
-                if (eventSocket != null) Logger.d("Event channel closed")
+                if (eventSocket != null && !event.isClosed) Logger.d("Event channel listener closed: ${e.message}")
             } finally {
                 eventClientSocket = null
             }
@@ -541,10 +585,19 @@ class AirPlayReceiver(
     private fun startMirrorStream(streamConnectionId: Long): Int {
         val aesKey = mirrorAesKey ?: run { Logger.e("mirror stream start before keys set"); return 0 }
         val ecdhSecret = mirrorEcdhSecret ?: return 0
+        // A second SETUP for stream 110 on the same session (the sender reconnecting after a
+        // dropped data connection) must not leave the previous listener behind: two servers
+        // deriving keys from the same streamConnectionID would both try to accept the socket.
+        mirrorServer?.stop()
+        mirrorServer = null
         return MirrorStreamServer(aesKey, ecdhSecret, streamConnectionId, videoSurfaceProvider, mirrorWidth, mirrorHeight)
             .also { mirrorServer = it; it.start(scope); videoPlaying = true; emitNowPlaying() }
             .dataPort
-            .also { Logger.i("Mirror data server started on port $it") }
+            .also { port ->
+                Logger.i("Mirror data server started on port $port")
+                AirPlayTrace.record("Mirroring: waiting for the sender's video connection on port $port")
+                onMirroringChanged(true)
+            }
     }
 
     /** Mirror SETUP audio stream (type 96): start the AAC-ELD / AAC-LC / ALAC audio server. @return (dataPort, controlPort). */
@@ -575,6 +628,8 @@ class AirPlayReceiver(
         mirrorServer?.stop()
         mirrorServer = null
         videoPlaying = false
+        onMirroringChanged(false)
+        AirPlayTrace.record("Mirroring: video stream stopped")
         emitNowPlaying()   // audio may still be playing → now-playing card can take over
         Logger.i("Mirror video stream stopped (audio playback continues)")
     }
@@ -624,7 +679,6 @@ class AirPlayReceiver(
 
     /** Clears the video NAL callback, closes the audio socket, and releases media components. */
     private fun releaseMediaComponents() {
-        rtspHandler?.onVideoNalUnit = null
         try { audioSocket?.close() } catch (e: Exception) { /* non-fatal */ }
         audioSocket = null
         mirrorServer?.stop()
@@ -650,6 +704,7 @@ class AirPlayReceiver(
         mirrorAesKey = null
         mirrorEcdhSecret = null
         mirrorAesIv = null
+        onMirroringChanged(false)
         videoDecoder?.release()
         videoDecoder = null
         audioPlayer?.release()
@@ -667,6 +722,15 @@ class AirPlayReceiver(
         onNowPlayingChanged(
             if (show) NowPlayingInfo(npSenderName, npTitle, npArtist, npAlbum, npArtwork) else null
         )
+    }
+
+    /** One-line description of a legacy SDP session, for the connection log. */
+    private fun sessionSummary(session: SessionDescription): String {
+        val parts = mutableListOf<String>()
+        if (session.hasVideo) parts += "screen video"
+        if (session.hasAudio) parts += "${session.audioCodec} audio"
+        if (parts.isEmpty()) parts += "no media"
+        return parts.joinToString(" + ")
     }
 
     /** Drops stale track metadata/artwork when an audio stream ends (so it can't bleed into the next). */

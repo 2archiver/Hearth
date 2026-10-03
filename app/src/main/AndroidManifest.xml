@@ -8,16 +8,17 @@
     INTERNET                    — required for local TCP/UDP socket operations (AirPlay is LAN-only)
     CHANGE_WIFI_MULTICAST_STATE — holds the multicast lock Android otherwise uses to filter
                                   the mDNS queries our own advertisement has to answer
-    ACCESS_WIFI_STATE           — required to read the device's IP/MAC address and whether the
-                                  Wi-Fi radio is on (Miracast availability)
+    ACCESS_WIFI_STATE           — required to read the device's IP/MAC address for the mDNS TXT
+                                  record (`deviceid`) and the Home screen's network line
     ACCESS_NETWORK_STATE        — required to detect network changes (reconnect logic)
     FOREGROUND_SERVICE          — required for persistent background receiver service (Android 9+)
     FOREGROUND_SERVICE_CONNECTED_DEVICE — required for connectedDevice foreground service type (Android 14+)
-    CHANGE_WIFI_STATE           — required by WifiP2pManager for Miracast Wi-Fi Direct
-    ACCESS_FINE_LOCATION        — required by Wi-Fi P2P / Miracast discovery on Android 10+
     RECEIVE_BOOT_COMPLETED      — required for "start on boot" feature
 
     Explicitly NOT requested:
+    - Wi-Fi Direct / location / NEARBY_WIFI_DEVICES — these existed only for the Miracast
+      receiver, which is gone. AirPlay is a plain TCP/UDP server on the LAN and needs none of
+      them; requesting them on a wired TV bought a permission prompt with nothing behind it.
     - RECORD_AUDIO      (we receive audio, we do not record it)
     - READ/WRITE storage (we don't persist stream data)
     - CAMERA            (not needed)
@@ -33,12 +34,6 @@
     <!-- Foreground service — keeps receiver alive when app is in background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-
-    <!-- Miracast (Wi-Fi Direct / Wi-Fi P2P) -->
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
     <!-- Start on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -71,13 +66,6 @@
     <uses-feature
         android:name="android.hardware.wifi"
         android:required="false" />
-    <uses-feature
-        android:name="android.hardware.location.gps"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.location.network"
-        android:required="false" />
-
     <application
         android:name=".PhairPlayApp"
         android:allowBackup="false"
@@ -115,7 +103,7 @@
 
         <!--
             PhairPlayService — persistent foreground service that manages
-            AirPlay and Miracast receivers.
+            the AirPlay receiver (streaming + Apple Casting screen mirroring).
 
             - foregroundServiceType="connectedDevice": required for Android 14+
               when a foreground service manages a connected device (BT/Wi-Fi/P2P)

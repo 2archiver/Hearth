@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PhairPlay"
+rootProject.name = "Hearth"
 include(":app")
 include(":test-runner")
 project(":test-runner").projectDir = file("test-runner")

@@ -21,7 +21,6 @@ import com.phairplay.update.UpdateCheck
 import com.phairplay.update.UpdateInfo
 import com.phairplay.update.UpdateManager
 import com.phairplay.settings.AppSettings
-import com.phairplay.miracast.MiracastReceiver
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.DisplayCaps
 import com.phairplay.util.Logger
@@ -41,9 +40,9 @@ import kotlinx.coroutines.launch
 /**
  * PhairPlayService — Android ForegroundService that hosts all receiver protocols.
  *
- * WHY: The AirPlay and Miracast receivers need to run continuously in the background.
+ * WHY: The AirPlay receiver needs to run continuously in the background.
  * Android may kill background processes. A ForegroundService with a persistent
- * notification keeps the app alive and shows the user that PhairPlay is active.
+ * notification keeps the app alive and shows the user that Hearth is active.
  *
  * HOW: Bind to this service from [MainActivity] to receive state updates.
  * Use [ServiceController] to send start/stop/restart commands.
@@ -73,8 +72,16 @@ class PhairPlayService : Service() {
     private val _airPlayState = MutableStateFlow(ProtocolState.DISABLED)
     val airPlayState: StateFlow<ProtocolState> = _airPlayState.asStateFlow()
 
-    private val _miracastState = MutableStateFlow(ProtocolState.DISABLED)
-    val miracastState: StateFlow<ProtocolState> = _miracastState.asStateFlow()
+    /**
+     * The **Apple Casting** card: screen mirroring from an iPhone/iPad/Mac.
+     *
+     * Same AirPlay receiver as [airPlayState] — one radio, one protocol — but it answers a
+     * different question, so it reports a different thing: [ProtocolState.CONNECTED] only while a
+     * mirror *video* stream is actually on screen, not merely while a sender holds a control
+     * connection. Someone looking at this card wants to know "is my phone's screen on the TV?".
+     */
+    private val _appleCastingState = MutableStateFlow(ProtocolState.DISABLED)
+    val appleCastingState: StateFlow<ProtocolState> = _appleCastingState.asStateFlow()
 
     private val _activeConnection = MutableStateFlow<ActiveConnection?>(null)
     val activeConnection: StateFlow<ActiveConnection?> = _activeConnection.asStateFlow()
@@ -86,9 +93,11 @@ class PhairPlayService : Service() {
     private val _nowPlaying = MutableStateFlow<com.phairplay.airplay.NowPlayingInfo?>(null)
     val nowPlaying: StateFlow<com.phairplay.airplay.NowPlayingInfo?> = _nowPlaying.asStateFlow()
 
-    // Non-null while a PIN should be shown on screen for SRP pair-setup (PIN access control).
-    private val _pairingPin = MutableStateFlow<String?>(null)
-    val pairingPin: StateFlow<String?> = _pairingPin.asStateFlow()
+    /**
+     * Mirroring in progress — set by the AirPlay receiver when the video stream starts and cleared
+     * when it stops. Drives [appleCastingState].
+     */
+    @Volatile private var mirroring = false
 
     /**
      * The name mDNS actually registered for `_airplay._tcp`, or null while nothing is
@@ -106,7 +115,6 @@ class PhairPlayService : Service() {
 
     // Receiver instances — null when not running
     private var airPlayReceiver: AirPlayReceiver? = null
-    private var miracastReceiver: MiracastReceiver? = null
 
     /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
     private var updateCheckJob: kotlinx.coroutines.Job? = null
@@ -116,7 +124,7 @@ class PhairPlayService : Service() {
 
     /**
      * Why each card is in the state it is in — the address the TV is advertising on, a
-     * refused mDNS record, a TV with no Wi-Fi Direct.
+     * refused mDNS record, a TV whose Wi-Fi radio is off.
      *
      * WHY: a bare "Advertising"/"Disabled" line is what made "AirPlay does not work on my
      * wired TV" impossible to answer. The receivers already know the real reason; the Home
@@ -126,8 +134,16 @@ class PhairPlayService : Service() {
     private val _airPlayDetail = MutableStateFlow<String?>(null)
     val airPlayDetail: StateFlow<String?> = _airPlayDetail.asStateFlow()
 
-    private val _miracastDetail = MutableStateFlow<String?>(null)
-    val miracastDetail: StateFlow<String?> = _miracastDetail.asStateFlow()
+    /** One honest line under the Apple Casting card — a how-to, or who is mirroring. */
+    private val _appleCastingDetail = MutableStateFlow<String?>(null)
+    val appleCastingDetail: StateFlow<String?> = _appleCastingDetail.asStateFlow()
+
+    /**
+     * Every step of the most recent sender connection, newest last — the list the UI shows so a
+     * failed connection can be described in one sentence instead of "it doesn't work".
+     */
+    val airPlayTrace: StateFlow<List<com.phairplay.airplay.AirPlayTrace.Entry>> =
+        com.phairplay.airplay.AirPlayTrace.entries
 
     /** Set while an automatic update check is running, so the UI can show a spinner. */
     private val _updateChecking = MutableStateFlow(false)
@@ -151,7 +167,7 @@ class PhairPlayService : Service() {
                 // WHY HERE: Settings saves this one without restarting the receivers (it is a
                 // UI-only preference), and it used to be read only inside startAirPlay() — so
                 // flipping the switch did nothing until the user happened to press Restart, and
-                // the overlay never appeared at all for a Miracast session. Reading the flow
+                // the overlay never appeared at all for any session. Reading the flow
                 // makes the toggle take effect the moment it is flipped, mid-session included.
                 com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
                 val current = Triple(
@@ -238,12 +254,11 @@ class PhairPlayService : Service() {
     /**
      * Starts all receivers that are enabled in Settings.
      *
-     * Reads current settings, then starts the AirPlay and Miracast receivers
-     * according to the enabled flags.
+     * Reads current settings, then starts the AirPlay receiver when it is enabled.
      */
     private suspend fun startReceivers() {
         val settings = settingsRepository.settingsFlow.first()
-        Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}, Miracast=${settings.miracastEnabled}")
+        Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}")
 
         // Belt and braces for the debug overlay: the settings collector in onCreate() already
         // mirrors this, but a receiver started before that collector's first emission must not
@@ -253,13 +268,14 @@ class PhairPlayService : Service() {
         _serviceState.value = ServiceState.Running
         updateNotification(isRunning = true)
 
-        if (settings.airPlayEnabled)   startAirPlay(settings)
-        // Miracast is opt-in: it needs a Wi-Fi Direct group, which most Google TVs keep for
-        // the system, and starting it anyway used to leave a permanent red error on the Home
-        // screen of every wired TV. See docs/guides/MIRACAST.md.
-        if (settings.miracastEnabled)  startMiracast()
+        if (settings.airPlayEnabled) {
+            startAirPlay(settings)
+        } else {
+            _appleCastingState.value = ProtocolState.DISABLED
+            _appleCastingDetail.value = null
+        }
 
-        // Look for a newer PhairPlay build in the background. Throttled inside
+        // Look for a newer Hearth build in the background. Throttled inside
         // UpdateManager (once every few hours), so this is cheap to call every start.
         startUpdateChecker(settings)
     }
@@ -338,7 +354,6 @@ class PhairPlayService : Service() {
             mirrorWidth = mirror.width,
             mirrorHeight = mirror.height,
             audioEnabled = settings.mirrorAudioEnabled,
-            pinAuthEnabled = settings.airPlayPinAuthEnabled,
             // Delegate to the current provider at call time — captures the field, not a fixed value.
             // When MainActivity calls setVideoSurfaceProvider(), future surface requests use it.
             videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
@@ -359,10 +374,21 @@ class PhairPlayService : Service() {
             onNowPlayingChanged = { info ->
                 _nowPlaying.value = info
             },
-            onPinChanged = { pin ->
-                _pairingPin.value = pin
-            },
             onAdvertiseNotice = { notice -> _airPlayDetail.value = notice },
+            onMirroringChanged = { active ->
+                mirroring = active
+                _appleCastingState.value = when {
+                    active -> ProtocolState.CONNECTED
+                    _airPlayState.value == ProtocolState.ERROR -> ProtocolState.ERROR
+                    else -> ProtocolState.ADVERTISING
+                }
+                _appleCastingDetail.value = if (active) {
+                    getString(R.string.protocol_detail_mirroring, pendingSenderName)
+                } else {
+                    null   // the Home screen shows the how-to line for an idle card
+                }
+                Logger.i("Apple Casting: mirroring ${if (active) "started" else "stopped"}")
+            },
             onStateChanged = { state ->
                 _airPlayState.value = state
                 when (state) {
@@ -381,6 +407,12 @@ class PhairPlayService : Service() {
                         endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
                         updateNotification(isRunning = state != ProtocolState.DISABLED &&
                                                        state != ProtocolState.ERROR)
+                        _appleCastingState.value = when {
+                            mirroring -> ProtocolState.CONNECTED
+                            state == ProtocolState.DISABLED -> ProtocolState.DISABLED
+                            else -> state
+                        }
+                        if (state == ProtocolState.DISABLED) _appleCastingDetail.value = null
                     }
                 }
             }
@@ -391,8 +423,8 @@ class PhairPlayService : Service() {
     /**
      * Starts a fresh debug-overlay session for [source], clearing the previous one's counters.
      *
-     * Never clears another protocol's session: a Miracast session ending must not wipe the
-     * counters an AirPlay stream is still writing.
+     * Keeps the counters of a live stream safe: this is the only media session Hearth runs
+     * now, but the guard stays so a stale callback cannot end a session it does not own.
      */
     private fun beginStatsSession(source: String) {
         com.phairplay.airplay.StreamStats.beginSession(source)
@@ -405,46 +437,8 @@ class PhairPlayService : Service() {
         }
     }
 
-    private fun startMiracast() {
-        // Sender name: Wi-Fi Direct does not expose a friendly peer name during
-        // WFD setup, so a stable generic label is used on the status card.
-        val senderName = getString(R.string.miracast_sender_name)
-        miracastReceiver = MiracastReceiver(
-            context = applicationContext,
-            // Same surface AirPlay decodes onto — MainActivity shows the streaming
-            // overlay for Miracast CONNECTED, so the Surface exists before frames flow.
-            videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
-            onNotice = { notice -> _miracastDetail.value = notice },
-            onStateChanged = { state ->
-                _miracastState.value = state
-                when (state) {
-                    ProtocolState.CONNECTED -> {
-                        _activeConnection.value = ActiveConnection(senderName, Protocol.MIRACAST)
-                        beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_MIRACAST)
-                        updateNotification(isRunning = true, streamingSenderName = senderName)
-                    }
-                    ProtocolState.ADVERTISING,
-                    ProtocolState.UNAVAILABLE,
-                    ProtocolState.DISABLED,
-                    ProtocolState.ERROR -> {
-                        // Another protocol (AirPlay) may own the active connection.
-                        if (_activeConnection.value?.protocol == Protocol.MIRACAST) {
-                            _activeConnection.value = null
-                        }
-                        endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_MIRACAST)
-                        updateNotification(isRunning = state != ProtocolState.DISABLED &&
-                                                       state != ProtocolState.ERROR)
-                    }
-                }
-            }
-            // Note: no optimistic ADVERTISING preset — the receiver emits the real
-            // state once the Wi-Fi P2P service registration completes (async).
-        ).also { it.start() }
-        Logger.d("Miracast receiver started")
-    }
-
     /**
-     * Periodically asks GitHub whether a newer PhairPlay APK exists.
+     * Periodically asks GitHub whether a newer Hearth APK exists.
      *
      * Runs on the service's own scope, so a TV left sitting on the Home screen still hears
      * about an update instead of only finding out the next time Settings is opened.
@@ -548,16 +542,16 @@ class PhairPlayService : Service() {
 
     private fun stopAllReceiversInternal() {
         try { airPlayReceiver?.stop() } catch (e: Exception) { Logger.e("AirPlay stop error", e) }
-        try { miracastReceiver?.stop() } catch (e: Exception) { Logger.e("Miracast stop error", e) }
+
         airPlayReceiver = null
-        miracastReceiver = null
         _airPlayDetail.value = null
-        _miracastDetail.value = null
         _airPlayState.value = ProtocolState.DISABLED
-        _miracastState.value = ProtocolState.DISABLED
+        _appleCastingState.value = ProtocolState.DISABLED
+        _appleCastingDetail.value = null
+        mirroring = false
+        com.phairplay.airplay.AirPlayTrace.clear()
         _photoFrame.value = null
         _nowPlaying.value = null
-        _pairingPin.value = null
         _registeredName.value = null
         // Every receiver is gone, so no session can still be writing counters.
         com.phairplay.airplay.StreamStats.endSession()

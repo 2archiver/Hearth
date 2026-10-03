@@ -7,7 +7,7 @@
 
 ## Context
 
-PhairPlay runs on TVs controlled via D-pad remote controls. The UI must be:
+Hearth runs on TVs controlled via D-pad remote controls. The UI must be:
 - Navigable with a 5-button remote (Up/Down/Left/Right/OK)
 - Readable from 3 meters on large displays
 - Visually consistent with the Google TV system UI

@@ -9,20 +9,20 @@ class PlistCodecTest {
 
     @Test
     fun encodesBinaryPlistMagic() {
-        val bytes = PlistCodec.encode(mapOf("name" to "PhairPlay"))
+        val bytes = PlistCodec.encode(mapOf("name" to "Hearth"))
         assertEquals("bplist00", String(bytes.copyOf(8), Charsets.US_ASCII))
     }
 
     @Test
     fun roundTripsScalarTypes() {
         val map = mapOf(
-            "name" to "PhairPlay",
+            "name" to "Hearth",
             "count" to 7L,
             "enabled" to true,
             "features" to 0x1E5A7FFFF7L
         )
         val decoded = PlistCodec.decode(PlistCodec.encode(map))
-        assertEquals("PhairPlay", decoded["name"])
+        assertEquals("Hearth", decoded["name"])
         assertEquals(7L, decoded["count"])
         assertEquals(true, decoded["enabled"])
         assertEquals(0x1E5A7FFFF7L, decoded["features"])

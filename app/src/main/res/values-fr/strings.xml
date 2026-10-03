@@ -8,6 +8,12 @@
 -->
 <resources>
 
+    <!-- ── À propos ────────────────────────────────────────────── -->
+    <!-- Dit clairement que l’application a été renommée : sinon, après une mise à jour, on
+         se demande pourquoi le libellé et la version ne correspondent plus au souvenir. -->
+    <string name="setting_renamed_note">Hearth est le nouveau nom de PhairPlay — même application, mêmes réglages, même clé de signature.</string>
+    <string name="update_version_value">%1$s (%2$d) · Hearth (anciennement PhairPlay)</string>
+
     <!-- ── Navigation ──────────────────────────────────────────── -->
     <string name="nav_home">Accueil</string>
     <string name="nav_settings">Paramètres</string>
@@ -37,12 +43,12 @@
     <!-- ── Settings row labels ─────────────────────────────────── -->
     <string name="setting_display_name">Nom de l\'appareil</string>
     <string name="setting_airplay_enabled">Récepteur AirPlay</string>
-    <string name="setting_miracast_enabled">Récepteur Miracast</string>
+    <string name="protocol_apple_casting">Apple Casting</string>
     <string name="setting_reset_defaults">Réinitialiser les paramètres</string>
     <string name="setting_check_updates">Rechercher les mises à jour</string>
-    <string name="setting_check_updates_subtitle">Rechercher la dernière version de PhairPlay</string>
+    <string name="setting_check_updates_subtitle">Rechercher la dernière version de Hearth</string>
     <string name="setting_auto_check_updates">Rechercher automatiquement</string>
-    <string name="setting_auto_check_updates_subtitle">Rechercher en arrière-plan toutes les six heures environ pendant l’exécution de PhairPlay</string>
+    <string name="setting_auto_check_updates_subtitle">Rechercher en arrière-plan toutes les six heures environ pendant l’exécution de Hearth</string>
     <string name="setting_auto_download_updates">Télécharger automatiquement</string>
     <string name="setting_auto_download_updates_subtitle">Télécharger et vérifier les nouvelles versions pour les préparer</string>
     <string name="setting_auto_install_updates">Installer automatiquement</string>
@@ -59,12 +65,12 @@
     <string name="update_status_current">À JOUR</string>
     <string name="update_status_action_needed">ACTION REQUISE</string>
     <string name="update_status_error">ÉCHEC DE LA VÉRIFICATION</string>
-    <string name="update_current_version">Version actuelle : %1$s</string>
+    <string name="update_current_version">Installée : %1$s (build %2$d) — la version publiée la plus récente</string>
     <string name="update_key_mismatch_card">Réinstallation unique nécessaire pour changer de clé de signature</string>
     <string name="update_download_progress">Téléchargement de la mise à jour… %1$d%%</string>
     <string name="update_key_mismatch_title">Réinstallation unique nécessaire</string>
-    <string name="update_key_mismatch_message">PhairPlay a trouvé la version %1$s, mais elle est signée avec une clé différente. Android ne permet pas à une clé de signature d’en remplacer une autre. Téléchargez l’APK depuis cette page, désinstallez PhairPlay une fois, puis installez l’APK téléchargé. La désinstallation peut effacer vos paramètres : notez-les avant. Les prochaines mises à jour signées avec la même clé s’installeront normalement.</string>
-    <string name="update_key_mismatch_message_unknown">Cette mise à jour est signée avec une clé différente de celle de l’application installée. Android ne permet pas à une clé de signature d’en remplacer une autre. Utilisez une APK signée avec la même clé ou effectuez une migration manuelle : notez vos paramètres, désinstallez PhairPlay, puis installez l’APK depuis la page des versions. Les prochaines mises à jour signées avec la même clé s’installeront normalement.</string>
+    <string name="update_key_mismatch_message">Hearth a trouvé la version %1$s, mais elle est signée avec une clé différente. Android ne permet pas à une clé de signature d’en remplacer une autre. Téléchargez l’APK depuis cette page, désinstallez Hearth une fois, puis installez l’APK téléchargé. La désinstallation peut effacer vos paramètres : notez-les avant. Les prochaines mises à jour signées avec la même clé s’installeront normalement.</string>
+    <string name="update_key_mismatch_message_unknown">Cette mise à jour est signée avec une clé différente de celle de l’application installée. Android ne permet pas à une clé de signature d’en remplacer une autre. Utilisez une APK signée avec la même clé ou effectuez une migration manuelle : notez vos paramètres, désinstallez Hearth, puis installez l’APK depuis la page des versions. Les prochaines mises à jour signées avec la même clé s’installeront normalement.</string>
     <string name="update_download_failed_title">Échec du téléchargement</string>
     <string name="update_install_failed_title">Impossible d’installer la mise à jour</string>
     <string name="update_open_release_title">Impossible d’ouvrir la page des versions</string>

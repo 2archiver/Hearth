@@ -23,4 +23,6 @@ TECHNICAL_SPEC_v1.0_2026-03-22.md
 
 ## Current archive
 
-*(empty — no documents have been superseded yet)*
+| Document | Superseded by | Date |
+|---|---|---|
+| `RENAME_IDEAS_2026-10-04.md` — the rename shortlist and how it was judged | [../RENAME.md](../RENAME.md) (Hearth chosen) | 2026-10-04 |

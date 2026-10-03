@@ -1,26 +1,60 @@
 package com.phairplay.airplay.handshake
 
 import android.content.Context
+import com.phairplay.airplay.AirPlayIdentity
 import com.phairplay.util.MdnsNames
-import com.phairplay.util.NetworkUtils
 
 /**
- * InfoResponder — builds the binary-plist body for `GET /info`, the first request a macOS
- * AirPlay sender makes. It advertises the receiver's identity and capability bits so the
- * sender knows to continue with pairing → FairPlay → mirroring.
+ * InfoResponder — builds the binary-plist body for `GET /info`, the first request an AirPlay
+ * sender makes once it has found the TV over mDNS.
  *
- * Values are kept consistent with what [com.phairplay.airplay.MdnsService] advertises so the
- * sender sees one coherent device.
+ * WHY it is worth getting exactly right: a sender decides everything it is going to do from this
+ * reply — whether to pair at all, in which dialect, which audio formats to offer, and which
+ * display size to mirror into. A reply that is merely *plausible* gets the connection as far as
+ * the next request and then leaves the user with a spinner. Every field here therefore comes from
+ * [AirPlayIdentity], the same object [com.phairplay.airplay.MdnsService] advertises over mDNS, so
+ * the browse record and the probe reply can never describe two different devices.
  *
- * `name` matters more than it looks: after browsing, a sender asks `GET /info` and then
- * *displays* the `name` it gets back — not the mDNS service name it browsed. Returning the
- * Android device name here (which is what this class used to do) is why an iPhone kept
- * showing the TV's Android name no matter what was typed into Settings.
+ * ## The two `/info` shapes
  *
- * NOTE: the Ed25519 public key (`pk`) is added in the pairing phase once a persistent
- * identity exists; macOS still proceeds to pair-setup without it.
+ * 1. **Qualifier request.** The very first `/info` a modern Apple sender sends carries a small
+ *    plist body — `{qualifier: ["txtAirPlay"]}` — and it expects a *reply containing that same
+ *    TXT record as a data blob* ([buildTxtResponse]). Answering it with the full capability
+ *    dictionary instead (which is what this app used to do, simply because it ignored the body)
+ *    leaves the sender without the record it asked for at the exact moment it is deciding how to
+ *    pair.
+ * 2. **Capability request.** The ordinary `/info`: identity, feature bits, audio formats,
+ *    latencies and the display list ([build]).
+ *
+ * `name` matters more than it looks: after browsing, a sender asks `GET /info` and then *displays*
+ * the `name` it gets back — not the mDNS service name it browsed. Returning the Android device
+ * name here (which is what this class used to do) is why an iPhone kept showing the TV's Android
+ * name no matter what was typed into Settings.
  */
 object InfoResponder {
+
+    /** The qualifier strings an Apple sender may ask for in a `GET /info` body. */
+    const val QUALIFIER_TXT_AIRPLAY = "txtAirPlay"
+    const val QUALIFIER_TXT_RAOP = "txtRAOP"
+
+    /**
+     * `GET /info` with a `{qualifier: [...]}` body: the TXT record the sender asked for, and
+     * nothing else.
+     *
+     * @param qualifier one of [QUALIFIER_TXT_AIRPLAY] / [QUALIFIER_TXT_RAOP], or null when the
+     *   body did not name one (in which case the reply carries the AirPlay record, which is what
+     *   a sender that sends a qualifier without a value is looking for).
+     */
+    fun buildTxtResponse(context: Context, qualifier: String?): ByteArray {
+        val record = when (qualifier) {
+            QUALIFIER_TXT_RAOP -> AirPlayIdentity.raopTxt(context)
+            else -> AirPlayIdentity.airPlayTxt(context)
+        }
+        // The plist value is the raw DNS-SD TXT blob ("<len>key=value…\0"), not a dictionary —
+        // that is the shape a sender parses out of it.
+        val key = qualifier ?: QUALIFIER_TXT_AIRPLAY
+        return PlistCodec.encode(mapOf(key to AirPlayIdentity.txtRecordBytes(record)))
+    }
 
     /**
      * @param displayName The spoofed name from Settings; defaults to
@@ -31,30 +65,28 @@ object InfoResponder {
         context: Context,
         displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
         width: Int = 1920,
-        height: Int = 1080,
-        pinRequired: Boolean = false
+        height: Int = 1080
     ): ByteArray {
-        val mac = NetworkUtils.getMacAddress()
-        // When PIN access control is on, set the "pairing/PIN required" status bit so the sender runs
-        // the SRP pair-setup flow. NOTE: exact flag semantics are sender-version-dependent — verify
-        // against macOS and adjust if pairing doesn't trigger.
-        val statusFlags = if (pinRequired) STATUS_FLAGS or STATUS_FLAG_PIN_REQUIRED else STATUS_FLAGS
+        val mac = com.phairplay.util.NetworkUtils.getMacAddress()
         val info = mapOf(
             "deviceID" to mac,
             "macAddress" to mac,
-            "features" to AIRPLAY_FEATURES,
-            "statusFlags" to statusFlags,
-            "model" to MODEL,
+            "features" to AirPlayIdentity.FEATURES,
+            "statusFlags" to AirPlayIdentity.STATUS_FLAGS,
+            "model" to AirPlayIdentity.MODEL,
             // The spoofed name — must match the mDNS service name, or the picker shows one
             // name while the sender internally uses another.
             "name" to MdnsNames.sanitize(displayName),
-            "sourceVersion" to SOURCE_VERSION,
-            "pi" to NetworkUtils.getPersistentUuid(context),
+            "sourceVersion" to AirPlayIdentity.SOURCE_VERSION,
+            "protovers" to AirPlayIdentity.PROTOCOL_VERSION,
+            "pi" to com.phairplay.util.NetworkUtils.getPersistentUuid(context),
             "pk" to PairingKeys.get(context).edPublic,
-            "vv" to 2L,
-            "protovers" to "1.1",
+            "vv" to AirPlayIdentity.VERSION,
             "keepAliveLowPower" to true,
             "keepAliveSendStatsAsBody" to true,
+            // Volume the sender should adopt at session start; the sender overwrites it as soon
+            // as the user touches the slider. macOS aborts a session that omits it.
+            "initialVolume" to 0.0,
             // NOTE: macOS IGNORES this for system-audio AirPlay — it sends ALAC (ct=2) regardless of
             // what we advertise (verified: advertising AAC-only still got ALAC). So we keep the broad
             // set (mirroring negotiates AAC-ELD from it, which works). Audio-only would need a
@@ -79,6 +111,7 @@ object InfoResponder {
                     "heightPixels" to height.toLong(),
                     "rotation" to false,
                     "refreshRate" to (1.0 / 60.0),
+                    "maxFPS" to 60L,
                     "overscanned" to false,   // false = macOS uses the full advertised resolution
                     "features" to 14L
                 )
@@ -86,16 +119,4 @@ object InfoResponder {
         )
         return PlistCodec.encode(info)
     }
-
-    /** 64-bit features value; mirrors MdnsService's "0x5A7FFFF7,0x1E" (low,high 32-bit halves). */
-    private const val AIRPLAY_FEATURES = 0x1E5A7FFFF7L
-
-    /** Matches RPiPlay's /info statusFlags (0x44). */
-    private const val STATUS_FLAGS = 68L
-
-    /** Status bit advertising that the receiver requires PIN pairing (0x8 — verify vs macOS). */
-    private const val STATUS_FLAG_PIN_REQUIRED = 0x8L
-
-    private const val MODEL = "AppleTV5,3"
-    private const val SOURCE_VERSION = "220.68"
 }

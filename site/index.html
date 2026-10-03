@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PhairPlay for Google TV — Download</title>
-<meta name="description" content="Download the latest PhairPlay APK for Google TV. Free, open-source AirPlay receiver for your TV.">
+<title>Hearth for Google TV — Download</title>
+<meta name="description" content="Download the latest Hearth APK for Google TV. Free, open-source AirPlay receiver for your TV.">
 <style>
   :root {
     color-scheme: dark;
@@ -62,7 +62,7 @@
 <body>
 <main>
   <span class="badge">Google TV · Android TV OS 10+</span>
-  <h1>PhairPlay for Google TV</h1>
+  <h1>Hearth for Google TV</h1>
   <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your TV. One
   release, one file, and notes that say what changed. Works over Ethernet — a wired Google TV 4K is
   the tested target.</p>
@@ -77,7 +77,7 @@
     </div>
     <div class="meta">
       <p><strong id="release-name" aria-live="polite">Latest successful build</strong></p>
-      <p><span class="file" id="asset-name">PhairPlay-&lt;version&gt;-googletv.apk</span></p>
+      <p><span class="file" id="asset-name">Hearth-&lt;version&gt;-googletv.apk</span></p>
       <p id="dl-meta" role="status" aria-live="polite">The release carries this one file and nothing else, so there is nothing to choose.</p>
       <p id="dl-sha"></p>
       <p class="subtle">Google TV / Android TV OS 10+ · tested on a Google TV 4K on Ethernet (Android TV OS 14)</p>
@@ -103,7 +103,7 @@
         <li>Open Downloader and enter this address, then select <strong>Go</strong>:
           <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest</pre>
           <p class="subtle">The file name carries the version (for example
-          <span class="file">PhairPlay-1.6.0-main.43-googletv.apk</span>), so open the release and
+          <span class="file">Hearth-1.6.0-main.43-googletv.apk</span>), so open the release and
           select its single APK if Downloader needs the exact address.</p>
         </li>
         <li>When the download finishes, choose <strong>Install</strong>, then <strong>Open</strong>.</li>
@@ -117,12 +117,12 @@
         <li>Enable USB or Wireless debugging, then find the TV's IP address under Settings → Network &amp; Internet.</li>
       </ol>
       <pre>adb connect &lt;TV-IP&gt;:5555
-adb install -r PhairPlay-1.6.0-main.43-googletv.apk</pre>
+adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
     </div>
 
     <div class="card">
-      <h3>Keep PhairPlay up to date</h3>
-      <p>On the TV, choose <strong>Settings → Updates → Check for updates</strong>. PhairPlay checks the current GitHub release, verifies its checksum and signing certificate, then offers to install it.</p>
+      <h3>Keep Hearth up to date</h3>
+      <p>On the TV, choose <strong>Settings → Updates → Check for updates</strong>. Hearth checks the current GitHub release, verifies its checksum and signing certificate, then offers to install it.</p>
       <p>Builds from this repository use the same signing key and normally install over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">Update help</a></p>
     </div>
   </section>
@@ -153,7 +153,7 @@ adb install -r PhairPlay-1.6.0-main.43-googletv.apk</pre>
 
   function apk(release) {
     var assets = release.assets || [];
-    return assets.filter(function (asset) { return asset.name === "PhairPlay-googletv.apk"; })[0] ||
+    return assets.filter(function (asset) { return asset.name === "Hearth-googletv.apk"; })[0] ||
       assets.filter(function (asset) { return /\.apk$/i.test(asset.name); })[0];
   }
 

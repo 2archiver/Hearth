@@ -9,7 +9,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * UpdateInstaller — installs a downloaded PhairPlay APK and, crucially, refuses one that
+ * UpdateInstaller — installs a downloaded Hearth APK and, crucially, refuses one that
  * would not install.
  *
  * WHY: "App not installed as package conflicts with an existing package" is Android's way
@@ -50,7 +50,7 @@ class UpdateInstaller(private val context: Context) {
      *
      * Runs on the calling thread; call from `Dispatchers.IO`. Returns true when the install
      * session was committed successfully — the install itself then happens asynchronously
-     * and Android restarts PhairPlay when it completes.
+     * and Android restarts Hearth when it completes.
      */
     fun install(apk: File): Boolean {
         if (!apk.isFile) {

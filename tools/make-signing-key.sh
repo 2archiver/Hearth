@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# make-signing-key.sh — create your own PhairPlay APK signing key.
+# make-signing-key.sh — create your own Hearth APK signing key.
 #
-# WHY: every PhairPlay build ships signed with the public "community build" key in
+# WHY: every Hearth build ships signed with the public "community build" key in
 # app/signing/phairplay.p12, which is what makes "install the new APK over the old one" work
 # instead of failing with "App not installed as package conflicts with an existing package".
 # That key is committed to the repository, so it is public: anyone can build an APK signed
 # with it.
 #
-# If you publish PhairPlay builds to other people, make your own key with this script and
+# If you publish Hearth builds to other people, make your own key with this script and
 # point the build at it. Updates then work for your builds and nobody else can forge them.
 #
 # Usage:
@@ -63,7 +63,7 @@ trap 'rm -rf "$tmp"' EXIT
 echo "Generating a ${BITS}-bit RSA key…"
 openssl req -x509 -newkey "rsa:${BITS}" -sha256 -days "$DAYS" -nodes \
     -keyout "$tmp/key.pem" -out "$tmp/cert.pem" \
-    -subj "/C=AU/ST=Queensland/L=Brisbane/O=PhairPlay/OU=Release/CN=PhairPlay" \
+    -subj "/C=AU/ST=Queensland/L=Brisbane/O=Hearth/OU=Release/CN=Hearth" \
     -addext "basicConstraints=CA:FALSE" \
     -addext "keyUsage=digitalSignature" \
     -addext "extendedKeyUsage=1.3.6.1.5.5.7.3.3" 2>/dev/null
@@ -88,4 +88,4 @@ echo "  KEYSTORE_PATH=\$PWD/$OUT KEYSTORE_PASSWORD=… KEY_ALIAS=$ALIAS KEY_PASS
 echo "    ./gradlew :app:assembleGoogletvRelease"
 echo
 echo "Verify an APK was signed with it:"
-echo "  \$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs PhairPlay-googletv.apk"
+echo "  \$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs Hearth-googletv.apk"

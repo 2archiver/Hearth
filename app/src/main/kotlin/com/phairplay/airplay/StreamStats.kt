@@ -6,7 +6,7 @@ package com.phairplay.airplay
  * The two receivers write into this object as they run:
  *  - AirPlay mirroring: [com.phairplay.airplay.handshake.MirrorStreamServer] (video) and
  *    [com.phairplay.airplay.handshake.AudioStreamServer] (audio)
- *  - Miracast: [com.phairplay.miracast.WfdVideoRenderer] / [com.phairplay.miracast.WfdRtspServer]
+ *  - Apple Casting (mirroring): [com.phairplay.airplay.handshake.MirrorStreamServer]
  *
  * [com.phairplay.ui.StreamingScreen] polls [summary] a few times a second to render the HUD.
  * Plain volatile fields keep the hot path allocation-free — no flows or locks on the per-frame
@@ -22,7 +22,7 @@ package com.phairplay.airplay
  *     Settings → "Debug overlay" does not restart the service (it should not have to), so the
  *     toggle did nothing until the user happened to press Restart. The flag is now mirrored
  *     live from the settings flow — see [com.phairplay.service.PhairPlayService.onCreate].
- *  2. Only the AirPlay servers ever wrote counters, so a Miracast session showed an empty HUD.
+ *  2. Only the AirPlay servers ever wrote counters, so a mirroring session showed an empty HUD.
  *     Every receiver now feeds this object, and [source] says which one.
  *  3. `videoFps` was recomputed only every 300 payloads — five seconds of "0 fps" at 60 fps,
  *     and forever if the sender sent fewer than 300 payloads. Sampling is now a rolling
@@ -32,7 +32,6 @@ object StreamStats {
 
     /** Which receiver owns the current session. */
     const val SOURCE_AIRPLAY = "AirPlay"
-    const val SOURCE_MIRACAST = "Miracast"
 
     /** How long the fps/bitrate counters are averaged over. */
     private const val SAMPLE_WINDOW_MS = 1_000L
@@ -52,13 +51,13 @@ object StreamStats {
     @Volatile var overlayEnabled = false
 
     // ─── Session ────────────────────────────────────────────────────────────
-    /** [SOURCE_AIRPLAY] / [SOURCE_MIRACAST], or "" when idle. */
+    /** [SOURCE_AIRPLAY], or an empty string when idle. */
     @Volatile var source: String = ""
 
     /** Wall-clock start of the current session, or 0 when idle. */
     @Volatile var sessionStartedAtMillis: Long = 0L
 
-    // ─── Video (AirPlay mirror + Miracast) ──────────────────────────────────
+    // ─── Video (AirPlay streaming + Apple Casting mirroring) ────────────────
     @Volatile var videoRes = ""        // e.g. "1920x1080"
     @Volatile var videoFps = 0         // payloads/sec over the last sample window
     @Volatile var videoQueue = 0       // current decode-queue depth
@@ -73,7 +72,7 @@ object StreamStats {
     @Volatile var videoWidth = 0
     @Volatile var videoHeight = 0
 
-    // ─── Audio (AirPlay audio + WFD audio) ──────────────────────────────────
+    // ─── Audio (mirror audio + buffered/RAOP audio) ─────────────────────────
     @Volatile var audioActive = false  // true while an audio stream is running
     @Volatile var audioQueue = 0       // current playback-queue depth
     @Volatile var audioDupPct = 0      // % of RTP packets that were redundant duplicates
@@ -128,7 +127,7 @@ object StreamStats {
     }
 
     /**
-     * Records one video payload (an AirPlay mirror packet or a WFD RTP packet) and refreshes
+     * Records one video payload (an AirPlay mirror RTP packet) and refreshes
      * [videoFps] / [videoBitrateKbps] once per [SAMPLE_WINDOW_MS].
      *
      * Called from the socket reader thread, so it must stay cheap — that is why the window is
@@ -171,7 +170,7 @@ object StreamStats {
     /** Human-readable multi-line HUD text. */
     fun summary(nowMillis: Long = System.currentTimeMillis()): String {
         val text = StringBuilder()
-        text.append("PhairPlay · debug\n")
+        text.append("Hearth · debug\n")
 
         val active = source
         text.append("SRC    ").append(if (active.isEmpty()) "idle — nothing streaming" else active)

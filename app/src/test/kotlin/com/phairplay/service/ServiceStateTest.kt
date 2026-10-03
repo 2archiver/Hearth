@@ -87,9 +87,9 @@ class ServiceStateTest {
     }
 
     /**
-     * "Cannot run on this TV" is deliberately not the same thing as "broke". Miracast hits this
-     * state on every Google TV that keeps Wi-Fi Direct to itself, and the card has to be able to
-     * say so without accusing PhairPlay.
+     * "Cannot run on this TV" is deliberately not the same thing as "broke". A TV whose mDNS
+     * responder refuses the record hits this state, and the card has to be able to say so without
+     * accusing Hearth of a bug.
      */
     @Test
     fun `ProtocolState has UNAVAILABLE state distinct from ERROR`() {
@@ -105,19 +105,24 @@ class ServiceStateTest {
         assertEquals(Protocol.AIRPLAY, Protocol.valueOf("AIRPLAY"))
     }
 
+    /**
+     * Apple Casting is not a second protocol: it is the mirroring half of the AirPlay receiver,
+     * reported from the video stream instead of the session. Inventing a CASTING protocol here
+     * would make two cards look like two receivers.
+     */
     @Test
-    fun `Protocol has MIRACAST value`() {
-        assertEquals(Protocol.MIRACAST, Protocol.valueOf("MIRACAST"))
+    fun `Protocol has no MIRACAST or CASTING value - AirPlay is the only receiver`() {
+        assertEquals(listOf(Protocol.AIRPLAY), Protocol.values().toList())
     }
 
     /**
-     * PhairPlay has no Cast protocol any more: a Google TV's own Chromecast owns TCP 8008/8009
+     * Hearth has no Cast protocol any more: a Google TV's own Chromecast owns TCP 8008/8009
      * and `_googlecast._tcp`, so a second receiver here could only ever report a port clash.
      */
     @Test
     fun `Protocol has no CAST value - the TV's built-in receiver owns Cast`() {
         assertTrue(
-            "Cast must not come back as a PhairPlay protocol",
+            "Cast must not come back as a Hearth protocol",
             Protocol.values().none { it.name == "CAST" }
         )
     }
