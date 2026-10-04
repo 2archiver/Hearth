@@ -318,6 +318,181 @@ class RtspHandlerTest {
         assertTrue("photo clear callback should be called", photoCleared)
     }
 
+    @Test
+    fun `TEARDOWN with empty body stops remaining active mirror video stream (iOS 27 fix)`() {
+        val handler = createTestHandler().apply { seedActiveStreams(110) }
+
+        val response = handler.handleTeardownPublic(teardownRequest(ByteArray(0)))
+
+        assertEquals(200, response.statusCode)
+        assertEquals("close", response.headers["Connection"])
+        assertTrue("active video stream 110 must be stopped on session TEARDOWN", videoStopped)
+        assertTrue("full session teardown must run", streamingStopped)
+    }
+
+    @Test
+    fun `parseFlushSeq extracts sequence number from RTP-Info header`() {
+        assertEquals(12345, RtspHandler.parseFlushSeq("seq=12345;rtptime=987654"))
+        assertEquals(0, RtspHandler.parseFlushSeq("rtptime=100; seq=0"))
+        assertEquals(-1, RtspHandler.parseFlushSeq(null))
+        assertEquals(-1, RtspHandler.parseFlushSeq("rtptime=100"))
+        assertEquals(-1, RtspHandler.parseFlushSeq("seq=70000"))
+    }
+
+    @Test
+    fun `FLUSH routes parsed sequence number to onAudioFlush`() {
+        var flushedSeq = -99
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onAudioFlush = { flushedSeq = it }
+        )
+
+        val response = handler.routeRequest(
+            RtspRequest(
+                method = "FLUSH",
+                uri = "rtsp://192.168.1.10/123",
+                headers = mapOf("RTP-Info" to "seq=4321;rtptime=88888"),
+                body = ""
+            )
+        )
+
+        assertEquals(200, response.statusCode)
+        assertEquals(4321, flushedSeq)
+    }
+
+    @Test
+    fun `POST reverse returns 101 Switching Protocols with PTTH upgrade`() {
+        val response = createTestHandler().routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/reverse",
+                headers = mapOf("Upgrade" to "PTTH/1.0", "Connection" to "Upgrade", "X-Apple-Purpose" to "event"),
+                body = "",
+                protocol = "HTTP/1.1"
+            )
+        )
+
+        assertEquals(101, response.statusCode)
+        assertEquals("PTTH/1.0", response.headers["Upgrade"])
+        assertEquals("Upgrade", response.headers["Connection"])
+    }
+
+    @Test
+    fun `POST fp-setup2 returns 421 Misdirected Request`() {
+        val response = createTestHandler().routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/fp-setup2",
+                headers = emptyMap(),
+                body = "",
+                protocol = "HTTP/1.1"
+            )
+        )
+
+        assertEquals(421, response.statusCode)
+    }
+
+    @Test
+    fun `PUT setProperty and POST getProperty return 200 XML plist with errorCode 0`() {
+        val handler = createTestHandler()
+        val setRes = handler.routeRequest(
+            RtspRequest(
+                method = "PUT",
+                uri = "/setProperty?forwardEndTime",
+                headers = emptyMap(),
+                body = "",
+                protocol = "HTTP/1.1"
+            )
+        )
+        assertEquals(200, setRes.statusCode)
+        assertEquals("text/x-apple-plist+xml", setRes.contentType)
+
+        val getRes = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/getProperty?playbackAccessLog",
+                headers = emptyMap(),
+                body = "",
+                protocol = "HTTP/1.1"
+            )
+        )
+        assertEquals(200, getRes.statusCode)
+        assertEquals("text/x-apple-plist+xml", getRes.contentType)
+    }
+
+    @Test
+    fun `SET_PARAMETER volume updates GET_PARAMETER volume response`() {
+        var reportedVolume = 0f
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVolume = { reportedVolume = it },
+            initialVolume = -10f
+        )
+
+        val initialGet = handler.routeRequest(
+            RtspRequest(method = "GET_PARAMETER", uri = "*", headers = emptyMap(), body = "volume\r\n")
+        )
+        assertEquals(200, initialGet.statusCode)
+        assertTrue(initialGet.body.startsWith("volume: -10.000000"))
+
+        val setRes = handler.routeRequest(
+            RtspRequest(
+                method = "SET_PARAMETER",
+                uri = "*",
+                headers = mapOf("Content-Type" to "text/parameters"),
+                body = "volume: -18.500000\r\n"
+            )
+        )
+        assertEquals(200, setRes.statusCode)
+        assertEquals(-18.5f, reportedVolume, 0.001f)
+
+        val updatedGet = handler.routeRequest(
+            RtspRequest(method = "GET_PARAMETER", uri = "*", headers = emptyMap(), body = "volume\r\n")
+        )
+        assertTrue(updatedGet.body.startsWith("volume: -18.500000"))
+    }
+
+    @Test
+    fun `POST play supports Start-Position-Seconds in binary plist`() {
+        var playedUrl: String? = null
+        var playedStart = -1.0
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVideoPlay = { u, s -> playedUrl = u; playedStart = s }
+        )
+        val body = PlistCodec.encode(
+            mapOf(
+                "Content-Location" to "https://example.com/video.m3u8",
+                "Start-Position-Seconds" to 42.5
+            )
+        )
+        val res = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/play",
+                headers = mapOf("Content-Type" to "application/x-apple-binary-plist"),
+                body = "",
+                bodyBytes = body,
+                protocol = "HTTP/1.1"
+            )
+        )
+        assertEquals(200, res.statusCode)
+        assertEquals("https://example.com/video.m3u8", playedUrl)
+        assertEquals(42.5, playedStart, 0.001)
+    }
+
+    @Test
+    fun `isOldProtocolClient detects legacy 3rd-party User-Agents`() {
+        assertTrue(RtspHandler.isOldProtocolClient("AirMyPC/2.0"))
+        assertTrue(RtspHandler.isOldProtocolClient("AirParrot/3.1"))
+        assertTrue(RtspHandler.isOldProtocolClient("TuneBlade/1.8"))
+        assertFalse(RtspHandler.isOldProtocolClient("AirPlay/670.6.2"))
+        assertFalse(RtspHandler.isOldProtocolClient(null))
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private fun createTestHandler(): TestableRtspHandler = TestableRtspHandler(
@@ -387,7 +562,11 @@ class TestableRtspHandler(
     onPhotoReceived: (ByteArray, PhotoImageType) -> Unit = { _, _ -> },
     onPhotoCleared: () -> Unit = {},
     onMirrorAudioStop: () -> Unit = {},
-    onMirrorVideoStop: () -> Unit = {}
+    onMirrorVideoStop: () -> Unit = {},
+    onVolume: (Float) -> Unit = {},
+    onVideoPlay: (String, Double) -> Unit = { _, _ -> },
+    onAudioFlush: (Int) -> Unit = {},
+    initialVolume: Float = 0f,
 ) : RtspHandler(
     context = io.mockk.mockk(relaxed = true),
     videoSurfaceProvider = { null },
@@ -396,7 +575,11 @@ class TestableRtspHandler(
     onPhotoReceived = onPhotoReceived,
     onPhotoCleared = onPhotoCleared,
     onMirrorAudioStop = onMirrorAudioStop,
-    onMirrorVideoStop = onMirrorVideoStop
+    onMirrorVideoStop = onMirrorVideoStop,
+    onVolume = onVolume,
+    onVideoPlay = onVideoPlay,
+    onAudioFlush = onAudioFlush,
+    initialVolume = initialVolume,
 ) {
     /** Test seam: mark mirror streams active without driving the full FairPlay SETUP handshake. */
     fun seedActiveStreams(vararg types: Int) { activeStreamTypes.addAll(types.toList()) }

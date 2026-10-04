@@ -76,6 +76,12 @@ open class RtspHandler(
     private val onPlaybackInfo: () -> com.phairplay.airplay.PlaybackInfo? = { null },
     /** Sender's DACP reverse-control identity from RTSP headers (DACP-ID + Active-Remote token). */
     private val onRemoteControlInfo: (dacpId: String?, activeRemote: String?) -> Unit = { _, _ -> },
+    /** Sender's human-readable device name/model extracted from AirPlay 2 SETUP plist (`name`/`model`). */
+    private val onMirrorSenderName: (senderName: String) -> Unit = {},
+    /** RTSP FLUSH notification with optional next RTP sequence number from `RTP-Info: seq=...`. */
+    private val onAudioFlush: (nextSeq: Int) -> Unit = {},
+    /** Initial AirPlay volume in dB (`-30..0`) carried over from receiver state (UxPlay commit `412c5b7`). */
+    initialVolume: Float = 0f,
     /**
      * The accepted socket this handler serves. Supplied by [RtspServer] through the connection
      * factory; null in unit tests, which drive the request handlers directly.
@@ -97,14 +103,14 @@ open class RtspHandler(
     @Volatile
     private var closed = false
 
-    /** Last volume the sender set (AirPlay dB); returned to GET_PARAMETER volume queries. */
-    @Volatile private var currentVolume: Float = 0f
+    /** Last volume the sender set (AirPlay dB); returned to GET_PARAMETER and GET /info queries. */
+    @Volatile private var currentVolume: Float = initialVolume
 
     /** The live socket; set from the constructor, cleared on close. */
     @Volatile
     private var client: Socket? = socket
 
-    private var currentCSeq: Int = 0
+    private var currentCSeq: String? = null
 
     @Volatile
     private var currentSession: SessionDescription? = null
@@ -192,7 +198,7 @@ open class RtspHandler(
                     trace("Control channel opened by ${request.headers["User-Agent"]?.takeIf { it.isNotBlank() } ?: "sender"}")
                 }
 
-                currentCSeq = request.headers["CSeq"]?.toIntOrNull() ?: 0
+                currentCSeq = request.headers["CSeq"]?.takeIf { it.isNotBlank() }
                 val response = routeRequest(request)
                 sendResponse(outputStream, response)
 
@@ -275,7 +281,7 @@ open class RtspHandler(
         return parts.joinToString(" + ")
     }
 
-    private fun routeRequest(request: RtspRequest): RtspResponse {
+    internal fun routeRequest(request: RtspRequest): RtspResponse {
         Logger.d("RTSP ${request.method} ${request.uri}")
         // Senders attach their DACP reverse-control identity to most requests — capture it so the TV
         // remote can drive playback (DacpClient dedups, so this is cheap to call repeatedly).
@@ -291,12 +297,13 @@ open class RtspHandler(
             "SET_PARAMETER" -> handleSetParameter(request)
             "FLUSH"         -> handleFlush(request)
             "PAUSE"         -> handlePauseInternal(request)
+            "AUDIOMODE"     -> handleAudioMode(request)
             // AirPlay 2 buffered-audio control verbs. Acknowledge them (a 501 would abort audio-only
             // playback) and log their bodies so the anchor/rate/peer formats can be implemented.
             "SETRATEANCHORTIME", "SETRATEANCHORTIM" -> handleBufferedControl(request, "SETRATEANCHORTIME")
             "SETPEERS", "SETPEERSX"                 -> handleBufferedControl(request, "SETPEERS")
             "FLUSHBUFFERED"                         -> handleBufferedControl(request, "FLUSHBUFFERED")
-            "PUT"           -> handlePhotoPutInternal(request)
+            "PUT"           -> routePut(request)
             "DELETE"        -> handlePhotoDeleteInternal(request)
             // AirPlay 2 handshake is HTTP-style (GET/POST with bodies) over the RTSP socket.
             "GET"           -> routeGet(request)
@@ -305,12 +312,19 @@ open class RtspHandler(
         }
     }
 
+    /** Routes PUT requests (photo sharing `PUT /photo` and video session `PUT /setProperty?...`). */
+    private fun routePut(request: RtspRequest): RtspResponse = when (request.uri.substringBefore("?")) {
+        "/setProperty" -> handlePropertyXmlOk(request, "PUT /setProperty")
+        else           -> handlePhotoPutInternal(request)
+    }
+
     /** Routes AirPlay 2 GET requests by URI path. */
     private fun routeGet(request: RtspRequest): RtspResponse = when (request.uri.substringBefore("?")) {
         "/info"          -> handleInfo(request)
         "/playback-info" -> handlePlaybackInfo(request)
         "/scrub"         -> handleScrubGet(request)
         "/server-info"   -> handleServerInfo(request)
+        "/getProperty"   -> handlePropertyXmlOk(request, "GET /getProperty")
         else             -> handleUnknownInternal(request)
     }
 
@@ -324,14 +338,73 @@ open class RtspHandler(
         // and a 470 would make the sender pop up a code prompt it can never satisfy.
         "/pair-setup-pin", "/pair-pin-start" -> handleHomeKitPairingRequest(request)
         "/fp-setup"    -> handleFpSetup(request)
+        "/fp-setup2"   -> handleFpSetup2(request)
         "/feedback"    -> handleFeedback(request)
-        "/audioMode"   -> RtspResponse(200, "OK", protocol = request.responseProtocol())
+        "/audioMode"   -> handleAudioMode(request)
+        "/reverse"     -> handleReverse(request)
+        "/action"      -> RtspResponse(200, "OK", protocol = request.responseProtocol())
+        "/getProperty" -> handlePropertyXmlOk(request, "POST /getProperty")
         // AirPlay video URL mode (non-mirroring): play a URL + drive transport.
         "/play"        -> handleVideoPlay(request)
         "/rate"        -> handleVideoRate(request)
         "/scrub"       -> handleVideoScrubPost(request)
         "/stop"        -> handleVideoStop(request)
         else           -> handleUnknownInternal(request)
+    }
+
+    /**
+     * POST /reverse — upgrades an AirPlay HTTP connection to the PTTH/1.0 reverse-HTTP event
+     * channel (UxPlay `http_handler_reverse` in `lib/http_handlers.h`). iOS/macOS photo and video
+     * senders issue this before `PUT /photo` or `POST /play`.
+     */
+    private fun handleReverse(request: RtspRequest): RtspResponse {
+        val purpose = request.headers["X-Apple-Purpose"] ?: "event"
+        Logger.i("POST /reverse (purpose=$purpose) — 101 Switching Protocols (PTTH/1.0)")
+        return RtspResponse(
+            statusCode = 101,
+            statusMessage = "Switching Protocols",
+            headers = mapOf(
+                "Connection" to "Upgrade",
+                "Upgrade" to "PTTH/1.0",
+            ),
+            protocol = "HTTP/1.1"
+        )
+    }
+
+    /**
+     * POST /fp-setup2 — answered with `421 Misdirected Request`, matching UxPlay's
+     * `http_handler_fpsetup2` (`lib/http_handlers.h`).
+     */
+    private fun handleFpSetup2(request: RtspRequest): RtspResponse {
+        Logger.i("POST /fp-setup2 — returning 421 Misdirected Request")
+        return RtspResponse(421, "Misdirected Request", protocol = request.responseProtocol())
+    }
+
+    /**
+     * PUT /setProperty and POST/GET /getProperty — answered with XML plist `{"errorCode": 0}`
+     * (`Content-Type: text/x-apple-plist+xml`), matching UxPlay's `http_handler_set_property` /
+     * `http_handler_get_property` (`lib/http_handlers.h`).
+     */
+    private fun handlePropertyXmlOk(request: RtspRequest, label: String): RtspResponse {
+        Logger.d("$label ${request.uri}")
+        return RtspResponse(
+            statusCode = 200,
+            statusMessage = "OK",
+            bodyBytes = PlistCodec.encodeXml(mapOf("errorCode" to 0L)),
+            contentType = "text/x-apple-plist+xml",
+            protocol = request.responseProtocol()
+        )
+    }
+
+    /** POST /audioMode or AUDIOMODE — logs the requested audioMode (if plist) and returns 200 OK. */
+    private fun handleAudioMode(request: RtspRequest): RtspResponse {
+        if (request.isPlistBody()) {
+            runCatching {
+                val mode = PlistCodec.decode(request.bodyBytes)["audioMode"] as? String
+                if (mode != null) Logger.d("audioMode: $mode")
+            }
+        }
+        return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
     // ─── AirPlay video URL mode (POST /play, /rate, /scrub, /stop; GET /playback-info, /scrub) ──
@@ -348,12 +421,18 @@ open class RtspHandler(
         return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
-    /** Extracts the media URL + start fraction from a /play body (plist `Content-Location` or text). */
+    /**
+     * Extracts the media URL + start position from a `/play` body (plist `Content-Location` and
+     * `Start-Position` or `Start-Position-Seconds`, or legacy text, matching UxPlay's
+     * `http_handler_play`).
+     */
     private fun parsePlayBody(request: RtspRequest): Pair<String?, Double> {
         if (request.isPlistBody()) {
             val p = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull() ?: return null to 0.0
             val url = p["Content-Location"] as? String
-            val start = (p["Start-Position"] as? Double) ?: 0.0
+            val start = (p["Start-Position"] as? Number)?.toDouble()
+                ?: (p["Start-Position-Seconds"] as? Number)?.toDouble()
+                ?: 0.0
             return url to start
         }
         // Legacy text body: "Content-Location: <url>\r\nStart-Position: <float>\r\n"
@@ -363,6 +442,7 @@ open class RtspHandler(
             when {
                 line.startsWith("Content-Location:", true) -> url = line.substringAfter(":").trim()
                 line.startsWith("Start-Position:", true) -> start = line.substringAfter(":").trim().toDoubleOrNull() ?: 0.0
+                line.startsWith("Start-Position-Seconds:", true) -> start = line.substringAfter(":").trim().toDoubleOrNull() ?: 0.0
             }
         }
         return url to start
@@ -431,13 +511,18 @@ open class RtspHandler(
         // Same identity as the TXT record and GET /info (see [AirPlayIdentity]) — a legacy
         // video sender that sees a different model or feature set here than it read while
         // browsing is entitled to walk away, and this used to answer AppleTV5,3/0x1E5A7FFFF7.
+        // Includes macAddress, osBuildVersion, and vv matching UxPlay's http_handler_server_info.
+        val mac = com.phairplay.util.NetworkUtils.getMacAddress()
         val info = mapOf(
-            "deviceid" to com.phairplay.util.NetworkUtils.getMacAddress(),
+            "deviceid" to mac,
+            "macAddress" to mac,
             "features" to AirPlayIdentity.FEATURES,
             "model" to AirPlayIdentity.MODEL,
             "name" to com.phairplay.util.MdnsNames.sanitize(displayName),
+            "osBuildVersion" to "12B435",
             "protovers" to AirPlayIdentity.PROTOCOL_VERSION,
             "srcvers" to AirPlayIdentity.SOURCE_VERSION,
+            "vv" to AirPlayIdentity.VERSION,
             "pk" to com.phairplay.airplay.handshake.PairingKeys.get(context).edPublic,
         )
         return RtspResponse(
@@ -495,19 +580,19 @@ open class RtspHandler(
      * deciding how to pair with us.
      */
     private fun handleInfo(request: RtspRequest): RtspResponse {
-        val qualifier = qualifierFrom(request)
-        if (qualifier != null) {
-            Logger.i("GET /info (qualifier=$qualifier) — answering with the TXT record")
-            trace("Discovery: sent the $qualifier record")
+        val qualifiers = qualifiersFrom(request)
+        if (qualifiers.isNotEmpty()) {
+            Logger.i("GET /info (qualifier=$qualifiers) — answering with the TXT record(s)")
+            trace("Discovery: sent the ${qualifiers.joinToString("+")} record")
             return RtspResponse(
                 statusCode = 200,
                 statusMessage = "OK",
-                bodyBytes = InfoResponder.buildTxtResponse(context, qualifier),
+                bodyBytes = InfoResponder.buildTxtResponse(context, qualifiers),
                 contentType = "application/x-apple-binary-plist",
                 protocol = request.responseProtocol()
             )
         }
-        Logger.i("GET /info — capability record sent (${displayWidth}x$displayHeight)")
+        Logger.i("GET /info — capability record sent (${displayWidth}x$displayHeight, initialVolume=$currentVolume)")
         trace("Discovery: answered GET /info as ${com.phairplay.airplay.AirPlayIdentity.MODEL}")
         return RtspResponse(
             statusCode = 200,
@@ -516,7 +601,8 @@ open class RtspHandler(
                 context = context,
                 displayName = displayName,
                 width = displayWidth,
-                height = displayHeight
+                height = displayHeight,
+                initialVolume = currentVolume.toDouble()
             ),
             contentType = "application/x-apple-binary-plist",
             protocol = request.responseProtocol()
@@ -524,19 +610,32 @@ open class RtspHandler(
     }
 
     /**
-     * Reads the `qualifier` array out of a `GET /info` body, e.g. `{qualifier: ["txtAirPlay"]}`.
-     * Returns `txtAirPlay` when the body is a plist that asks for a TXT record without naming one.
+     * Reads all requested TXT qualifiers (`txtAirPlay`, `txtRAOP`) from either the URL query
+     * string (`GET /info?txtAirPlay&txtRAOP`, BLE discovery) or the `qualifier` array in a binary
+     * plist body (matching UxPlay's `raop_handler_info`).
      */
-    private fun qualifierFrom(request: RtspRequest): String? {
-        if (request.bodyBytes.size < 8 || !request.isPlistBody()) return null
-        val parsed = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull() ?: return null
-        val list = parsed["qualifier"] as? List<*> ?: return null
-        val name = list.firstOrNull() as? String ?: return InfoResponder.QUALIFIER_TXT_AIRPLAY
-        return when (name) {
-            InfoResponder.QUALIFIER_TXT_RAOP -> InfoResponder.QUALIFIER_TXT_RAOP
-            InfoResponder.QUALIFIER_TXT_AIRPLAY -> InfoResponder.QUALIFIER_TXT_AIRPLAY
-            else -> null
+    private fun qualifiersFrom(request: RtspRequest): Set<String> {
+        val result = linkedSetOf<String>()
+        if (request.uri.contains(InfoResponder.QUALIFIER_TXT_AIRPLAY)) {
+            result += InfoResponder.QUALIFIER_TXT_AIRPLAY
         }
+        if (request.uri.contains(InfoResponder.QUALIFIER_TXT_RAOP)) {
+            result += InfoResponder.QUALIFIER_TXT_RAOP
+        }
+        if (request.bodyBytes.size >= 8 && request.isPlistBody()) {
+            val parsed = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull()
+            val list = parsed?.get("qualifier") as? List<*>
+            if (list != null) {
+                for (item in list) {
+                    when (item as? String) {
+                        InfoResponder.QUALIFIER_TXT_RAOP -> result += InfoResponder.QUALIFIER_TXT_RAOP
+                        InfoResponder.QUALIFIER_TXT_AIRPLAY -> result += InfoResponder.QUALIFIER_TXT_AIRPLAY
+                    }
+                }
+                if (result.isEmpty()) result += InfoResponder.QUALIFIER_TXT_AIRPLAY
+            }
+        }
+        return result
     }
 
     /**
@@ -671,12 +770,34 @@ open class RtspHandler(
         val response = mutableMapOf<String, Any?>()
 
         isMirrorSession = true
+        // Extract sender device name / model from SETUP plist (UxPlay raop_handlers.h lines 770-795).
+        val senderDeviceName = (req["name"] as? String)?.takeIf { it.isNotBlank() }
+            ?: (req["model"] as? String)?.takeIf { it.isNotBlank() }
+        if (senderDeviceName != null) {
+            onMirrorSenderName(senderDeviceName)
+        }
+        val isRemoteControlOnly = (req["isRemoteControlOnly"] as? Boolean) == true
+        if (isRemoteControlOnly) {
+            Logger.i("mirror SETUP: isRemoteControlOnly=true")
+        }
+
         val ekey = req["ekey"] as? ByteArray
         if (ekey != null) {
             val aesKey = fairPlay!!.decrypt(ekey)
-            val ecdhSecret = pairingSession?.sharedSecret ?: error("mirror SETUP before pair-verify")
+            val userAgent = request.headers["User-Agent"]
+            val ecdhSecret = pairingSession?.sharedSecret ?: if (isOldProtocolClient(userAgent)) {
+                Logger.i("mirror SETUP: legacy client '$userAgent' without pair-verify — using unhashed AES key")
+                ByteArray(0)
+            } else {
+                error("mirror SETUP before pair-verify")
+            }
             val aesIv = (req["eiv"] as? ByteArray) ?: ByteArray(16)
-            val senderTimingPort = (req["timingPort"] as? Long)?.toInt() ?: 0
+            val timingProtocol = req["timingProtocol"] as? String
+            val senderTimingPort = if (timingProtocol.equals("None", ignoreCase = true)) {
+                0
+            } else {
+                (req["timingPort"] as? Long)?.toInt() ?: 0
+            }
             val remoteAddr = currentRemoteAddress ?: error("mirror SETUP without remote address")
             val (eventPort, timingPort) = onMirrorSetupKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort)
             response["eventPort"] = eventPort.toLong()
@@ -880,12 +1001,22 @@ open class RtspHandler(
             }
             Logger.i("TEARDOWN streams=$streamTypes — last stream removed, ending session")
         } else {
-            Logger.i("TEARDOWN (session, body=${request.bodyBytes.size}B) — streaming stopping")
+            // General session TEARDOWN (or iOS >= 27 stopping mirroring without sending TEARDOWN 110,
+            // UxPlay commit 546820c): ensure any remaining active streams are explicitly torn down.
+            Logger.i("TEARDOWN (session, body=${request.bodyBytes.size}B, active=$activeStreamTypes) — streaming stopping")
+            if (activeStreamTypes.remove(96)) onMirrorAudioStop()
+            if (activeStreamTypes.remove(110)) onMirrorVideoStop()
+            if (activeStreamTypes.remove(103)) onBufferedAudioStop()
         }
         activeStreamTypes.clear()
         trace("Session ended by the sender (TEARDOWN)")
         onStreamingStopped()
-        return RtspResponse(statusCode = 200, statusMessage = "OK", protocol = request.responseProtocol())
+        return RtspResponse(
+            statusCode = 200,
+            statusMessage = "OK",
+            headers = mapOf("Connection" to "close"),
+            protocol = request.responseProtocol()
+        )
     }
 
     /** Parses the `streams` list from a TEARDOWN body, returning the stream `type`s, or null. */
@@ -915,15 +1046,9 @@ open class RtspHandler(
     private fun handleSetParameter(request: RtspRequest): RtspResponse {
         val body = request.body
         val contentType = request.headers["Content-Type"]?.lowercase() ?: ""
-        // Text bodies carry "volume: <dB>"; binary bodies carry DMAP now-playing metadata or artwork.
+        // Text bodies carry "volume: <dB>" or "progress: <start>/<curr>/<end>"; binary bodies carry
+        // DMAP now-playing metadata or artwork.
         when {
-            body.startsWith("volume") -> {
-                body.substringAfter(":").trim().toFloatOrNull()?.let { v ->
-                    currentVolume = v
-                    onVolume(v)
-                    Logger.d("SET_PARAMETER volume=$v")
-                }
-            }
             contentType.startsWith("image/") -> {
                 // Album artwork (image/jpeg, image/png). A zero-length body clears it.
                 onArtwork(request.bodyBytes)
@@ -933,6 +1058,23 @@ open class RtspHandler(
                 val meta = DmapParser.parseNowPlaying(request.bodyBytes)
                 onNowPlayingMetadata(meta.title, meta.artist, meta.album)
                 Logger.i("SET_PARAMETER now-playing: title='${meta.title}' artist='${meta.artist}' album='${meta.album}'")
+            }
+            contentType.contains("text/parameters") || body.trimStart().startsWith("volume") || body.trimStart().startsWith("progress") -> {
+                body.lineSequence().forEach { rawLine ->
+                    val line = rawLine.trim()
+                    when {
+                        line.startsWith("volume:", ignoreCase = true) -> {
+                            line.substringAfter(":").trim().toFloatOrNull()?.let { v ->
+                                currentVolume = v
+                                onVolume(v)
+                                Logger.d("SET_PARAMETER volume=$v")
+                            }
+                        }
+                        line.startsWith("progress:", ignoreCase = true) -> {
+                            Logger.d("SET_PARAMETER $line")
+                        }
+                    }
+                }
             }
             else -> Logger.d("SET_PARAMETER (${request.bodyBytes.size}B, $contentType, unhandled)")
         }
@@ -949,8 +1091,14 @@ open class RtspHandler(
         return RtspResponse(statusCode = 501, statusMessage = "Not Implemented", protocol = request.responseProtocol())
     }
 
-    /** Handles FLUSH — macOS requests we discard buffered media data (seek/pause). */
-    private fun handleFlush(@Suppress("UNUSED_PARAMETER") request: RtspRequest): RtspResponse {
+    /**
+     * Handles FLUSH — macOS requests we discard buffered media data (seek/pause), carrying
+     * `RTP-Info: seq=<nextSeq>;rtptime=<rtptime>` (UxPlay `raop_handler_flush`).
+     */
+    private fun handleFlush(request: RtspRequest): RtspResponse {
+        val nextSeq = parseFlushSeq(request.headers["RTP-Info"])
+        Logger.d("FLUSH (RTP-Info='${request.headers["RTP-Info"] ?: ""}' → nextSeq=$nextSeq)")
+        onAudioFlush(nextSeq)
         return RtspResponse(statusCode = 200, statusMessage = "OK")
     }
 
@@ -1012,10 +1160,16 @@ open class RtspHandler(
         val wire = response.wireBody()
         val head = StringBuilder()
         head.append("${response.protocol} ${response.statusCode} ${response.statusMessage}\r\n")
+        val cseq = currentCSeq
         if (response.protocol.startsWith("RTSP")) {
-            head.append("CSeq: $currentCSeq\r\n")
+            if (cseq != null) {
+                head.append("CSeq: $cseq\r\n")
+                if ("Audio-Jack-Status" !in response.headers) {
+                    head.append("Audio-Jack-Status: connected; type=digital\r\n")
+                }
+            }
         }
-        head.append("Server: AirTunes/220.68\r\n")
+        head.append("Server: AirTunes/${AirPlayIdentity.SOURCE_VERSION}\r\n")
         response.contentType?.let { head.append("Content-Type: $it\r\n") }
         response.headers.forEach { (key, value) ->
             head.append("$key: $value\r\n")
@@ -1055,6 +1209,42 @@ open class RtspHandler(
         private const val SESSION_ID = "HearthSession"
         private const val AUDIO_RTP_PORT = 6001
         private const val DEFAULT_SENDER_NAME = "AirPlay Sender"
+
+        private val OLD_PROTOCOL_USER_AGENTS = listOf(
+            "AirMyPC",
+            "Parrot",
+            "AirParrot",
+            "Tryall",
+            "TuneBlade",
+            "TuneAero",
+            "ScreenParrot",
+            "Evt-Air",
+        )
+
+        /**
+         * Returns `true` for legacy 3rd-party AirPlay senders that do not perform `pair-verify`
+         * and use the unhashed FairPlay AES key (UxPlay `raop_handlers.h` lines 817-829).
+         */
+        internal fun isOldProtocolClient(userAgent: String?): Boolean {
+            if (userAgent.isNullOrBlank()) return false
+            return OLD_PROTOCOL_USER_AGENTS.any { userAgent.contains(it, ignoreCase = false) }
+        }
+
+        /**
+         * Parses `seq=<nextSeq>` out of an RTSP `RTP-Info` header (e.g. `seq=12345;rtptime=67890`),
+         * returning `-1` if absent or malformed (UxPlay `raop_handler_flush`).
+         */
+        internal fun parseFlushSeq(rtpInfo: String?): Int {
+            if (rtpInfo.isNullOrBlank()) return -1
+            for (part in rtpInfo.split(';', ',')) {
+                val trimmed = part.trim()
+                if (trimmed.startsWith("seq=", ignoreCase = true)) {
+                    val seq = trimmed.substringAfter('=').trim().toIntOrNull()
+                    if (seq != null && seq in 0..0xFFFF) return seq
+                }
+            }
+            return -1
+        }
     }
 }
 

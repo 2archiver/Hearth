@@ -48,13 +48,18 @@ class AudioStreamServer(
     private val channels: Int,
     private val codecType: Int = CT_AAC_ELD,   // SETUP ct: 8 = AAC-ELD (mirror), 4 = AAC-LC (audio-only)
     private val framesPerPacket: Int = DEFAULT_ALAC_FRAMES,   // SETUP spf — ALAC frameLength (352)
+    hashAudioKey: Boolean = true,
+    initialVolumeDb: Float? = null,
 ) {
-    private val key = SecretKeySpec(MirrorCrypto.audioKey(aesKey, ecdhSecret), "AES")
+    private val key = SecretKeySpec(MirrorCrypto.audioKey(aesKey, ecdhSecret, hashAudioKey), "AES")
     private val iv = IvParameterSpec(aesIv.copyOf(16))
 
     // Playback gain (0..1), set from the sender's AirPlay volume. Applied to the AudioTrack and
-    // re-applied if the track is recreated. Starts at full.
-    @Volatile private var volumeGain = 1f
+    // re-applied if the track is recreated. Initialized from the receiver's tracked volume if
+    // present (UxPlay commit 412c5b7), otherwise starts at full.
+    @Volatile private var volumeGain = initialVolumeDb?.let { db ->
+        if (db <= -144f) 0f else ((db + 30f) / 30f).coerceIn(0f, 1f)
+    } ?: 1f
 
     // Reused across packets: decryptPacket runs only on the playback thread, so one Cipher
     // instance is safe and avoids a Cipher.getInstance allocation on every packet (~92/s).
@@ -97,6 +102,7 @@ class AudioStreamServer(
     private val reorder = HashMap<Int, ByteArray>()   // seq → decrypted-pending RTP payload
     private var nextSeq = -1                            // next seq to release in order (-1 = uninit)
     private var maxSeq = -1                             // highest seq seen (for gap detection)
+    private var minAcceptableSeq = -1                   // set by flush(nextSeq) to drop stale pre-flush packets
     private var resendCtr = 0                           // sequence counter for our resend requests
     @Volatile private var senderCtrlAddr: java.net.SocketAddress? = null
     @Volatile private var dupCount = 0
@@ -198,17 +204,46 @@ class AudioStreamServer(
     }
 
     /**
+     * Flushes the RTP reorder buffer, duplicate window, and decoded frame queue on an RTSP
+     * `FLUSH` request (`RTP-Info: seq=<nextSeq>`, matching UxPlay's `raop_buffer_flush` in
+     * `lib/raop_buffer.c`).
+     */
+    fun flush(flushedSeq: Int = -1) {
+        frameQueue.clear()
+        synchronized(reorderLock) {
+            reorder.clear()
+            seenSeqs.clear()
+            seenSeqSet.clear()
+            nextSeq = -1
+            maxSeq = -1
+            minAcceptableSeq = if (flushedSeq in 0..0xFFFF) flushedSeq else -1
+        }
+        StreamStats.audioQueue = 0
+    }
+
+    /**
      * Parses one RTP audio packet (from the data socket or a resend reply) and routes it through the
      * reorder buffer. [src] may be a reused receive buffer, so the payload is copied out before any
      * cross-thread handoff. Thread-safe: the reorder buffer + dedup are accessed under [reorderLock].
      */
     private fun handleRtpPacket(src: ByteArray, offset: Int, length: Int) {
-        if (length <= RTP_HEADER) return
+        if (length < RTP_HEADER) return
         val seq = ((src[offset + 2].toInt() and 0xFF) shl 8) or (src[offset + 3].toInt() and 0xFF)
-        // RAOP RTP: 12-byte header, then AES-128-CBC-encrypted audio payload (copied out of src).
-        val payload = src.copyOfRange(offset + RTP_HEADER, offset + length)
+        val payloadLen = length - RTP_HEADER
+        // Empty 12-byte RTP packets, 16-byte AAC-ELD no-data markers (00 68 34 00), and 44-byte ALAC
+        // format-only packets still advance the RTP sequence counter (so we don't see a false gap and
+        // request a resend), but carry no decodable audio frame (UxPlay lib/raop_buffer.c & raop_rtp.c).
+        val payload = if (payloadLen <= 0 || isNoDataRtpPayload(src, offset + RTP_HEADER, payloadLen, codecType)) {
+            ByteArray(0)
+        } else {
+            src.copyOfRange(offset + RTP_HEADER, offset + length)
+        }
         var resend: IntArray? = null
         synchronized(reorderLock) {
+            if (minAcceptableSeq >= 0) {
+                if (seqDiff(seq, minAcceptableSeq) < 0) return
+                minAcceptableSeq = -1
+            }
             if (isDuplicateSeq(seq)) { dupCount++; return }
             resend = enqueueInOrder(seq, payload)
         }
@@ -245,7 +280,9 @@ class AudioStreamServer(
     private fun releaseContiguous() {
         while (true) {
             val p = reorder.remove(nextSeq) ?: break
-            if (!frameQueue.offer(p)) { frameQueue.poll(); frameQueue.offer(p); qDropCount++ }
+            if (p.isNotEmpty()) {
+                if (!frameQueue.offer(p)) { frameQueue.poll(); frameQueue.offer(p); qDropCount++ }
+            }
             nextSeq = (nextSeq + 1) and 0xFFFF
         }
     }
@@ -430,6 +467,34 @@ class AudioStreamServer(
         private const val RTP_TYPE_RESEND_REQUEST = 0x55   // we → sender: "resend these seqs"
         private const val RTP_TYPE_RESEND_REPLY = 0x56     // sender → us: a resent audio packet
         private const val RESEND_REPLY_HEADER = 4          // 4-byte resend header before the embedded RTP
+
+        /**
+         * Returns `true` when an RTP audio payload is a protocol marker rather than a decodable
+         * audio frame (matching UxPlay's `raop_buffer_queue` in `lib/raop_buffer.c` and
+         * `raop_rtp_process_events` in `lib/raop_rtp.c`):
+         *  - 12-byte header-only RTP packet (`payloadLen <= 0`),
+         *  - 16-byte AAC-ELD `no_data_marker` (`payloadLen == 4` with bytes `00 68 34 00`),
+         *  - 44-byte ALAC format-only packet (`codecType == CT_ALAC && payloadLen == 32`).
+         */
+        internal fun isNoDataRtpPayload(
+            src: ByteArray,
+            payloadOffset: Int,
+            payloadLen: Int,
+            codecType: Int,
+        ): Boolean {
+            if (payloadLen <= 0) return true
+            if (payloadLen == 4 && payloadOffset + 4 <= src.size) {
+                if ((src[payloadOffset].toInt() and 0xFF) == 0x00 &&
+                    (src[payloadOffset + 1].toInt() and 0xFF) == 0x68 &&
+                    (src[payloadOffset + 2].toInt() and 0xFF) == 0x34 &&
+                    (src[payloadOffset + 3].toInt() and 0xFF) == 0x00
+                ) {
+                    return true
+                }
+            }
+            if (codecType == CT_ALAC && payloadLen == 32) return true
+            return false
+        }
 
         // Max packets to hold while waiting for a gap to fill before skipping it (bounds the worst-case
         // added latency to ~this many frames; in-order traffic adds zero). ~32 ≈ 0.25–0.35 s.

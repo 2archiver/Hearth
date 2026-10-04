@@ -164,6 +164,10 @@ class AirPlayReceiver(
     @Volatile private var npAlbum: String? = null
     @Volatile private var npArtwork: ByteArray? = null
 
+    // Tracked AirPlay volume in dB (-30..0, or <= -144 = mute) kept consistent across GET /info,
+    // SET_PARAMETER, and new AudioStreamServer instances (UxPlay commit 412c5b7).
+    @Volatile private var currentVolumeDb: Float = 0f
+
     /**
      * Starts the AirPlay receiver.
      *
@@ -343,7 +347,10 @@ class AirPlayReceiver(
                 onMirrorVideoStop = { stopMirrorVideo() },
                 onBufferedAudioStart = { startBufferedAudio() },
                 onBufferedAudioStop = { stopBufferedAudio() },
-                onVolume = { v -> audioServer?.setVolume(v) },
+                onVolume = { v ->
+                    currentVolumeDb = v
+                    audioServer?.setVolume(v)
+                },
                 onNowPlayingMetadata = { title, artist, album ->
                     npTitle = title; npArtist = artist; npAlbum = album
                     emitNowPlaying()
@@ -358,6 +365,12 @@ class AirPlayReceiver(
                 onVideoStop = { stopUrlVideo() },
                 onPlaybackInfo = { urlVideoPlayer?.info() },
                 onRemoteControlInfo = { dacpId, activeRemote -> dacpClient.configure(dacpId, activeRemote) },
+                onMirrorSenderName = { senderName ->
+                    npSenderName = senderName
+                    onSenderNameChanged(senderName)
+                },
+                onAudioFlush = { nextSeq -> audioServer?.flush(nextSeq) },
+                initialVolume = currentVolumeDb,
                 socket = socket
             ).also { handler ->
                 // Interleaved RTP (the legacy SDP path) feeds the one receiver-level decoder.
@@ -572,7 +585,7 @@ class AirPlayReceiver(
         }
         // AirPlay 2 NTP is receiver-initiated: poll the sender's timing port so macOS proceeds.
         val ntp = AirPlayNtpClient(remoteAddress, senderTimingPort).also { ntpClient = it; it.start(scope) }
-        onSenderNameChanged("AirPlay")
+        onSenderNameChanged(npSenderName)
         emitState(ProtocolState.CONNECTED)
         Logger.i("Mirror keys set; eventPort=${event.localPort} timingPort=${ntp.localPort}")
         return event.localPort to ntp.localPort
@@ -605,8 +618,19 @@ class AirPlayReceiver(
         val aesKey = mirrorAesKey ?: run { Logger.e("audio start before keys set"); return 0 to 0 }
         val ecdhSecret = mirrorEcdhSecret ?: return 0 to 0
         val aesIv = mirrorAesIv ?: return 0 to 0
-        val server = AudioStreamServer(aesKey, ecdhSecret, aesIv, sampleRate, channels, codecType, framesPerPacket)
-            .also { audioServer = it; it.start(scope) }
+        audioServer?.stop()
+        audioServer = null
+        val server = AudioStreamServer(
+            aesKey = aesKey,
+            ecdhSecret = ecdhSecret,
+            aesIv = aesIv,
+            sampleRate = sampleRate,
+            channels = channels,
+            codecType = codecType,
+            framesPerPacket = framesPerPacket,
+            hashAudioKey = ecdhSecret.isNotEmpty(),
+            initialVolumeDb = currentVolumeDb,
+        ).also { audioServer = it; it.start(scope) }
         audioPlaying = true
         emitNowPlaying()
         Logger.i("Mirror audio server started: dataPort=${server.dataPort} controlPort=${server.controlPort}")

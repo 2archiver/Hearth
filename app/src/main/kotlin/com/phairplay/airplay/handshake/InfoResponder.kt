@@ -45,32 +45,51 @@ object InfoResponder {
      *   body did not name one (in which case the reply carries the AirPlay record, which is what
      *   a sender that sends a qualifier without a value is looking for).
      */
-    fun buildTxtResponse(context: Context, qualifier: String?): ByteArray {
-        val record = when (qualifier) {
-            QUALIFIER_TXT_RAOP -> AirPlayIdentity.raopTxt(context)
-            else -> AirPlayIdentity.airPlayTxt(context)
+    fun buildTxtResponse(context: Context, qualifier: String?): ByteArray =
+        buildTxtResponse(
+            context = context,
+            qualifiers = listOf(qualifier ?: QUALIFIER_TXT_AIRPLAY)
+        )
+
+    /**
+     * Multi-qualifier `GET /info` response (supporting `{qualifier: ["txtAirPlay", "txtRAOP"]}`
+     * as well as `GET /info?txtAirPlay&txtRAOP` BLE discovery queries, matching UxPlay's
+     * `raop_handler_info`).
+     */
+    fun buildTxtResponse(context: Context, qualifiers: Collection<String>): ByteArray {
+        val map = linkedMapOf<String, Any?>()
+        if (QUALIFIER_TXT_AIRPLAY in qualifiers || qualifiers.isEmpty()) {
+            map[QUALIFIER_TXT_AIRPLAY] = AirPlayIdentity.txtRecordBytes(AirPlayIdentity.airPlayTxt(context))
         }
-        // The plist value is the raw DNS-SD TXT blob ("<len>key=value…\0"), not a dictionary —
-        // that is the shape a sender parses out of it.
-        val key = qualifier ?: QUALIFIER_TXT_AIRPLAY
-        return PlistCodec.encode(mapOf(key to AirPlayIdentity.txtRecordBytes(record)))
+        if (QUALIFIER_TXT_RAOP in qualifiers) {
+            map[QUALIFIER_TXT_RAOP] = AirPlayIdentity.txtRecordBytes(AirPlayIdentity.raopTxt(context))
+        }
+        if (map.isEmpty()) {
+            map[QUALIFIER_TXT_AIRPLAY] = AirPlayIdentity.txtRecordBytes(AirPlayIdentity.airPlayTxt(context))
+        }
+        return PlistCodec.encode(map)
     }
 
     /**
      * @param displayName The spoofed name from Settings; defaults to
      *   [MdnsNames.DEFAULT_DISPLAY_NAME] so a caller that has no settings handy still
      *   advertises something coherent with the mDNS record.
+     * @param initialVolume Current receiver AirPlay volume in dB (`-30.0..0.0`), keeping the
+     *   client's volume slider consistent across sessions (UxPlay commit `412c5b7`).
      */
     fun build(
         context: Context,
         displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
         width: Int = 1920,
-        height: Int = 1080
+        height: Int = 1080,
+        initialVolume: Double = 0.0,
     ): ByteArray {
         val mac = com.phairplay.util.NetworkUtils.getMacAddress()
         val info = mapOf(
+            "ID" to mac,
             "deviceID" to mac,
             "macAddress" to mac,
+            "manufacturer" to AirPlayIdentity.MANUFACTURER,
             "features" to AirPlayIdentity.FEATURES,
             "statusFlags" to AirPlayIdentity.STATUS_FLAGS,
             "model" to AirPlayIdentity.MODEL,
@@ -84,20 +103,32 @@ object InfoResponder {
             "vv" to AirPlayIdentity.VERSION,
             "keepAliveLowPower" to true,
             "keepAliveSendStatsAsBody" to true,
-            // Volume the sender should adopt at session start; the sender overwrites it as soon
-            // as the user touches the slider. macOS aborts a session that omits it.
-            "initialVolume" to 0.0,
+            // Volume the sender should adopt at session start (UxPlay commit 412c5b7).
+            "initialVolume" to initialVolume,
             // NOTE: macOS IGNORES this for system-audio AirPlay — it sends ALAC (ct=2) regardless of
             // what we advertise (verified: advertising AAC-only still got ALAC). So we keep the broad
-            // set (mirroring negotiates AAC-ELD from it, which works). Audio-only would need a
-            // software ALAC decoder since this TV has no hardware ALAC codec.
+            // set (mirroring negotiates AAC-ELD from it, which works).
             "audioFormats" to listOf(
                 mapOf("type" to 100L, "audioInputFormats" to 67108860L, "audioOutputFormats" to 67108860L),
                 mapOf("type" to 101L, "audioInputFormats" to 67108860L, "audioOutputFormats" to 67108860L)
             ),
             "audioLatencies" to listOf(
-                mapOf("type" to 100L, "audioType" to "default", "inputLatencyMicros" to 0L, "outputLatencyMicros" to 0L),
-                mapOf("type" to 101L, "audioType" to "default", "inputLatencyMicros" to 0L, "outputLatencyMicros" to 0L)
+                mapOf(
+                    "type" to 100L,
+                    "audioType" to "default",
+                    "inputLatencyMicroSeconds" to 0L,
+                    "outputLatencyMicroSeconds" to 0L,
+                    "inputLatencyMicros" to 0L,
+                    "outputLatencyMicros" to 0L,
+                ),
+                mapOf(
+                    "type" to 101L,
+                    "audioType" to "default",
+                    "inputLatencyMicroSeconds" to 0L,
+                    "outputLatencyMicroSeconds" to 0L,
+                    "inputLatencyMicros" to 0L,
+                    "outputLatencyMicros" to 0L,
+                )
             ),
             // Screen the sender can mirror to — without this, macOS aborts after key setup.
             "displays" to listOf(
@@ -109,8 +140,8 @@ object InfoResponder {
                     "height" to height.toLong(),
                     "widthPixels" to width.toLong(),
                     "heightPixels" to height.toLong(),
-                    "rotation" to false,
-                    "refreshRate" to (1.0 / 60.0),
+                    "rotation" to true,
+                    "refreshRate" to 60L,
                     "maxFPS" to 60L,
                     "overscanned" to false,   // false = macOS uses the full advertised resolution
                     "features" to 14L

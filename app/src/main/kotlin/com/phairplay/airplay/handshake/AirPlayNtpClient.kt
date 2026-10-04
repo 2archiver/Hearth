@@ -29,13 +29,19 @@ class AirPlayNtpClient(
 ) {
     private val socket = DatagramSocket()      // OS-assigned local port
     @Volatile private var running = false
+    @Volatile var clockOffsetMicros: Long = 0L
+        private set
 
     /** Local UDP port to advertise to macOS as the receiver's timingPort. */
     val localPort: Int get() = socket.localPort
 
     fun start(scope: CoroutineScope) {
+        if (remoteTimingPort <= 0) {
+            Logger.i("NTP client: remoteTimingPort=$remoteTimingPort (timing disabled by sender)")
+            return
+        }
         running = true
-        socket.soTimeout = RECV_TIMEOUT_MS
+        socket.soTimeout = BURST_RECV_TIMEOUT_MS
         scope.launch(Dispatchers.IO) { loop() }
         Logger.i("NTP client → [$remoteAddress]:$remoteTimingPort, local timing port $localPort")
     }
@@ -46,7 +52,9 @@ class AirPlayNtpClient(
     }
 
     private fun loop() {
-        // request: [0]=0x80 (RTP), [1]=0xd2 (timing request), [2-3]=seq, [24-31]=send NTP time.
+        // request: [0]=0x80 (RTP), [1]=0xd2 (timing request), [2-3]=0x0007,
+        // [8-15]=prev client transmit timestamp, [16-23]=prev server receive timestamp,
+        // [24-31]=current send NTP time (UxPlay lib/raop_ntp.c raop_ntp_thread).
         val request = ByteArray(32)
         request[0] = 0x80.toByte()
         request[1] = 0xD2.toByte()
@@ -54,14 +62,32 @@ class AirPlayNtpClient(
         val response = ByteArray(128)
         var first = true
         var rxCount = 0
+        var burstCount = 0
         while (running) {
+            val isBurst = burstCount < NTP_BURST_LIMIT
+            burstCount++
             try {
-                putNtpTimestamp(request, 24, System.currentTimeMillis())
+                socket.soTimeout = if (isBurst) BURST_RECV_TIMEOUT_MS else STEADY_RECV_TIMEOUT_MS
+                val sendTimeMs = System.currentTimeMillis()
+                putNtpTimestamp(request, 24, sendTimeMs)
                 socket.send(DatagramPacket(request, request.size, remoteAddress, remoteTimingPort))
-                if (first) { Logger.i("NTP: first timing request sent to macOS"); first = false }
+                if (first) { Logger.i("NTP: first timing request sent to sender"); first = false }
                 try {
                     val rx = DatagramPacket(response, response.size)
                     socket.receive(rx)
+                    val recvTimeMs = System.currentTimeMillis()
+                    if (rx.length >= 32) {
+                        val t1Us = readNtpMicros(response, 8)
+                        val t2Us = readNtpMicros(response, 16)
+                        val t3Us = readNtpMicros(response, 24)
+                        val t4Us = recvTimeMs * 1000L
+                        clockOffsetMicros = ((t2Us - t1Us) + (t3Us - t4Us)) / 2L
+                        // Copy client's transmit timestamp (response[24..31]) into request[8..15]
+                        // and record our arrival timestamp in request[16..23] for the next request
+                        // (matches UxPlay lib/raop_ntp.c lines 693-697).
+                        System.arraycopy(response, 24, request, 8, 8)
+                        putNtpTimestamp(request, 16, recvTimeMs)
+                    }
                     if (rxCount < 4) {
                         Logger.i("NTP RX[$rxCount] ${rx.length}B type=0x${(response[1].toInt() and 0xFF).toString(16)}: " +
                             (0 until minOf(rx.length, 32)).joinToString(" ") { "%02x".format(response[it]) })
@@ -71,17 +97,32 @@ class AirPlayNtpClient(
             } catch (e: Exception) {
                 if (running) Logger.e("NTP client send error", e)
             }
-            try { Thread.sleep(POLL_INTERVAL_MS) } catch (_: InterruptedException) { return }
+            val sleepMs = if (isBurst) BURST_POLL_INTERVAL_MS else STEADY_POLL_INTERVAL_MS
+            try { Thread.sleep(sleepMs) } catch (_: InterruptedException) { return }
         }
     }
 
     /** Writes a 64-bit NTP timestamp (seconds since 1900 + 32-bit fraction) big-endian. */
-    private fun putNtpTimestamp(buf: ByteArray, off: Int, epochMillis: Long) {
+    internal fun putNtpTimestamp(buf: ByteArray, off: Int, epochMillis: Long) {
         val seconds = epochMillis / 1000 + NTP_EPOCH_OFFSET
         val fraction = (epochMillis % 1000) * (1L shl 32) / 1000
         writeUint32(buf, off, seconds)
         writeUint32(buf, off + 4, fraction)
     }
+
+    /** Reads a 64-bit big-endian NTP timestamp as Unix epoch microseconds. */
+    internal fun readNtpMicros(buf: ByteArray, off: Int): Long {
+        val seconds = readUint32(buf, off) - NTP_EPOCH_OFFSET
+        val fraction = readUint32(buf, off + 4)
+        val micros = (fraction * 1_000_000L) ushr 32
+        return seconds * 1_000_000L + micros
+    }
+
+    private fun readUint32(buf: ByteArray, off: Int): Long =
+        ((buf[off].toLong() and 0xFF) shl 24) or
+            ((buf[off + 1].toLong() and 0xFF) shl 16) or
+            ((buf[off + 2].toLong() and 0xFF) shl 8) or
+            (buf[off + 3].toLong() and 0xFF)
 
     private fun writeUint32(buf: ByteArray, off: Int, value: Long) {
         buf[off] = (value ushr 24).toByte()
@@ -91,8 +132,11 @@ class AirPlayNtpClient(
     }
 
     companion object {
-        private const val NTP_EPOCH_OFFSET = 2208988800L   // seconds between 1900 and 1970
-        private const val POLL_INTERVAL_MS = 2000L
-        private const val RECV_TIMEOUT_MS = 1000
+        internal const val NTP_EPOCH_OFFSET = 2208988800L   // seconds between 1900 and 1970
+        internal const val NTP_BURST_LIMIT = 8              // UxPlay raop_ntp.c: 8 fast initial polls
+        internal const val BURST_POLL_INTERVAL_MS = 250L    // 0.25s during initial NTP burst
+        internal const val STEADY_POLL_INTERVAL_MS = 3000L  // 3.0s steady-state interval
+        private const val BURST_RECV_TIMEOUT_MS = 300
+        private const val STEADY_RECV_TIMEOUT_MS = 1000
     }
 }

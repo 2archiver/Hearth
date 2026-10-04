@@ -282,6 +282,7 @@ Apache License 2.0 — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
+- [PhairPlay](https://github.com/mazer666/PhairPlay) — The original Android TV / Google TV AirPlay receiver project from which Hearth is forked
+- [UxPlay](https://github.com/FDH2/UxPlay) — Actively maintained open-source AirPlay 2 mirror and audio server (reference implementation for device identity, mDNS/DNS-SD TXT records, `GET /info` capability and volume sync, `libplayfair` FairPlay v2/v3 key decryption, AES-CTR mirror stream re-keying, AVCC/SPS/PPS framing, NTP burst timing, RTP audio packet filtering & sequence-aware `FLUSH`, iOS 27 teardown handling, and PTTH/1.0 reverse HTTP endpoints)
 - [openairplay/airplay-spec](https://github.com/openairplay/airplay-spec) — Community-maintained AirPlay protocol documentation
-- [UxPlay](https://github.com/FDH2/UxPlay) — Open-source AirPlay mirror server (reference implementation)
 - [RPiPlay](https://github.com/FD-/RPiPlay) — AirPlay mirroring for Raspberry Pi (reference implementation)

@@ -84,9 +84,11 @@ object AirPlayIdentity {
     /**
      * Raop (= audio-only) TXT record. A sender reads these before it will stream audio, and
      * macOS refuses a device whose `_raop._tcp` record is missing or has no `pk`.
+     * Includes `am` (model) and `pw=false` matching UxPlay's `dnssd.c` / `dnssdint.h`.
      */
     fun raopTxt(context: Context): Map<String, String> = linkedMapOf(
         "txtvers" to "1",
+        "am" to MODEL,                   // device model (UxPlay dnssd.c)
         "ch" to "2",                     // 2 channels
         "cn" to "0,1,2,3",               // codecs: PCM, ALAC, AAC, AAC-ELD
         "da" to "true",                  // digest authentication supported
@@ -94,6 +96,7 @@ object AirPlayIdentity {
         "ft" to FEATURES_TXT,            // feature bits, same profile as _airplay._tcp
         "md" to "0,1,2",                 // metadata: text, artwork, progress
         "pk" to publicKeyHex(context),   // long-lived Ed25519 public key, hex as Apple publishes it
+        "pw" to "false",                 // no password required (UxPlay dnssd.c)
         "rhd" to "5.6.0.0",
         "sf" to "0x4",
         "sr" to "44100",
@@ -116,13 +119,15 @@ object AirPlayIdentity {
         "model" to MODEL,
         "pk" to publicKeyHex(context),
         "pi" to NetworkUtils.getPersistentUuid(context),
+        "pw" to "false",
         "srcvers" to SOURCE_VERSION,
         "protovers" to PROTOCOL_VERSION,
         "vv" to VERSION.toString(),
     )
 
     /**
-     * DNS-SD TXT wire format: `len key=value` entries, terminated by a zero byte.
+     * DNS-SD TXT wire format: concatenated `<u8 len><key=value>` entries (RFC 6763 §6.1,
+     * matching UxPlay's `mdnsd_txt_add` in `lib/mdnsd/mdnsd.c` with no trailing NUL byte).
      *
      * This is the exact byte string [com.phairplay.airplay.handshake.InfoResponder] returns for
      * a `GET /info` that asks for `txtAirPlay`/`txtRAOP` — iOS asks for it during discovery and
@@ -139,7 +144,6 @@ object AirPlayIdentity {
             out.write(entry.size)
             out.write(entry, 0, entry.size)
         }
-        out.write(0)
         return out.toByteArray()
     }
 
