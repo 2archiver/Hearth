@@ -84,13 +84,29 @@ class HearthUiTest {
         populateHome(root)
         render(root, "home-wine")
         val airplay = root.findViewById<View>(R.id.card_airplay)
-        assertTrue(airplay.requestFocus())
+        // Robolectric starts a native-graphics window in touch mode, where requestFocus() and
+        // focusSearch() both refuse non-touch-focusable views — a TV is never in touch mode once a
+        // D-pad key arrives, and requestFocusFromTouch() is exactly that keypress: it leaves touch
+        // mode, then focuses. focusSearch below only answers correctly because of that.
+        assertTrue(
+            "A remote keypress should focus the AirPlay card (inTouchMode=${airplay.isInTouchMode}, " +
+                "shown=${airplay.isShown}, attached=${airplay.isAttachedToWindow})",
+            airplay.requestFocusFromTouch()
+        )
+        assertTrue("The AirPlay card should hold focus", airplay.hasFocus())
         assertEquals(R.id.card_apple_casting, airplay.focusSearch(View.FOCUS_RIGHT)?.id)
         val activityButton = root.findViewById<View>(R.id.btn_connection_log)
-        assertTrue(activityButton.isFocusable)
-        val rect = android.graphics.Rect()
-        assertTrue(activityButton.getGlobalVisibleRect(rect))
-        assertEquals("Controls should fit on a standard TV viewport", activityButton.height, rect.height())
+        assertTrue("Activity should be reachable with the remote", activityButton.isFocusable)
+        // Compare the control's bottom edge with the viewport rather than its visible height: an
+        // exact height match also fails on a 1px rounding clip, which says nothing about reach.
+        val position = IntArray(2)
+        activityButton.getLocationInWindow(position)
+        assertTrue("Activity should be laid out", activityButton.height > 0)
+        assertTrue(
+            "Controls should fit on a standard TV viewport: Activity ends at y=" +
+                "${position[1] + activityButton.height} of ${root.height}px",
+            position[1] + activityButton.height <= root.height
+        )
         render(root, "home-focus-wine")
     }
 
@@ -118,13 +134,23 @@ class HearthUiTest {
             row.label(R.id.text_setting_label, texts.first)
             row.findViewById<TextView>(R.id.text_setting_subtitle).apply { text = texts.second; visibility = View.VISIBLE }
             row.findViewById<SwitchCompat>(R.id.switch_setting).isChecked = true
-            assertEquals(1, row.getFocusables(View.FOCUS_FORWARD).size)
+            // FOCUSABLES_ALL ignores touch mode, so this counts the row's focus targets the way a
+            // D-pad sees them instead of the way a touchscreen would.
+            val focusables = ArrayList<View>()
+            row.addFocusables(focusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)
+            assertEquals("Each Settings row should expose exactly one focus target", 1, focusables.size)
         }
-        root.findViewById<View>(R.id.row_display_name).requestFocus()
+        root.findViewById<View>(R.id.row_display_name).requestFocusFromTouch()
         render(root, "settings-wine")
         val row = root.findViewById<View>(R.id.row_force_high_res)
         val subtitle = row.findViewById<TextView>(R.id.text_setting_subtitle)
-        assertTrue(subtitle.height >= subtitle.layout.height)
+        val textLayout = subtitle.layout
+        assertNotNull("The subtitle should be laid out", textLayout)
+        assertTrue(
+            "The row should grow to fit its description: view=${subtitle.height}px " +
+                "text=${textLayout?.height}px",
+            subtitle.height >= (textLayout?.height ?: 0)
+        )
     }
 
     @Test fun nowPlayingFitsTelevisionAndHandlesMissingMetadata() {
