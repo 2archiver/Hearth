@@ -39,7 +39,7 @@ class MirrorStreamServer(
     private val width: Int = 1920,
     private val height: Int = 1080,
 ) {
-    private sealed class Item
+    internal sealed class Item
     internal data class Config(val sps: ByteArray, val pps: ByteArray) : Item()
     private class Frame(val annexB: ByteArray) : Item()
 

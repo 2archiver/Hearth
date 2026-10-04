@@ -4,6 +4,11 @@ import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import java.net.SocketTimeoutException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -29,29 +34,34 @@ class AirPlayNtpClient(
 ) {
     private val socket = DatagramSocket()      // OS-assigned local port
     @Volatile private var running = false
+    private var timingJob: Job? = null
     @Volatile var clockOffsetMicros: Long = 0L
         private set
 
     /** Local UDP port to advertise to macOS as the receiver's timingPort. */
     val localPort: Int get() = socket.localPort
 
+    @Synchronized
     fun start(scope: CoroutineScope) {
-        if (remoteTimingPort <= 0) {
+        if (running || socket.isClosed) return
+        if (remoteTimingPort !in 1..65535) {
             Logger.i("NTP client: remoteTimingPort=$remoteTimingPort (timing disabled by sender)")
             return
         }
         running = true
         socket.soTimeout = BURST_RECV_TIMEOUT_MS
-        scope.launch(Dispatchers.IO) { loop() }
+        timingJob = scope.launch(Dispatchers.IO) { loop() }
         Logger.i("NTP client → [$remoteAddress]:$remoteTimingPort, local timing port $localPort")
     }
 
     fun stop() {
         running = false
+        timingJob?.cancel()
+        timingJob = null
         runCatching { socket.close() }
     }
 
-    private fun loop() {
+    private suspend fun loop() {
         // request: [0]=0x80 (RTP), [1]=0xd2 (timing request), [2-3]=0x0007,
         // [8-15]=prev client transmit timestamp, [16-23]=prev server receive timestamp,
         // [24-31]=current send NTP time (UxPlay lib/raop_ntp.c raop_ntp_thread).
@@ -63,7 +73,7 @@ class AirPlayNtpClient(
         var first = true
         var rxCount = 0
         var burstCount = 0
-        while (running) {
+        while (running && currentCoroutineContext().isActive) {
             val isBurst = burstCount < NTP_BURST_LIMIT
             burstCount++
             try {
@@ -76,7 +86,8 @@ class AirPlayNtpClient(
                     val rx = DatagramPacket(response, response.size)
                     socket.receive(rx)
                     val recvTimeMs = System.currentTimeMillis()
-                    if (rx.length >= 32) {
+                    if (rx.address == remoteAddress && rx.port == remoteTimingPort &&
+                        NtpReplyValidator.matchesRequest(response, rx.length, request)) {
                         val t1Us = readNtpMicros(response, 8)
                         val t2Us = readNtpMicros(response, 16)
                         val t3Us = readNtpMicros(response, 24)
@@ -93,12 +104,14 @@ class AirPlayNtpClient(
                             (0 until minOf(rx.length, 32)).joinToString(" ") { "%02x".format(response[it]) })
                         rxCount++
                     }
-                } catch (_: Exception) { /* SO_RCVTIMEO — fine, retry next tick */ }
+                } catch (_: SocketTimeoutException) {
+                    // A missed timing reply is expected on a busy network; retry next tick.
+                }
             } catch (e: Exception) {
                 if (running) Logger.e("NTP client send error", e)
             }
             val sleepMs = if (isBurst) BURST_POLL_INTERVAL_MS else STEADY_POLL_INTERVAL_MS
-            try { Thread.sleep(sleepMs) } catch (_: InterruptedException) { return }
+            delay(sleepMs)
         }
     }
 

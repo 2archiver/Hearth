@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.0] - 2026-10-04 — The wine remaster
+
+### Changed
+- Wine-red and cream design, clearer remote focus, a large receiver name and a three-step connection guide.
+- Home keeps troubleshooting behind an Activity action; staged updates open Settings directly.
+- Settings rows grow to fit descriptions; toggles expose their On/Off state to accessibility services.
+- Landscape Now Playing layout with metadata, bounded artwork and a remote-control hint.
+- Rewritten project overview, accurate capability limits, contribution links and Ko-fi support.
+
+### Fixed
+- Service-state observers are cancelled on unbind/rebind instead of accumulating across visits.
+- The active navigation item is restored after activity recreation; Back returns through Settings and navigation.
+- Active playback keeps the display awake and releases that request on return to Home.
+- Photos take precedence over an empty connected-session video surface.
+- Photo and album-art decoding is sampled to a bounded size; unchanged artwork is reused.
+- Timing replies must match the sender, packet type and last request before changing the clock.
+- NTP polling is cancellable and ignores duplicate starts.
+- Fixed a Kotlin visibility error in the mirroring queue that prevented the existing source from compiling.
+- Split Settings update handling into a separate view-lifecycle controller.
+- Resetting preferences requires confirmation and immediately restarts the receiver.
+
+### Validation
+- Native Android layout renders and TV focus/bitmap tests added to CI.
+- Timing-packet regression tests cover stale, truncated and invalid replies.
+- Real-device compatibility remains an ongoing test requirement; see [upstream review](docs/UPSTREAM-REVIEW.md).
+
 ## [1.7.0] - 2026-10-04 — PhairPlay is now Hearth
 
 **The app is renamed. Nothing else about it changes.**

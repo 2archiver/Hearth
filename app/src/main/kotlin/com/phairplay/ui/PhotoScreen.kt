@@ -1,7 +1,6 @@
 package com.phairplay.ui
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.util.AttributeSet
 import android.view.Gravity
 import android.widget.FrameLayout
@@ -33,7 +32,7 @@ class PhotoScreen @JvmOverloads constructor(
     }
 
     fun showPhoto(bytes: ByteArray): Boolean {
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bitmap = BoundedBitmap.decode(bytes, 2048)
         if (bitmap == null) {
             Logger.w("PhotoScreen: BitmapFactory rejected photo payload")
             return false

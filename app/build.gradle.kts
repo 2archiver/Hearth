@@ -344,6 +344,10 @@ logger.lifecycle(
 
 dependencies {
     // AndroidX UI (View-based, for maximum TV compatibility)
+    // MainActivity's Back handling uses OnBackPressedDispatcher.addCallback; for the
+    // androidx.activity 1.7 that appcompat 1.7.0 pulls in, that Kotlin extension still lives in
+    // the -ktx artifact (it only moved into `activity` itself in 1.9.0).
+    implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
@@ -372,6 +376,9 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     // Robolectric — real Android framework classes (Intent, Base64, …) in JVM unit tests
     testImplementation(libs.robolectric)
+    // Native graphics backend for HearthUiTest (@GraphicsMode(NATIVE)): renders real layouts and
+    // bitmaps on the host JVM. Without it Robolectric cannot load the native runtime and fails.
+    testImplementation(libs.robolectric.nativeruntime)
 
     // Instrumented Testing (on device)
     androidTestImplementation(libs.androidx.test.ext.junit)

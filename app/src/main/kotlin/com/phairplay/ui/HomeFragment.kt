@@ -4,14 +4,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.graphics.Color
 import android.os.Bundle
 import android.os.IBinder
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
@@ -27,28 +25,20 @@ import com.phairplay.service.ServiceState
 import com.phairplay.util.Logger
 import com.phairplay.util.NetworkUtils
 import com.phairplay.update.UpdateManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * HomeFragment — The main screen of Hearth.
- *
- * WHY: Shows the two things this TV can receive — **AirPlay** (music, video and photos from an
- * iPhone/iPad/Mac) and **Apple Casting** (screen mirroring from those same devices) — plus a live
- * connection log, and provides Start / Stop / Restart controls. Designed for TV: large cards,
- * D-pad navigable, Google TV Streamer design language.
- *
- * HOW: Binds to [PhairPlayService] to receive real-time state updates.
- * User interactions call [ServiceController] to send commands to the service.
- *
- * Navigation: accessed via the "Home" item in MainActivity's nav panel.
+ * HomeFragment presents receiver state, connection instructions and service actions.
+ * It owns one collection job per binding so returning to Home cannot duplicate observers.
+ * Hosted by MainActivity; all dynamic status comes from PhairPlayService.
  */
 class HomeFragment : Fragment() {
-
-    // Service binding — gives direct access to PhairPlayService StateFlows
     private var service: PhairPlayService? = null
     private var isBound = false
+    private var observationJob: Job? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -59,13 +49,11 @@ class HomeFragment : Fragment() {
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            observationJob?.cancel()
             service = null
-            isBound = false
             Logger.d("HomeFragment: unbound from PhairPlayService")
         }
     }
-
-    // View references — bound in onViewCreated
     private lateinit var textDeviceName: TextView
     private lateinit var textNetwork: TextView
     private lateinit var textUpdate: TextView
@@ -77,31 +65,17 @@ class HomeFragment : Fragment() {
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
-
-    // Latest protocol states + active connection — needed to render each card's
-    // detail line (per-protocol error text, real sender name while streaming).
     private var airPlayState = ProtocolState.DISABLED
     private var appleCastingState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
-
     /** The name mDNS actually registered (differs from the requested one on a collision). */
     private var registeredName: String? = null
-
     /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
     private var lastRequestedName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME
-
-    /**
-     * Honest explanations of each card's state, published by [PhairPlayService] — which address
-     * the TV is advertising on, which record the mDNS responder refused, and — on the mirroring
-     * card — what the sender is doing.
-     */
+    /** Receiver-supplied network and failure details for each card. */
     private var airPlayDetail: String? = null
     private var appleCastingDetail: String? = null
-
-    /**
-     * Every step of the most recent sender connection, newest last — the answer to "it shows up
-     * in the list but nothing happens". [PhairPlayService.airPlayTrace] fills it.
-     */
+    /** Recent connection steps, ordered oldest to newest. */
     private var connectionLog: List<com.phairplay.airplay.AirPlayTrace.Entry> = emptyList()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
@@ -115,28 +89,30 @@ class HomeFragment : Fragment() {
         showDeviceName()
         showNetwork()
         showUpdateBadge()
+        view.findViewById<View>(R.id.btn_connection_log).setOnClickListener { showConnectionLogDialog() }
+        textUpdate.setOnClickListener {
+            requireActivity().findViewById<View>(R.id.nav_item_settings).performClick()
+        }
     }
 
     override fun onStart() {
         super.onStart()
-        // The IP/interface can change while the app is in the background (Wi-Fi ↔ Ethernet),
-        // so re-read it every time the Home screen is shown.
         showNetwork()
         showUpdateBadge()
-        // Bind to the service so we can observe its StateFlows
         val intent = Intent(requireContext(), PhairPlayService::class.java)
-        requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        isBound = requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onStop() {
+        observationJob?.cancel()
+        observationJob = null
+        service = null
         super.onStop()
         if (isBound) {
             requireContext().unbindService(serviceConnection)
             isBound = false
         }
     }
-
-    // ─── View Setup ──────────────────────────────────────────────────────────
 
     private fun bindViews(view: View) {
         textDeviceName   = view.findViewById(R.id.text_device_name)
@@ -152,33 +128,19 @@ class HomeFragment : Fragment() {
         btnRestart       = view.findViewById(R.id.btn_restart)
     }
 
-    /**
-     * Sets the static content on each protocol card: icon and protocol name.
-     * The dynamic parts (state, detail text) are updated when service state changes.
-     */
+    /** Sets the static content on each protocol card: icon and protocol name. */
     private fun configureProtocolCards() {
         setupCard(cardAirPlay,      R.drawable.ic_airplay,       R.string.protocol_airplay)
         setupCard(cardAppleCasting, R.drawable.ic_apple_casting, R.string.protocol_apple_casting)
-        // Either card opens the full connection log — the one place a "why did it not connect?"
-        // question can actually be answered on the TV itself.
         cardAirPlay.setOnClickListener { showConnectionLogDialog() }
         cardAppleCasting.setOnClickListener { showConnectionLogDialog() }
     }
 
-    /**
-     * The detail line for the Apple Casting card.
-     *
-     * While idle this must be the *instruction* (Control Centre → Screen Mirroring → the name),
-     * because that is the only place on the TV a user can read it. The service supplies a line
-     * while mirroring; anything else falls back to null so the generic wording is used.
-     */
+    /** The detail line for the Apple Casting card. */
     private fun castingDetailFor(state: ProtocolState): String? = when {
         appleCastingDetail != null -> appleCastingDetail
-        state == ProtocolState.ADVERTISING ->
-            getString(
-                R.string.protocol_detail_casting_waiting,
-                registeredName?.takeIf { it.isNotBlank() } ?: lastRequestedName
-            )
+        // The receiver name is printed on the hero card above, so this line takes no argument.
+        state == ProtocolState.ADVERTISING -> getString(R.string.protocol_detail_casting_waiting)
         else -> null
     }
 
@@ -195,10 +157,7 @@ class HomeFragment : Fragment() {
             .show()
     }
 
-    /**
-     * Renders the on-screen connection log: the newest few steps, or one line explaining that
-     * nothing has connected yet.
-     */
+    /** Shows the latest connection step; Activity opens the complete history. */
     private fun renderConnectionLog() {
         if (!::textConnectionLog.isInitialized) return
         textConnectionLog.text = if (connectionLog.isEmpty()) {
@@ -215,10 +174,7 @@ class HomeFragment : Fragment() {
         card.findViewById<TextView>(R.id.text_protocol_name)?.setText(nameRes)
     }
 
-    /**
-     * Configures Start / Stop / Restart button click listeners.
-     * Calls [ServiceController] which sends Intent actions to [PhairPlayService].
-     */
+    /** Configures Start / Stop / Restart button click listeners. */
     private fun configureButtons() {
         btnStart.setOnClickListener {
             Logger.d("User tapped Start")
@@ -234,31 +190,16 @@ class HomeFragment : Fragment() {
         }
     }
 
-    /**
-     * Shows the AirPlay name on the Home screen so the user knows what to look for in
-     * their sender's picker.
-     *
-     * This reads the **spoofed** name from Settings, not the Android device name — the
-     * whole point of the setting is that the sender sees the name chosen here, and showing
-     * the system name made a working rename look broken.
-     */
+    /** Loads the configured name shown in the sender’s device picker. */
     private fun showDeviceName() {
         viewLifecycleOwner.lifecycleScope.launch {
             val settings = SettingsRepository(requireContext()).settingsFlow.first()
-            // effectiveDisplayName is never blank — see MdnsNames.DEFAULT_DISPLAY_NAME.
             lastRequestedName = settings.effectiveDisplayName
             updateDeviceNameText(lastRequestedName)
         }
     }
 
-    /**
-     * Renders the "Visible as: …" line.
-     *
-     * Once mDNS has reported the name it actually registered, that wins over the requested
-     * one: NsdManager resolves a collision with another device of the same name by appending
-     * " (2)", and the picker shows the registered name, so that is what the user needs to
-     * see here too.
-     */
+    /** Prefers the registered mDNS name, including any collision suffix. */
     private fun updateDeviceNameText(requestedName: String) {
         val actual = registeredName
         val nameToShow = if (actual.isNullOrBlank()) requestedName else actual
@@ -268,14 +209,7 @@ class HomeFragment : Fragment() {
         textDeviceName.text = getString(R.string.home_device_visible_as, nameToShow)
     }
 
-    /**
-     * Shows which network Hearth is advertising on.
-     *
-     * WHY: "my iPhone cannot see the TV" is nearly always a network question. On a wired
-     * Google TV the phone has to be on the same network as the *Ethernet* address shown
-     * here — if the TV is also joined to a Wi-Fi network, that Wi-Fi address is irrelevant
-     * to discovery, and without this line there is no way to tell them apart from the TV.
-     */
+    /** Shows which network Hearth is advertising on. */
     private fun showNetwork() {
         if (!::textNetwork.isInitialized) return
         val summary = NetworkUtils.getNetworkSummary(requireContext())
@@ -286,12 +220,7 @@ class HomeFragment : Fragment() {
         }
     }
 
-    /**
-     * Shows a one-line hint when a newer Hearth build is already downloaded and waiting,
-     * or has been published but not downloaded. Tapping is not needed — Settings →
-     * "Check for updates" drives it — but silently sitting on an update is worse than a line
-     * of text on the Home screen.
-     */
+    /** Makes a staged update visible and actionable from Home. */
     private fun showUpdateBadge() {
         if (!::textUpdate.isInitialized) return
         val staged = UpdateManager.get(requireContext()).stagedUpdate()
@@ -303,85 +232,77 @@ class HomeFragment : Fragment() {
         textUpdate.visibility = View.VISIBLE
     }
 
-    // ─── State Observation ───────────────────────────────────────────────────
-
-    /**
-     * Starts collecting state updates from [PhairPlayService].
-     * Called after the service is bound. Each StateFlow is collected independently
-     * so that a change in one protocol card doesn't trigger a full UI redraw.
-     */
+    /** Starts collecting state updates from [PhairPlayService]. */
     private fun observeServiceState() {
+        observationJob?.cancel()
         val svc = service ?: return
+        observationJob = viewLifecycleOwner.lifecycleScope.launch {
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.serviceState.collectLatest { state -> updateServiceStateBadge(state) }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            // The name mDNS really registered — used to show " (2)"-style collision renames
-            // instead of the name the user asked for.
-            svc.registeredName.collectLatest { name ->
-                registeredName = name
-                updateDeviceNameText(lastRequestedName)
+            launch {
+                svc.serviceState.collectLatest { state -> updateServiceStateBadge(state) }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.airPlayState.collectLatest { state ->
-                airPlayState = state
-                updateProtocolCard(
-                    cardAirPlay, state,
-                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
-                    detailOverride = airPlayDetail
-                )
+            launch {
+                svc.registeredName.collectLatest { name ->
+                    registeredName = name
+                    updateDeviceNameText(lastRequestedName)
+                }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            // "Advertising on Ethernet · 192.168.1.42" / "the mDNS record was refused" — the
-            // difference between a working wired TV and an bug report that says "it doesn't work".
-            svc.airPlayDetail.collectLatest { detail ->
-                airPlayDetail = detail
-                updateProtocolCard(
-                    cardAirPlay, airPlayState,
-                    R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
-                    detailOverride = detail
-                )
+            launch {
+                svc.airPlayState.collectLatest { state ->
+                    airPlayState = state
+                    updateProtocolCard(
+                        cardAirPlay, state,
+                        R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
+                        detailOverride = airPlayDetail
+                    )
+                }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.appleCastingState.collectLatest { state ->
-                appleCastingState = state
-                updateProtocolCard(
-                    cardAppleCasting, state,
-                    R.string.protocol_detail_error_casting, Protocol.AIRPLAY,
-                    detailOverride = castingDetailFor(state),
-                    connectedFormat = R.string.protocol_detail_mirroring
-                )
+            launch {
+                svc.airPlayDetail.collectLatest { detail ->
+                    airPlayDetail = detail
+                    updateProtocolCard(
+                        cardAirPlay, airPlayState,
+                        R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
+                        detailOverride = detail
+                    )
+                }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.appleCastingDetail.collectLatest { detail ->
-                appleCastingDetail = detail
-                updateProtocolCard(
-                    cardAppleCasting, appleCastingState,
-                    R.string.protocol_detail_error_casting, Protocol.AIRPLAY,
-                    detailOverride = castingDetailFor(appleCastingState),
-                    connectedFormat = R.string.protocol_detail_mirroring
-                )
+            launch {
+                svc.appleCastingState.collectLatest { state ->
+                    appleCastingState = state
+                    updateProtocolCard(
+                        cardAppleCasting, state,
+                        R.string.protocol_detail_error_casting, Protocol.AIRPLAY,
+                        detailOverride = castingDetailFor(state),
+                        connectedFormat = R.string.protocol_detail_mirroring
+                    )
+                }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.airPlayTrace.collectLatest { entries ->
-                connectionLog = entries
-                renderConnectionLog()
+            launch {
+                svc.appleCastingDetail.collectLatest { detail ->
+                    appleCastingDetail = detail
+                    updateProtocolCard(
+                        cardAppleCasting, appleCastingState,
+                        R.string.protocol_detail_error_casting, Protocol.AIRPLAY,
+                        detailOverride = castingDetailFor(appleCastingState),
+                        connectedFormat = R.string.protocol_detail_mirroring
+                    )
+                }
             }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            svc.activeConnection.collectLatest { connection ->
-                activeConnection = connection
-                refreshProtocolCardDetails()
+            launch {
+                svc.airPlayTrace.collectLatest { entries ->
+                    connectionLog = entries
+                    renderConnectionLog()
+                }
+            }
+            launch {
+                svc.activeConnection.collectLatest { connection ->
+                    activeConnection = connection
+                    refreshProtocolCardDetails()
+                }
             }
         }
     }
-
     /** Re-renders the detail line of both cards (used when the sender name changes). */
     private fun refreshProtocolCardDetails() {
         updateProtocolCard(
@@ -396,11 +317,7 @@ class HomeFragment : Fragment() {
             connectedFormat = R.string.protocol_detail_mirroring
         )
     }
-
-    /**
-     * Updates the global service state badge (top-right corner of HomeScreen).
-     * Colors and text reflect whether the service is running, stopped, or restarting.
-     */
+    /** Updates the global service state badge (top-right corner of HomeScreen). */
     private fun updateServiceStateBadge(state: ServiceState) {
         val (textRes, colorRes) = when (state) {
             is ServiceState.Running    -> Pair(R.string.service_state_running,    R.color.status_running)
@@ -408,22 +325,16 @@ class HomeFragment : Fragment() {
             is ServiceState.Restarting -> Pair(R.string.service_state_restarting, R.color.status_transitioning)
             is ServiceState.Error      -> Pair(R.string.service_state_error,      R.color.status_stopped)
         }
+        val focusedControl = listOf(btnStart, btnStop, btnRestart).firstOrNull { it.hasFocus() }
+        btnStart.isEnabled = state is ServiceState.Stopped || state is ServiceState.Error
+        btnStop.isEnabled = state is ServiceState.Running
+        btnRestart.isEnabled = state is ServiceState.Running || state is ServiceState.Error
+        listOf(btnStart, btnStop, btnRestart).forEach { it.alpha = if (it.isEnabled) 1f else 0.4f }
+        if (focusedControl != null && !focusedControl.isEnabled) cardAirPlay.requestFocus()
         textServiceState.setText(textRes)
-        dotServiceState.background.setTint(requireContext().getColor(colorRes))
+        dotServiceState.background.mutate().setTint(requireContext().getColor(colorRes))
     }
-
-    /**
-     * Updates a single protocol status card with the current [ProtocolState].
-     *
-     * @param card           The card root view (cardAirPlay or cardAppleCasting — exactly two).
-     * @param state          The current state of this protocol.
-     * @param errorDetailRes Honest, protocol-specific detail shown in the ERROR state
-     *                       (never a generic "Check Wi-Fi settings" guess).
-     * @param protocol       Which protocol this card represents — selects the sender
-     *                       name from the active connection while streaming.
-     * @param connectedFormat String used while CONNECTED (defaults to "Streaming from %1$s";
-     *                       the Apple Casting card says "Mirroring from %1$s" instead).
-     */
+    /** Updates a single protocol status card with the current [ProtocolState]. */
     private fun updateProtocolCard(
         card: View,
         state: ProtocolState,
@@ -441,21 +352,15 @@ class HomeFragment : Fragment() {
             ProtocolState.DISABLED    -> Pair(R.string.protocol_state_disabled,    R.color.status_disabled)
             ProtocolState.ADVERTISING -> Pair(R.string.protocol_state_advertising, R.color.status_running)
             ProtocolState.CONNECTED   -> Pair(R.string.protocol_state_connected,   R.color.status_running)
-            // Grey, not red: nothing is broken, this TV simply cannot do it.
             ProtocolState.UNAVAILABLE -> Pair(R.string.protocol_state_unavailable, R.color.status_disabled)
             ProtocolState.ERROR       -> Pair(R.string.protocol_state_error,       R.color.status_stopped)
         }
 
         stateText.setText(stateRes)
         detail.text = detailText(state, protocol, errorDetailRes, detailOverride, connectedFormat)
-        dot.background.setTint(requireContext().getColor(colorRes))
+        dot.background.mutate().setTint(requireContext().getColor(colorRes))
     }
-
-    /**
-     * Resolves the detail line for one card. While streaming, the connected card
-     * shows the actual sender name (the previous implementation rendered the raw
-     * "%1$s" format placeholder); ERROR cards show the real reason for that protocol.
-     */
+    /** Shows the actual sender or failure reason for a receiver card. */
     private fun detailText(
         state: ProtocolState,
         protocol: Protocol,
@@ -469,8 +374,6 @@ class HomeFragment : Fragment() {
                 if (connection != null && connection.protocol == protocol) {
                     getString(connectedFormat, connection.senderName)
                 } else if (!detailOverride.isNullOrBlank()) {
-                    // The mirror card knows it is mirroring before the service has swapped in a
-                    // named ActiveConnection — say what it knows instead of a bare "Streaming".
                     detailOverride
                 } else {
                     getString(R.string.protocol_detail_connected_fallback)
@@ -486,6 +389,6 @@ class HomeFragment : Fragment() {
 
     private companion object {
         /** How many connection-log lines fit on Home without pushing the buttons off the screen. */
-        const val LOG_LINES_ON_SCREEN = 4
+        const val LOG_LINES_ON_SCREEN = 1
     }
 }
