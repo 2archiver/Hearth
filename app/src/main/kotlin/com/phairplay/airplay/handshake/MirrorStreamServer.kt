@@ -32,18 +32,18 @@ import java.util.concurrent.TimeUnit
  * Reference: RPiPlay lib/raop_rtp_mirror.c (raop_rtp_mirror_thread).
  */
 class MirrorStreamServer(
-    aesKey: ByteArray,
-    ecdhSecret: ByteArray,
-    streamConnectionId: Long,
+    private val aesKey: ByteArray,
+    private val ecdhSecret: ByteArray,
+    @Volatile private var streamConnectionId: Long,
     private val surfaceProvider: () -> Surface?,
     private val width: Int = 1920,
     private val height: Int = 1080,
 ) {
     private sealed class Item
-    private class Config(val sps: ByteArray, val pps: ByteArray) : Item()
+    internal data class Config(val sps: ByteArray, val pps: ByteArray) : Item()
     private class Frame(val annexB: ByteArray) : Item()
 
-    private val cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
+    @Volatile private var cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
     private val serverSocket = ServerSocket(0)            // OS-assigned free port
     private val queue = ArrayBlockingQueue<Item>(QUEUE_CAPACITY)
 
@@ -52,6 +52,7 @@ class MirrorStreamServer(
     @Volatile private var decoder: VideoDecoder? = null   // owned by the decoder thread
     private var lastSps: ByteArray? = null
     private var lastPps: ByteArray? = null
+    private var pendingSpsPps: ByteArray? = null          // Annex-B SPS+PPS prepended to next VCL frame (UxPlay raop_rtp_mirror.c)
     // The Surface the current decoder was built against. The SurfaceView destroys its Surface when
     // the app backgrounds and creates a NEW one on return, so we watch for the identity changing
     // and rebuild the decoder — otherwise video stays black after foregrounding.
@@ -65,6 +66,16 @@ class MirrorStreamServer(
 
     /** The OS-assigned TCP port macOS should connect to (returned in the SETUP response). */
     val dataPort: Int get() = serverSocket.localPort
+
+    /**
+     * Re-keys the AES-CTR stream cipher with a fresh [newStreamConnectionId] and resets any
+     * residual keystream state (UxPlay commit `f0b042b`).
+     */
+    fun rekey(newStreamConnectionId: Long) {
+        streamConnectionId = newStreamConnectionId
+        cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, newStreamConnectionId)
+        awaitingKeyframe = true
+    }
 
     fun start(scope: CoroutineScope) {
         running = true
@@ -118,26 +129,68 @@ class MirrorStreamServer(
     /** Reads one sender data connection until it closes; returns when the socket ends. */
     private fun readConnection(socket: Socket) {
         try {
+            runCatching { socket.keepAlive = true }
+            // Reset the AES-CTR stream cipher at the start of each TCP data connection so no
+            // residual keystream state carries over across reconnects (UxPlay commit f0b042b).
+            cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
             val input = socket.getInputStream()
             val header = ByteArray(128)
             while (running && !socket.isClosed) {
                 if (!readFully(input, header, 128)) break
                 val payloadSize = leInt(header, 0)
                 val payloadType = leShort(header, 4) and 0xFF
-                if (payloadSize <= 0 || payloadSize > MAX_PAYLOAD) {
+                // payloadSize == 0 is valid (e.g. type 2 1s heartbeat in UxPlay raop_rtp_mirror.c).
+                if (payloadSize < 0 || payloadSize > MAX_PAYLOAD) {
                     Logger.w("Mirror: bad payloadSize=$payloadSize type=$payloadType — stopping")
                     break
                 }
-                val payload = ByteArray(payloadSize)
-                if (!readFully(input, payload, payloadSize)) break
+                val payload = if (payloadSize > 0) {
+                    ByteArray(payloadSize).also { if (!readFully(input, it, payloadSize)) return }
+                } else {
+                    ByteArray(0)
+                }
                 when (payloadType) {
                     0 -> {
+                        if (payload.isEmpty()) continue
                         // ALWAYS advance the AES-CTR keystream, in order, for every video payload —
                         // skipping any packet desyncs the keystream and corrupts all later frames.
                         val annexB = MirrorCrypto.avccToAnnexB(cipher.update(payload))
-                        if (annexB.isNotEmpty()) enqueue(Frame(annexB), payloadSize)
+                        if (annexB.isNotEmpty()) {
+                            val prefix = pendingSpsPps
+                            val fullFrame = if (prefix != null) {
+                                pendingSpsPps = null
+                                prefix + annexB
+                            } else {
+                                annexB
+                            }
+                            enqueue(Frame(fullFrame), payloadSize)
+                        }
                     }
-                    1 -> parseConfig(payload)?.let { enqueue(it, payloadSize) }
+                    1 -> {
+                        val stateByte = header[6].toInt() and 0xFF
+                        if (stateByte == 0x56 || stateByte == 0x5E) {
+                            Logger.i("Mirror: sender screen suspended (header[6]=0x${stateByte.toString(16)})")
+                        } else if (stateByte == 0x16 || stateByte == 0x1E) {
+                            Logger.d("Mirror: sender video active/resumed (header[6]=0x${stateByte.toString(16)})")
+                        }
+                        if (payload.isNotEmpty()) {
+                            parseConfig(payload)?.let { cfg ->
+                                val sc = MirrorCrypto.START_CODE
+                                pendingSpsPps = sc + cfg.sps + sc + cfg.pps
+                                enqueue(cfg, payloadSize)
+                            }
+                        }
+                    }
+                    2 -> {
+                        // Old-protocol 1-second heartbeat packet (payloadSize == 0); keep connection alive.
+                        Logger.v("Mirror: received type 2 heartbeat")
+                    }
+                    5 -> {
+                        // Video streaming performance/info binary plist from sender
+                        // (with optional 25,000-byte lock-screen trailer, UxPlay raop_rtp_mirror.c).
+                        val plistSize = if (payload.size > 25000) payload.size - 25000 else payload.size
+                        Logger.v("Mirror: received type 5 streaming info packet ($plistSize B plist)")
+                    }
                     else -> Logger.v("Mirror: ignoring payload type $payloadType ($payloadSize B)")
                 }
             }
@@ -182,16 +235,7 @@ class MirrorStreamServer(
         if (resolved != StreamStats.videoRes) StreamStats.videoRes = resolved
     }
 
-    private fun parseConfig(payload: ByteArray): Config? = try {
-        val spsSize = ((payload[6].toInt() and 0xFF) shl 8) or (payload[7].toInt() and 0xFF)
-        val sps = payload.copyOfRange(8, 8 + spsSize)
-        val ppsLenOffset = 8 + spsSize + 1                   // skip the 1-byte PPS count
-        val ppsSize = ((payload[ppsLenOffset].toInt() and 0xFF) shl 8) or
-            (payload[ppsLenOffset + 1].toInt() and 0xFF)
-        Config(sps, payload.copyOfRange(ppsLenOffset + 2, ppsLenOffset + 2 + ppsSize))
-    } catch (e: Exception) {
-        Logger.e("Mirror: failed to parse SPS/PPS", e); null
-    }
+    private fun parseConfig(payload: ByteArray): Config? = Companion.parseConfig(payload)
 
     // ─── Decoder thread: consume the queue; the only thread that touches the decoder ──────────
     private fun runDecoder() {
@@ -329,5 +373,46 @@ class MirrorStreamServer(
         private const val QUEUE_CAPACITY = 90                  // ~1.5s @60fps before dropping
         private const val SURFACE_WAIT_TRIES = 50
         private const val SURFACE_WAIT_MS = 100L
+
+        /**
+         * Parses an H.264 `avcC` configuration packet (type 1 payload) into SPS and PPS byte
+         * arrays, validating bounds and rejecting unsupported `hvc1` (HEVC) headers (matching
+         * UxPlay's `raop_rtp_mirror.c`).
+         */
+        internal fun parseConfig(payload: ByteArray): Config? = try {
+            if (payload.size >= 8 &&
+                payload[4] == 'h'.code.toByte() &&
+                payload[5] == 'v'.code.toByte() &&
+                payload[6] == 'c'.code.toByte() &&
+                payload[7] == '1'.code.toByte()
+            ) {
+                Logger.w("Mirror: received hvc1 (HEVC) config packet — only H.264 avcC is advertised")
+                null
+            } else if (payload.size < 11) {
+                Logger.w("Mirror: avcC config payload too short (${payload.size}B)")
+                null
+            } else {
+                val spsSize = ((payload[6].toInt() and 0xFF) shl 8) or (payload[7].toInt() and 0xFF)
+                val ppsLenOffset = 8 + spsSize + 1                   // skip the 1-byte PPS count
+                if (spsSize <= 0 || ppsLenOffset + 2 > payload.size) {
+                    Logger.w("Mirror: invalid SPS size ($spsSize) in ${payload.size}B config packet")
+                    null
+                } else {
+                    val ppsSize = ((payload[ppsLenOffset].toInt() and 0xFF) shl 8) or
+                        (payload[ppsLenOffset + 1].toInt() and 0xFF)
+                    val ppsEnd = ppsLenOffset + 2 + ppsSize
+                    if (ppsSize <= 0 || ppsEnd > payload.size) {
+                        Logger.w("Mirror: invalid PPS size ($ppsSize) in ${payload.size}B config packet")
+                        null
+                    } else {
+                        val sps = payload.copyOfRange(8, 8 + spsSize)
+                        val pps = payload.copyOfRange(ppsLenOffset + 2, ppsEnd)
+                        Config(sps, pps)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e("Mirror: failed to parse SPS/PPS", e); null
+        }
     }
 }
