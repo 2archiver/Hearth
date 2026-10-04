@@ -64,8 +64,10 @@ open class RtspHandler(
     private val onNowPlayingMetadata: (title: String?, artist: String?, album: String?) -> Unit = { _, _, _ -> },
     /** Album artwork (JPEG/PNG bytes) from SET_PARAMETER; empty bytes = artwork cleared. */
     private val onArtwork: (ByteArray) -> Unit = {},
-    /** AirPlay video URL mode: POST /play with a media URL + start fraction (0..1). */
+    /** Legacy AirPlay video URL path: `Start-Position` is a fraction of media duration (0..1). */
     private val onVideoPlay: (url: String, startFraction: Double) -> Unit = { _, _ -> },
+    /** Modern direct-video path: `Start-Position-Seconds` is an absolute offset in seconds. */
+    private val onVideoPlaySeconds: (url: String, startSeconds: Double) -> Unit = onVideoPlay,
     /** AirPlay video transport: POST /rate (≤0 pause, >0 resume). */
     private val onVideoRate: (rate: Float) -> Unit = {},
     /** AirPlay video transport: POST /scrub — seek to position (seconds). */
@@ -411,41 +413,22 @@ open class RtspHandler(
 
     /** POST /play — a media URL to play (binary/XML plist or legacy text body). */
     private fun handleVideoPlay(request: RtspRequest): RtspResponse {
-        val (url, start) = parsePlayBody(request)
-        if (url.isNullOrBlank()) {
-            Logger.w("POST /play with no Content-Location")
-            return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
-        }
-        Logger.i("POST /play url=$url start=$start")
-        onVideoPlay(url, start)
-        return RtspResponse(200, "OK", protocol = request.responseProtocol())
-    }
-
-    /**
-     * Extracts the media URL + start position from a `/play` body (plist `Content-Location` and
-     * `Start-Position` or `Start-Position-Seconds`, or legacy text, matching UxPlay's
-     * `http_handler_play`).
-     */
-    private fun parsePlayBody(request: RtspRequest): Pair<String?, Double> {
-        if (request.isPlistBody()) {
-            val p = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull() ?: return null to 0.0
-            val url = p["Content-Location"] as? String
-            val start = (p["Start-Position"] as? Number)?.toDouble()
-                ?: (p["Start-Position-Seconds"] as? Number)?.toDouble()
-                ?: 0.0
-            return url to start
-        }
-        // Legacy text body: "Content-Location: <url>\r\nStart-Position: <float>\r\n"
-        var url: String? = null
-        var start = 0.0
-        request.body.lineSequence().forEach { line ->
-            when {
-                line.startsWith("Content-Location:", true) -> url = line.substringAfter(":").trim()
-                line.startsWith("Start-Position:", true) -> start = line.substringAfter(":").trim().toDoubleOrNull() ?: 0.0
-                line.startsWith("Start-Position-Seconds:", true) -> start = line.substringAfter(":").trim().toDoubleOrNull() ?: 0.0
+        val fields = if (request.isVideoPlayPlist()) {
+            runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull()
+        } else {
+            request.body.lineSequence().filter { ":" in it }.associate {
+                it.substringBefore(":").trim() to it.substringAfter(":").trim()
             }
         }
-        return url to start
+        val play = fields?.let { VideoPlayRequest.parse(it) }
+        if (play == null) {
+            AirPlayTrace.record("URL video: rejected invalid or unsupported /play location")
+            return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
+        }
+        AirPlayTrace.record("URL video: /play accepted (${if (play.seconds) "seconds" else "fraction"} offset)")
+        if (play.seconds) onVideoPlaySeconds(play.url, play.start)
+        else onVideoPlay(play.url, play.start)
+        return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
     /** POST /rate?value=X — X=0 pause, X≥1 resume. */
@@ -1257,3 +1240,12 @@ private fun RtspRequest.responseProtocol(): String =
 /** True if the body is an Apple binary plist (AirPlay 2 mirroring SETUP), vs legacy SDP. */
 private fun RtspRequest.isPlistBody(): Boolean =
     bodyBytes.size >= 8 && String(bodyBytes, 0, 8, Charsets.US_ASCII) == "bplist00"
+
+/** `/play` also accepts XML plists; keep that broader detection local to URL-video parsing. */
+private fun RtspRequest.isVideoPlayPlist(): Boolean {
+    val contentType = headers.entries.firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+        ?.value.orEmpty()
+    val text = body.trimStart()
+    return isPlistBody() || contentType.contains("plist", ignoreCase = true) ||
+        text.startsWith("<?xml", ignoreCase = true) || text.startsWith("<plist", ignoreCase = true)
+}

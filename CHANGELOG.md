@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.1] — direct AirPlay video compatibility (pending validation)
+
+- Correct seconds-based resume offsets for direct video casting while retaining fractional offsets.
+- Keep URL video visible over audio metadata and wait for a usable video surface.
+- Serialize URL-player operations on Android's main Looper and clean up failures/stale callbacks.
+- Preserve the existing mirroring and RAOP paths. Rumble hardware validation and FCUP HLS
+  compatibility remain pending; see docs/CASTING-1.8.1.md.
+
 ## [1.8.0] - 2026-10-04 — The wine remaster
 
 ### Changed

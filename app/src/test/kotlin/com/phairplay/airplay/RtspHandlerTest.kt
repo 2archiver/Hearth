@@ -461,7 +461,8 @@ class RtspHandlerTest {
         val handler = TestableRtspHandler(
             onStreamingStarted = {},
             onStreamingStopped = {},
-            onVideoPlay = { u, s -> playedUrl = u; playedStart = s }
+            onVideoPlay = { _, _ -> throw AssertionError("seconds must not use the fractional callback") },
+            onVideoPlaySeconds = { u, s -> playedUrl = u; playedStart = s }
         )
         val body = PlistCodec.encode(
             mapOf(
@@ -482,6 +483,74 @@ class RtspHandlerTest {
         assertEquals(200, res.statusCode)
         assertEquals("https://example.com/video.m3u8", playedUrl)
         assertEquals(42.5, playedStart, 0.001)
+    }
+
+    @Test
+    fun `POST play preserves fractional Start-Position for legacy senders`() {
+        var playedStart = -1.0
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVideoPlay = { _, start -> playedStart = start },
+            onVideoPlaySeconds = { _, _ -> throw AssertionError("fraction must use the legacy callback") }
+        )
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/play",
+            headers = mapOf("Content-Type" to "text/parameters"),
+            body = "Content-Location: https://example.com/video.mp4?token=a%2Bb\r\nStart-Position: 0.25\r\n",
+            protocol = "HTTP/1.1"
+        )
+
+        val response = handler.routeRequest(request)
+
+        assertEquals(200, response.statusCode)
+        assertEquals(0.25, playedStart, 0.0)
+    }
+
+    @Test
+    fun `POST play accepts XML plists with absolute seconds`() {
+        var playedStart = -1.0
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVideoPlaySeconds = { _, start -> playedStart = start }
+        )
+        val body = PlistCodec.encodeXml(mapOf(
+            "Content-Location" to "https://example.com/video.m3u8",
+            "Start-Position-Seconds" to 7.25
+        ))
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/play",
+            headers = mapOf("Content-Type" to "text/x-apple-plist+xml"),
+            body = String(body, Charsets.UTF_8),
+            bodyBytes = body,
+            protocol = "HTTP/1.1"
+        )
+
+        assertEquals(200, handler.routeRequest(request).statusCode)
+        assertEquals(7.25, playedStart, 0.0)
+    }
+
+    @Test
+    fun `POST play rejects unsupported internal locations`() {
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVideoPlay = { _, _ -> throw AssertionError("unsupported URLs must not be played") },
+            onVideoPlaySeconds = { _, _ -> throw AssertionError("unsupported URLs must not be played") }
+        )
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/play",
+            headers = mapOf("Content-Type" to "application/x-apple-binary-plist"),
+            body = "",
+            bodyBytes = PlistCodec.encode(mapOf("Content-Location" to "mlhls://localhost/master.m3u8")),
+            protocol = "HTTP/1.1"
+        )
+
+        assertEquals(400, handler.routeRequest(request).statusCode)
     }
 
     @Test
@@ -565,6 +634,7 @@ class TestableRtspHandler(
     onMirrorVideoStop: () -> Unit = {},
     onVolume: (Float) -> Unit = {},
     onVideoPlay: (String, Double) -> Unit = { _, _ -> },
+    onVideoPlaySeconds: (String, Double) -> Unit = onVideoPlay,
     onAudioFlush: (Int) -> Unit = {},
     initialVolume: Float = 0f,
 ) : RtspHandler(
@@ -578,6 +648,7 @@ class TestableRtspHandler(
     onMirrorVideoStop = onMirrorVideoStop,
     onVolume = onVolume,
     onVideoPlay = onVideoPlay,
+    onVideoPlaySeconds = onVideoPlaySeconds,
     onAudioFlush = onAudioFlush,
     initialVolume = initialVolume,
 ) {
