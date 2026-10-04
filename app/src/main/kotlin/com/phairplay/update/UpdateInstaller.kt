@@ -46,23 +46,50 @@ class UpdateInstaller(private val context: Context) {
     }
 
     /**
+     * True when Android will let Hearth start a package install. On Android 8+ this is the
+     * per-app "Install unknown apps" special access; without it PackageInstaller sessions are
+     * rejected (on some TV builds silently), which is how 1.8.1 ended up "installing" forever.
+     */
+    fun canRequestInstalls(): Boolean =
+        runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
+
+    /**
+     * The Settings screen where the user grants "Install unknown apps" to Hearth, or null when
+     * the device has no such screen (pre-Android 8).
+     */
+    fun installPermissionSettingsIntent(): android.content.Intent? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:${context.packageName}")
+            )
+        } else {
+            null
+        }
+
+    /**
      * Installs [apk] over this app.
      *
-     * Runs on the calling thread; call from `Dispatchers.IO`. Returns true when the install
-     * session was committed successfully — the install itself then happens asynchronously
-     * and Android restarts Hearth when it completes.
+     * Runs on the calling thread; call from `Dispatchers.IO`. [InstallStart.QUEUED] means the
+     * session was committed — the result (including a confirmation request) then arrives in
+     * [UpdateInstallReceiver], and Android restarts Hearth when the install completes.
      */
-    fun install(apk: File): Boolean {
+    fun install(apk: File): InstallStart {
         if (!apk.isFile) {
             Logger.e("Update install: file does not exist — ${apk.absolutePath}")
-            return false
+            return InstallStart.NOTHING_STAGED
+        }
+        if (!canRequestInstalls()) {
+            Logger.w("Update install: 'Install unknown apps' is not granted to Hearth")
+            return InstallStart.PERMISSION_REQUIRED
         }
         return try {
-            installWithUserAction(apk, requireUserAction = false)
-                || installWithUserAction(apk, requireUserAction = true)
+            if (installWithUserAction(apk, requireUserAction = false) ||
+                installWithUserAction(apk, requireUserAction = true)
+            ) InstallStart.QUEUED else InstallStart.FAILED
         } catch (e: Exception) {
             Logger.e("Update install failed", e)
-            false
+            InstallStart.FAILED
         }
     }
 
@@ -91,11 +118,11 @@ class UpdateInstaller(private val context: Context) {
                 apk.inputStream().use { it.copyTo(out) }
                 session.fsync(out)
             }
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-            } else {
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT
-            }
+            // MUTABLE, not IMMUTABLE: PackageInstaller adds EXTRA_STATUS and, for a confirmation,
+            // EXTRA_INTENT to this intent. An immutable PendingIntent drops them, so the receiver
+            // saw "failure" with no confirmation to show (the 1.8.1 install that never finished).
+            // Safe here because the intent is explicit and the receiver is not exported.
+            val flags = InstallPolicy.installResultPendingIntentFlags(Build.VERSION.SDK_INT)
             val pendingIntent = android.app.PendingIntent.getBroadcast(
                 context,
                 sessionId,

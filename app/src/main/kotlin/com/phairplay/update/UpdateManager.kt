@@ -53,6 +53,14 @@ class UpdateManager(private val context: Context) {
             return@withContext UpdateCheck.Skipped("Checked recently.")
         }
         var result = checker.check()
+        // A release whose APK was already shown to be no newer than this install (its notes
+        // over-stated the build) is not an update, however often it is re-checked.
+        if (result is UpdateCheck.Available &&
+            InstallPolicy.isKnownStaleRelease(result.info.versionCode, prefs.rejectedPublishedVersionCode)
+        ) {
+            Logger.i("Release ${result.info.versionName} (${result.info.versionCode}) already proved not newer — not offering it again")
+            result = UpdateCheck.UpToDate(result.info, newerThanPublished = false)
+        }
         // "Skip this version" is an instruction about *that* build, not about updating: a manual
         // check still shows it (so the decision can be reversed), but the background loop must
         // stop mentioning it. Marked here — the one place both the service and the UI pass
@@ -71,9 +79,16 @@ class UpdateManager(private val context: Context) {
                 if (prefs.stagedVersionCode != 0 && prefs.stagedVersionCode < result.info.versionCode) {
                     clearDownload()
                 }
+                // A new published build supersedes an earlier "this one was not newer" verdict.
+                if (prefs.rejectedPublishedVersionCode != 0 &&
+                    prefs.rejectedPublishedVersionCode != result.info.versionCode
+                ) {
+                    prefs.rejectedPublishedVersionCode = 0
+                }
             }
 
             is UpdateCheck.UpToDate -> {
+                discardObsoleteStaged()
                 prefs.lastCheckMillis = System.currentTimeMillis()
                 prefs.latestSeenVersionName = result.info.versionName
                 prefs.latestSeenVersionCode = result.info.versionCode
@@ -129,6 +144,7 @@ class UpdateManager(private val context: Context) {
                     "that is a downgrade; deleting it rather than offering an install"
             )
             downloaded.delete()
+            prefs.rejectedPublishedVersionCode = info.versionCode
             return@withContext StageResult.Failed(
                 "The download turned out to be older than the build on this TV " +
                     "(build $realVersionCode vs $installed). It was deleted — nothing to install.",
@@ -138,7 +154,8 @@ class UpdateManager(private val context: Context) {
 
         when (installer.verifySignature(downloaded)) {
             SignatureCheck.Match -> {
-                prefs.stage(info, downloaded.absolutePath)
+                prefs.stage(info, downloaded.absolutePath, versionCode = realVersionCode ?: info.versionCode)
+                prefs.installState = null
                 Logger.i("Update staged: ${downloaded.absolutePath}")
                 StageResult.Staged(StagedUpdate(info, downloaded))
             }
@@ -178,6 +195,15 @@ class UpdateManager(private val context: Context) {
         val code = prefs.stagedVersionCode
         val path = prefs.stagedApkPath ?: return null
         if (code == 0) return null
+        if (InstallPolicy.isStagedObsolete(code, installedVersionCode())) {
+            // The staged build (or a newer one) is what is running now: the install happened,
+            // even if its success broadcast never arrived. Offering it again is the repeated
+            // "update ready" prompt — delete it instead.
+            Logger.i("Staged build $code is not newer than installed ${installedVersionCode()} — discarding it")
+            prefs.clearStaged()
+            prefs.installState = null
+            return null
+        }
         val file = File(path)
         if (!file.isFile) {
             prefs.clearStaged()
@@ -199,20 +225,77 @@ class UpdateManager(private val context: Context) {
         )
     }
 
-    /** Installs the staged APK. Returns false when nothing is staged or the install failed. */
-    suspend fun installStaged(): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * Installs the staged APK and records the visible install state.
+     *
+     * Re-verifies the signature and the APK's own versionCode first: the file sat in the cache
+     * for a while and the app may have been updated by other means in the meantime.
+     */
+    suspend fun installStaged(): InstallStart = withContext(Dispatchers.IO) {
         val staged = stagedUpdate() ?: run {
             Logger.w("installStaged() called with nothing staged")
-            return@withContext false
+            return@withContext InstallStart.NOTHING_STAGED
         }
-        when (installer.verifySignature(staged.file)) {
-            SignatureCheck.Match -> Unit
-            else -> {
-                clearDownload()
-                return@withContext false
-            }
+        val realCode = apkVersionCode(staged.file)
+        if (realCode != null && InstallPolicy.isStagedObsolete(realCode, installedVersionCode())) {
+            Logger.w("Staged APK is build $realCode, installed is ${installedVersionCode()} — discarding")
+            clearDownload()
+            return@withContext InstallStart.NOTHING_STAGED
         }
-        installer.install(staged.file)
+        if (installer.verifySignature(staged.file) != SignatureCheck.Match) {
+            clearDownload()
+            prefs.recordInstallState(InstallState.FAILED, "The downloaded update failed verification and was deleted.")
+            return@withContext InstallStart.VERIFICATION_FAILED
+        }
+        val start = installer.install(staged.file)
+        when (start) {
+            InstallStart.QUEUED -> prefs.recordInstallState(InstallState.INSTALLING)
+            InstallStart.PERMISSION_REQUIRED -> prefs.recordInstallState(InstallState.PERMISSION_REQUIRED)
+            InstallStart.FAILED -> prefs.recordInstallState(
+                InstallState.FAILED, "Android refused to start the install session."
+            )
+            else -> Unit
+        }
+        start
+    }
+
+    /** Whether Hearth currently holds "Install unknown apps". */
+    fun canRequestInstalls(): Boolean = installer.canRequestInstalls()
+
+    /** Settings page that grants "Install unknown apps" to Hearth. */
+    fun installPermissionSettingsIntent(): android.content.Intent = installer.installPermissionSettingsIntent()
+
+    /**
+     * The last recorded install state, or null when none is relevant. A stale INSTALLING /
+     * AWAITING_CONFIRMATION (the result never arrived — e.g. the confirmation was dismissed with
+     * Home) decays after [INSTALL_STATE_TTL_MS] so the card does not claim "Installing…" forever.
+     */
+    fun installState(): Pair<InstallState, String?>? {
+        val state = prefs.installState?.let { name -> runCatching { InstallState.valueOf(name) }.getOrNull() }
+            ?: return null
+        val age = System.currentTimeMillis() - prefs.installStateAt
+        if ((state == InstallState.INSTALLING || state == InstallState.AWAITING_CONFIRMATION) &&
+            age > INSTALL_STATE_TTL_MS
+        ) {
+            prefs.installState = null
+            return null
+        }
+        if (state == InstallState.SUCCEEDED) return null
+        return state to prefs.installMessage
+    }
+
+    /** Clears a displayed install state (after the user has acted on it). */
+    fun clearInstallState() {
+        prefs.installState = null
+    }
+
+    /** Deletes a staged APK whose build is already installed. */
+    private fun discardObsoleteStaged() {
+        val code = prefs.stagedVersionCode
+        if (InstallPolicy.isStagedObsolete(code, installedVersionCode())) {
+            Logger.i("Discarding staged build $code — already installed")
+            prefs.clearStaged()
+        }
     }
 
     /** Deletes any staged download (after a successful install, or when the user declines). */
@@ -251,6 +334,9 @@ class UpdateManager(private val context: Context) {
 
     companion object {
         private const val UPDATE_DIR = "updates"
+
+        /** How long an unanswered "installing" state is shown before it is treated as stale. */
+        private const val INSTALL_STATE_TTL_MS = 2 * 60 * 1000L
 
         /**
          * Entry point for the callers that have no dependency graph — the service, the

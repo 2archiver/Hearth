@@ -53,10 +53,48 @@ internal class UpdatePreferences(context: Context) {
         get() = prefs.getInt(KEY_LATEST_CODE, 0)
         set(value) = prefs.edit().putInt(KEY_LATEST_CODE, value).apply()
 
-    /** Remembers a staged download, so "Install" can be offered again after a restart. */
-    fun stage(info: UpdateInfo, path: String) {
+    /**
+     * Published versionCode whose APK turned out to be *not newer* than this install once it was
+     * downloaded and its manifest read (the release notes over-stated the build). Remembered so
+     * the same release is not downloaded and offered again every check — the 1.8.1 "update
+     * prompt that never goes away". 0 = none.
+     */
+    var rejectedPublishedVersionCode: Int
+        get() = prefs.getInt(KEY_REJECTED_CODE, 0)
+        set(value) = prefs.edit().putInt(KEY_REJECTED_CODE, value).apply()
+
+    /** Last known installer state ([InstallState.name]); drives the visible Settings status. */
+    var installState: String?
+        get() = prefs.getString(KEY_INSTALL_STATE, null)
+        set(value) = prefs.edit().putString(KEY_INSTALL_STATE, value).apply()
+
+    /** Human-readable detail for [installState] (the platform's failure message, if any). */
+    var installMessage: String?
+        get() = prefs.getString(KEY_INSTALL_MESSAGE, null)
+        set(value) = prefs.edit().putString(KEY_INSTALL_MESSAGE, value).apply()
+
+    /** Records an installer state change in one write. */
+    fun recordInstallState(state: InstallState, message: String? = null) {
         prefs.edit()
-            .putInt(KEY_STAGED_CODE, info.versionCode)
+            .putString(KEY_INSTALL_STATE, state.name)
+            .putString(KEY_INSTALL_MESSAGE, message)
+            .putLong(KEY_INSTALL_STATE_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** When [installState] was last written (ms), 0 = never. */
+    val installStateAt: Long get() = prefs.getLong(KEY_INSTALL_STATE_AT, 0L)
+
+    /**
+     * Remembers a staged download, so "Install" can be offered again after a restart.
+     *
+     * [versionCode] is the code read from the APK's own manifest when available — the release
+     * notes are only a hint, and a staged entry keyed on a wrong hint could never be recognised
+     * as "already installed" afterwards.
+     */
+    fun stage(info: UpdateInfo, path: String, versionCode: Int = info.versionCode) {
+        prefs.edit()
+            .putInt(KEY_STAGED_CODE, versionCode)
             .putString(KEY_STAGED_PATH, path)
             .putString(KEY_LATEST_NAME, info.versionName)
             .putInt(KEY_LATEST_CODE, info.versionCode)
@@ -89,6 +127,10 @@ internal class UpdatePreferences(context: Context) {
         private const val KEY_STAGED_PATH = "staged_apk_path"
         private const val KEY_LATEST_NAME = "latest_seen_version_name"
         private const val KEY_LATEST_CODE = "latest_seen_version_code"
+        private const val KEY_REJECTED_CODE = "rejected_published_version_code"
+        private const val KEY_INSTALL_STATE = "install_state"
+        private const val KEY_INSTALL_MESSAGE = "install_message"
+        private const val KEY_INSTALL_STATE_AT = "install_state_at"
 
         /** How long a successful check stays fresh. */
         const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L

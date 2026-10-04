@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.2] — installs that finish, prompts that stop, sessions that survive reconnects
+
+### Fixed — updater
+- **Installs now actually complete.** The PackageInstaller result PendingIntent was created
+  `FLAG_IMMUTABLE`, so Android could not attach the status or the confirmation screen. The app
+  saw a bare "failure" and never showed Android's install confirmation. It is now `FLAG_MUTABLE`
+  on Android 12+ (the intent is explicit and the receiver is not exported).
+- **No more repeated "update ready" prompts.** A staged APK whose build is already installed is
+  deleted instead of being offered again, and staged builds are keyed by the versionCode read from
+  the APK itself rather than from the release notes.
+- **A release whose notes overstate its build is offered once.** After its downloaded APK proves to
+  be no newer than this install, it is not downloaded again until a different build is published.
+- The staged file is checked again (signature and real versionCode) right before installing.
+
+### Added — updater
+- Visible install states on the Settings card: *Installing*, *Confirm on screen*, *Permission
+  needed*, *Install cancelled* and *Install failed*, with Android's reason. An unanswered
+  "Installing…" expires after two minutes instead of staying on screen.
+- **"Install unknown apps" flow:** if Hearth lacks that permission, it explains what to turn on and
+  opens the right Settings page, with a fallback path for TVs that do not have that page.
+
+### Fixed — AirPlay
+- **A stale or probe connection can no longer end someone else's session.** Each connection that
+  starts a session (mirror keys, legacy RECORD, URL video) claims it. Stops from any other
+  connection are logged and ignored. This matches the reported trace: the session stopped about
+  one second after audio setup, before any video started.
+- A mirror `SETUP` that fails no longer marks its connection as owning a session.
+- When the connection limit is reached, the oldest *idle* connection is closed instead of the
+  control channel.
+- RTSP header names are case-insensitive. A lower-case `content-length` used to leave the body in
+  the socket and desynchronise the connection.
+
+### Diagnostics
+- The on-TV Activity log now gives a **stop reason** for every ended session: TEARDOWN, sender
+  closed the control connection without TEARDOWN, idle timeout, connection error, receiver
+  shutdown, URL video ended, or a stop that was ignored and the reason it was ignored.
+
+### Design
+- New launcher icon and Android TV banner: an ivory flame with a play mark and casting arcs on wine red.
+
+### Validation
+- New JVM tests: `InstallPolicyTest`, `SessionOwnershipTest`, `RtspRobustnessTest`.
+- Still pending: testing on real devices, including Rumble and FCUP direct video. The private-playlist
+  bridge is a separate feature and is not part of this release.
+- **If 1.8.0/1.8.1 is stuck on "Installing…", install 1.8.2 manually once** (Downloader or
+  `adb install -r`). The fix is in the new build and cannot repair an updater that is already
+  installed.
+
 ## [1.8.1] — direct AirPlay video compatibility (pending validation)
 
 - Correct seconds-based resume offsets for direct video casting while retaining fractional offsets.

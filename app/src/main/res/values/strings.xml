@@ -222,4 +222,20 @@
     <string name="now_playing_remote_hint">Press OK to play or pause · Use media keys to skip</string>
     <string name="setting_state_on">On</string>
     <string name="setting_state_off">Off</string>
+    <!-- 1.8.2: visible install states and the "Install unknown apps" flow -->
+    <string name="update_status_installing">INSTALLING</string>
+    <string name="update_status_confirm">CONFIRM ON SCREEN</string>
+    <string name="update_status_permission">PERMISSION NEEDED</string>
+    <string name="update_status_install_failed">INSTALL FAILED</string>
+    <string name="update_status_cancelled">INSTALL CANCELLED</string>
+    <string name="update_installing_card">Installing %1$s… Hearth restarts when Android finishes.</string>
+    <string name="update_confirm_card">Android is asking you to confirm installing %1$s. If you dismissed it, choose Install now again.</string>
+    <string name="update_permission_card">Allow Hearth to install apps, then choose Install now.</string>
+    <string name="update_cancelled_card">You cancelled installing %1$s. It is still downloaded — choose Install now when ready.</string>
+    <string name="update_permission_title">Allow Hearth to install updates</string>
+    <string name="update_permission_message">Android needs your permission before Hearth can install its own update. On the next screen turn on \"Allow from this source\" for Hearth, press Back, then choose Install now.\n\nIf the screen does not open, go to Settings → Apps → Special app access → Install unknown apps → Hearth.</string>
+    <string name="update_action_open_settings">Open settings</string>
+    <string name="update_permission_unavailable">This TV did not open the permission screen. Go to Settings → Apps → Special app access → Install unknown apps → Hearth and allow it, then choose Install now.</string>
+    <string name="update_install_nothing_staged">That download is already installed or no longer available, so there is nothing to install.</string>
+    <string name="update_install_verification_failed">The downloaded update failed verification and was deleted. Download it again.</string>
 </resources>

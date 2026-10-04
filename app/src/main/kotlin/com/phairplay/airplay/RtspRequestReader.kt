@@ -45,7 +45,11 @@ internal class RtspRequestReader(
     }
 
     private fun readHeaders(inputStream: InputStream, requestLineBytes: Int): Map<String, String>? {
-        val headers = mutableMapOf<String, String>()
+        // Header names are case-insensitive (RFC 2326 §4.2 / RFC 7230 §3.2). Senders differ:
+        // some send "Content-Length", others "content-length", and AirPlay video clients send
+        // "X-Apple-Session-ID" / "x-apple-session-id". A case-sensitive map read a lower-case
+        // Content-Length as 0, left the body in the socket and desynchronised the connection.
+        val headers = java.util.TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
         var totalBytes = requestLineBytes
 
         while (true) {
