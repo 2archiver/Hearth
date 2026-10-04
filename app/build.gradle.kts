@@ -384,3 +384,16 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.espresso.core)
 }
+
+// HearthUiTest is a CI gate, and the failure reporter can only read build.log: the HTML/JUnit
+// reports live in an artifact nobody opens from a PR comment. Gradle's default logging prints
+// just "SomeTest > some case FAILED", which names the case but not the assertion — so print the
+// exception message and the frame in our own code that produced it.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+        showStackTraces = true
+    }
+}
