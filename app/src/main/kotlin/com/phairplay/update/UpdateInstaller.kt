@@ -54,18 +54,14 @@ class UpdateInstaller(private val context: Context) {
         runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
 
     /**
-     * The Settings screen where the user grants "Install unknown apps" to Hearth, or null when
-     * the device has no such screen (pre-Android 8).
+     * The Settings screen where the user grants "Install unknown apps" to Hearth. minSdk is 29,
+     * so the action always exists, but some TV builds lack an Activity for it — callers catch.
      */
-    fun installPermissionSettingsIntent(): android.content.Intent? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            android.content.Intent(
-                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                android.net.Uri.parse("package:${context.packageName}")
-            )
-        } else {
-            null
-        }
+    fun installPermissionSettingsIntent(): android.content.Intent =
+        android.content.Intent(
+            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            android.net.Uri.parse("package:${context.packageName}")
+        )
 
     /**
      * Installs [apk] over this app.
