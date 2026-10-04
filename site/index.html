@@ -29,6 +29,7 @@
   .badge { display: inline-block; padding: 3px 11px; border-radius: 99px; font-size: 14px;
     background: #442332; color: var(--accent); border: 1px solid #774052; }
   .lead { color: var(--muted); font-size: 19px; margin: 8px 0 26px; max-width: 650px; }
+  .section-note { color: var(--muted); margin: -4px 0 12px; }
   .download { background: linear-gradient(160deg, #502333, var(--card)); border: 1px solid var(--line);
     border-radius: 18px; padding: 24px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
   .download h2 { margin: 0 0 12px; }
@@ -37,7 +38,9 @@
     outline-offset: 4px; transition: background .1s; }
   .btn:hover, .btn:focus-visible { background: #8b435e; outline: 3px solid #fff; }
   .btn svg { width: 24px; height: 24px; fill: currentColor; }
+  .btn-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; max-width: 260px; }
   .meta { color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+  .meta p { margin: 4px 0; }
   .meta strong { color: var(--text); }
   .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ok); font-size: 15px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 14px; }
@@ -46,16 +49,21 @@
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre { background: #191216; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
     overflow-wrap: anywhere; font-size: 14px; margin: 10px 0; user-select: all; }
-  code.inline { background: #191216; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 14px; }
-  .subtle { color: var(--muted); }
+  .subtle { color: var(--muted); font-size: 14px; }
   .release-link { display: inline-block; margin-top: 10px; font-weight: 650; }
   details { margin-top: 24px; }
+  details.sha { margin-top: 8px; }
+  details.sha summary { font-size: 14px; color: var(--muted); font-weight: 600; padding: 4px 0; }
+  details.sha code { display: block; overflow-wrap: anywhere; font-size: 13px; color: var(--ok);
+    background: #191216; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
   summary { cursor: pointer; font-weight: 650; padding: 8px 0; }
   .rel { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;
     padding: 14px 0; border-top: 1px solid var(--line); }
   .rel:first-child { border-top: 0; }
   .rel .name { font-weight: 650; }
   .rel .sub { color: var(--muted); font-size: 14px; }
+  .tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 99px; font-size: 12px;
+    background: #442332; color: var(--accent); border: 1px solid #774052; }
   .dl { display: inline-block; text-decoration: none; border: 1px solid var(--line); padding: 7px 12px;
     border-radius: 8px; font-weight: 650; }
   .dl:hover, .dl:focus-visible { border-color: var(--accent); }
@@ -69,73 +77,97 @@
 <main>
   <span class="badge">Google TV · Android TV OS 10+</span>
   <h1>Hearth for Google TV</h1>
-  <p class="lead">A free, ad-free AirPlay receiver. Mirror your Mac, iPhone or iPad to your TV. One
-  release, one file, and notes that say what changed. Works over Ethernet — a wired Google TV 4K is
-  the tested target.</p>
+  <p class="lead">A free, ad-free AirPlay receiver for your TV. Mirror a Mac, iPhone or iPad, share
+  photos and stream audio. <strong>Every release is one APK file</strong> — press the button below
+  and install that file. There is nothing else to choose.</p>
+
+  <noscript>
+    <div class="card">
+      <p>This page normally fills in the exact file name, size and checksum by asking GitHub. With
+      JavaScript off, use the button below: it opens the current release, which lists its single APK.</p>
+    </div>
+  </noscript>
 
   <section class="download" aria-labelledby="download-heading">
     <div>
-      <h2 id="download-heading">Get the latest APK</h2>
+      <h2 id="download-heading">Download Hearth <span id="version">1.8</span></h2>
       <a id="dl-btn" class="btn" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/latest">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
         <span>Download APK</span>
       </a>
+      <!-- Shown until the API answers with the direct file link; the script removes it. -->
+      <p class="btn-note" id="fallback-note">Opens the current release on GitHub, which lists its one
+      <span class="file">Hearth-&lt;version&gt;-googletv.apk</span> file.</p>
     </div>
     <div class="meta">
-      <p><strong id="release-name" aria-live="polite">Latest successful build</strong></p>
+      <p><strong id="release-name">Hearth 1.8 for Google TV</strong></p>
       <p><span class="file" id="asset-name">Hearth-&lt;version&gt;-googletv.apk</span></p>
-      <p id="dl-meta" role="status" aria-live="polite">The release carries this one file and nothing else, so there is nothing to choose.</p>
-      <p id="dl-sha"></p>
+      <p id="dl-meta" role="status" aria-live="polite">Version 1.8 · the newest build from main</p>
+      <details class="sha" id="sha-block" hidden>
+        <summary>SHA-256 checksum</summary>
+        <code id="dl-sha"></code>
+      </details>
       <p class="subtle">Google TV / Android TV OS 10+ · tested on a Google TV 4K on Ethernet (Android TV OS 14)</p>
-      <a id="release-page" class="release-link" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Read the current release notes</a>
+      <a id="release-page" class="release-link" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Full release notes on GitHub →</a>
     </div>
   </section>
 
   <section aria-labelledby="update-heading">
-    <h2 id="update-heading">What's new in this update</h2>
+    <h2 id="update-heading">What's new in <span id="new-version">1.8</span></h2>
     <div class="card">
-      <p id="update-summary" role="status" aria-live="polite">The release title and update notes are available on GitHub.</p>
-      <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Open the latest release on GitHub</a>
+      <!-- The release notes on GitHub replace this list once they load; what is here is the 1.8
+           summary, so the page still says something true before (or without) the API call. -->
+      <ul id="update-highlights">
+        <li>Wine-red and cream design, clearer remote focus, a large receiver name and a three-step connection guide.</li>
+        <li>Landscape Now Playing layout with track metadata, bounded artwork and a remote-control hint.</li>
+        <li>Steadier connections: AirPlay timing replies are validated, NTP polling is cancellable, photo and artwork decoding is bounded.</li>
+        <li>Home keeps troubleshooting behind an Activity action, and resetting preferences asks for confirmation first.</li>
+      </ul>
+      <p><a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Read the full release notes on GitHub</a></p>
     </div>
   </section>
 
   <section aria-labelledby="install-heading">
-    <h2 id="install-heading">Install on your Google TV</h2>
+    <h2 id="install-heading">Install it on your TV</h2>
+    <p class="section-note">Pick whichever is easier — both install the same file.</p>
+
     <div class="card">
-      <h3>Option 1 — On the TV (no computer)</h3>
+      <h3>Easiest — from the TV, no computer</h3>
       <ol>
         <li>Install <strong>Downloader</strong> (by AFTVnews) from the Google Play Store on your TV.</li>
         <li>Allow Downloader to install apps: Settings → Apps → Security &amp; restrictions → <strong>Install unknown apps</strong>.</li>
-        <li>Open Downloader and enter this address, then select <strong>Go</strong>:
+        <li>Open Downloader, enter this address, then select <strong>Go</strong>:
           <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest</pre>
-          <p class="subtle">The file name carries the version (for example
-          <span class="file">Hearth-1.6.0-main.43-googletv.apk</span>), so open the release and
-          select its single APK if Downloader needs the exact address.</p>
+          <p class="subtle" id="dl-url-note">That address opens the release page; Downloader lists its
+          single APK — download that file.</p>
         </li>
         <li>When the download finishes, choose <strong>Install</strong>, then <strong>Open</strong>.</li>
       </ol>
     </div>
 
     <div class="card">
-      <h3>Option 2 — From a computer (ADB)</h3>
+      <h3>From a computer (ADB)</h3>
       <ol>
         <li>On the TV, enable Developer options by clicking <strong>Android TV OS build</strong> seven times under Settings → System → About.</li>
         <li>Enable USB or Wireless debugging, then find the TV's IP address under Settings → Network &amp; Internet.</li>
       </ol>
       <pre>adb connect &lt;TV-IP&gt;:5555
-adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
+adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></pre>
     </div>
 
     <div class="card">
-      <h3>Keep Hearth up to date</h3>
+      <h3>Already installed? Just update</h3>
       <p>On the TV, choose <strong>Settings → Updates → Check for updates</strong>. Hearth checks the current GitHub release, verifies its checksum and signing certificate, then offers to install it.</p>
-      <p>Builds from this repository use the same signing key and normally install over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">Update help</a></p>
+      <p>Builds from this repository use the same signing key, so updates install straight over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">Update help</a></p>
     </div>
   </section>
 
   <details id="older-releases" hidden>
-    <summary>Older releases</summary>
+    <summary>Older releases, kept as history</summary>
     <div class="card" id="releases"><p class="err">Loading archived releases…</p></div>
+    <p class="subtle">These are earlier builds, kept for reference — install the version at the top of
+    the page unless you need to roll back. Releases before 1.7 were published under Hearth's previous
+    name, <strong>PhairPlay</strong>: same app, older label.</p>
   </details>
 
   <footer>
@@ -158,10 +190,26 @@ adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
   // the API once it answers.
   var $ = function (id) { return document.getElementById(id); };
 
-  function apk(release) {
-    var assets = release.assets || [];
-    return assets.filter(function (asset) { return asset.name === "Hearth-googletv.apk"; })[0] ||
-      assets.filter(function (asset) { return /\.apk$/i.test(asset.name); })[0];
+  // "Hearth 1.8.0-main.13-googletv for Google TV" and the tag "v1.4.0" both mean "1.8.0" / "1.4.0"
+  // to a reader. Showing the build suffix everywhere is what made the page look like it was
+  // offering several different things.
+  function versionLabel(release) {
+    var tag = release.tag_name || "";
+    if (/^v?\d+(\.\d+)+/.test(tag)) return tag.replace(/^v/, "");
+    var match = (release.name || "").match(/\d+\.\d+(?:\.\d+)?/);
+    return match ? match[0] : (release.name || tag || "this build");
+  }
+
+  // Today's releases publish exactly one APK, named after its version. Older releases predate that
+  // rule and carry several files, some of them without a version in the name — prefer the asset
+  // that names the version we are labelling, so the downloaded file identifies itself.
+  function pickAsset(release) {
+    var apks = (release.assets || []).filter(function (asset) { return /\.apk$/i.test(asset.name); });
+    if (!apks.length) return null;
+    var version = versionLabel(release);
+    return apks.filter(function (asset) { return asset.name.indexOf(version) !== -1; })[0] ||
+      apks.filter(function (asset) { return /\d/.test(asset.name); })[0] ||
+      apks[0];
   }
 
   function dateLabel(value) {
@@ -172,6 +220,17 @@ adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
     });
   }
 
+  // The rolling `latest` release keeps the published_at of the very first build it ever held, so
+  // that date can be months behind the APK it now carries. The date a reader cares about is the
+  // day *this* file was uploaded, so take the newest of the three timestamps GitHub reports.
+  function buildDate(release, asset) {
+    var stamps = [release.published_at, release.created_at, asset && asset.created_at]
+      .filter(Boolean)
+      .map(function (value) { return new Date(value).getTime(); })
+      .filter(function (value) { return !isNaN(value); });
+    return stamps.length ? dateLabel(new Date(Math.max.apply(null, stamps))) : "";
+  }
+
   // A one-asset release publishes its checksum in the notes rather than in a SHA256SUMS.txt file.
   function shaFromNotes(body) {
     if (!body) return "";
@@ -179,34 +238,83 @@ adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
     return match ? match[1].toLowerCase() : "";
   }
 
-  function updateSummary(markdown) {
-    if (!markdown) return "Release notes are on GitHub.";
-    var newSection = markdown.split(/\n## (?:Download and update|Build)\b/i)[0];
-    var paragraphs = newSection
-      .replace(/^#{1,6}[^\n]*$/gm, "")
-      .split(/\n\s*\n/)
-      .map(function (part) { return part.trim(); })
-      .filter(function (part) { return part && !part.startsWith("|"); });
-    var summary = paragraphs[0] || "Release notes are on GitHub.";
-    return summary
+  function plain(text) {
+    return String(text)
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/[`*_>#]/g, "")
+      .replace(/[`*_>]/g, "")
       .replace(/\s+/g, " ")
       .trim();
   }
 
-  function addArchiveEntry(release) {
-    var asset = apk(release);
+  function shorten(text, max) {
+    if (text.length <= max) return text;
+    var cut = text.slice(0, max);
+    var lastSpace = cut.lastIndexOf(" ");
+    return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:]$/, "") + "…";
+  }
+
+  // Pull a few readable lines out of the release notes: prefer the "Release summary" section (the
+  // changelog entry for this version) over the raw commit list at the top of the body.
+  function highlights(markdown, limit) {
+    if (!markdown) return [];
+    var body = markdown.split(/\n## (?:Download and update|Build|Validation)\b/i)[0];
+    var sections = body.split(/\n(?=##\s)/);
+    var chosen = sections.filter(function (section) {
+      return /^##\s+(release summary|what's new|highlights)\b/i.test(section);
+    })[0] || body;
+
+    var lines = chosen.split(/\n+/)
+      .map(function (line) { return plain(line.replace(/^#{1,6}\s*/, "")); })
+      .filter(function (line) { return line && !/^\|/.test(line) && !/^-{3,}$/.test(line); });
+    var bullets = lines.filter(function (line) { return /^[-*]\s/.test(line); })
+      .map(function (line) { return line.replace(/^[-*]\s+/, ""); });
+    var items = bullets.length ? bullets : lines;
+    return items
+      .map(function (item) { return shorten(item, 150); })
+      .filter(Boolean)
+      .slice(0, limit || 4);
+  }
+
+  function renderHighlights(items) {
+    var list = $("update-highlights");
+    list.textContent = "";
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      li.textContent = item;
+      list.appendChild(li);
+    });
+  }
+
+  function newerFirst(a, b) {
+    var pa = (versionLabel(a).match(/\d+/g) || []).map(Number);
+    var pb = (versionLabel(b).match(/\d+/g) || []).map(Number);
+    for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+      var diff = (pb[i] || 0) - (pa[i] || 0);
+      if (diff) return diff;
+    }
+    return new Date(b.created_at || b.published_at || 0) - new Date(a.created_at || a.published_at || 0);
+  }
+
+  function addArchiveEntry(release, current) {
+    var asset = pickAsset(release);
     if (!asset) return;
+    var label = versionLabel(release);
     var row = document.createElement("div");
     row.className = "rel";
+
     var details = document.createElement("div");
     var name = document.createElement("div");
     name.className = "name";
-    name.textContent = release.name || release.tag_name;
+    name.textContent = "Hearth " + label;
+    if (current) {
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "current";
+      name.appendChild(tag);
+    }
     var sub = document.createElement("div");
     sub.className = "sub";
-    sub.textContent = [dateLabel(release.published_at), (asset.size / 1048576).toFixed(1) + " MB"]
+    sub.textContent = [buildDate(release, asset), (asset.size / 1048576).toFixed(1) + " MB"]
       .filter(Boolean).join(" · ");
     details.appendChild(name);
     details.appendChild(sub);
@@ -215,7 +323,7 @@ adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
     link.className = "dl";
     link.href = asset.browser_download_url;
     link.textContent = "Download APK";
-    link.setAttribute("aria-label", "Download APK " + (release.name || release.tag_name));
+    link.setAttribute("aria-label", "Download APK for Hearth " + label);
     row.appendChild(details);
     row.appendChild(link);
     $("releases").appendChild(row);
@@ -229,39 +337,50 @@ adb install -r Hearth-1.6.0-main.43-googletv.apk</pre>
       return response.json();
     })
     .then(function (releases) {
-      releases = releases.filter(function (release) { return !release.draft && apk(release); });
+      releases = releases.filter(function (release) { return !release.draft && pickAsset(release); });
       var current = releases.filter(function (release) { return release.tag_name === "latest"; })[0] ||
         releases.filter(function (release) { return !release.prerelease; })[0];
       if (!current) {
         $("release-name").textContent = "No release published yet";
         $("dl-meta").textContent = "The direct download will be available after the first successful build from main.";
-        $("update-summary").textContent = "No update notes are available yet.";
         return;
       }
 
-      var asset = apk(current);
-      var published = dateLabel(current.published_at);
+      var asset = pickAsset(current);
+      var label = versionLabel(current);
+      var published = buildDate(current, asset);
       $("dl-btn").href = asset.browser_download_url;
-      $("dl-url").textContent = asset.browser_download_url;
+      $("fallback-note").hidden = true;
+      $("version").textContent = label;
+      $("new-version").textContent = label;
+      $("release-name").textContent = "Hearth " + label + " for Google TV";
       $("asset-name").textContent = asset.name;
-      $("release-name").textContent = current.name || current.tag_name;
-      $("dl-meta").textContent = "APK version · " + (asset.size / 1048576).toFixed(1) + " MB" +
+      $("adb-file").textContent = asset.name;
+      $("dl-url").textContent = asset.browser_download_url;
+      $("dl-url-note").textContent = "The direct file link. The version is part of the file name, " +
+        "so you can always tell which build you installed.";
+      $("dl-meta").textContent = "Version " + label + " · " + (asset.size / 1048576).toFixed(1) + " MB" +
         (published ? " · published " + published : "");
       var digest = asset.digest ? asset.digest.replace(/^sha256:/, "") : shaFromNotes(current.body);
-      if (digest) $("dl-sha").textContent = "SHA-256: " + digest;
-      $("update-summary").textContent = updateSummary(current.body);
+      if (digest) {
+        $("dl-sha").textContent = digest;
+        $("sha-block").hidden = false;
+      }
+      var notes = highlights(current.body, 4);
+      if (notes.length) renderHighlights(notes);
       $("release-page").href = current.html_url || RELEASE_PAGE;
 
-      var older = releases.filter(function (release) { return release !== current && release.tag_name !== "latest"; });
+      var older = releases
+        .filter(function (release) { return release.tag_name !== "latest"; })
+        .sort(newerFirst);
       if (older.length) {
+        $("releases").textContent = "";
         $("older-releases").hidden = false;
-        older.forEach(addArchiveEntry);
+        older.forEach(function (release) { addArchiveEntry(release, release === current); });
       }
     })
     .catch(function () {
-      $("release-name").textContent = "Latest successful build";
       $("dl-meta").textContent = "Release details are unavailable right now. The download link still works.";
-      $("update-summary").textContent = "Open the current release on GitHub to read what's new.";
     });
 })();
 </script>
