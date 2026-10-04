@@ -1,7 +1,6 @@
 package com.phairplay.ui
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
@@ -31,6 +30,7 @@ class NowPlayingScreen @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : FrameLayout(context, attrs, defStyleAttr) {
 
+    private var lastArtwork: ByteArray? = null
     private val artwork: ImageView
     private val titleView: TextView
     private val artistView: TextView
@@ -38,68 +38,72 @@ class NowPlayingScreen @JvmOverloads constructor(
     private val senderView: TextView
 
     init {
-        setBackgroundColor(color(R.color.background_dark))
-
-        val column = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+        setBackgroundResource(R.drawable.hearth_hero)
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(56), dp(48), dp(56), dp(48))
         }
-
+        val artSize = minOf(280, (resources.configuration.screenHeightDp * 0.56f).toInt())
         artwork = ImageView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(ART_SIZE_DP), dp(ART_SIZE_DP))
+            layoutParams = LinearLayout.LayoutParams(dp(artSize), dp(artSize)).apply {
+                marginEnd = dp(44)
+            }
             scaleType = ImageView.ScaleType.CENTER_CROP
-            // Rounded surface so the placeholder glyph (and any non-square art) sits on a card.
             background = GradientDrawable().apply {
                 setColor(color(R.color.background_surface))
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(20).toFloat()
             }
             clipToOutline = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-
-        titleView = textView(TITLE_SP, R.color.text_primary, bold = true).apply {
-            setPadding(0, dp(28), 0, 0)
+        val details = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        artistView = textView(ARTIST_SP, R.color.text_secondary).apply {
-            setPadding(0, dp(8), 0, 0)
-        }
-        albumView = textView(ALBUM_SP, R.color.text_tertiary).apply {
-            setPadding(0, dp(4), 0, 0)
-        }
-        senderView = textView(SENDER_SP, R.color.protocol_airplay).apply {
-            setPadding(0, dp(36), 0, 0)
-        }
-
-        column.addView(artwork)
-        column.addView(titleView)
-        column.addView(artistView)
-        column.addView(albumView)
-        column.addView(senderView)
-
-        addView(
-            column,
-            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER
-            }
-        )
+        details.addView(textView(12f, R.color.accent_blue).apply {
+            setText(R.string.now_playing_eyebrow)
+            letterSpacing = 0.12f
+            setPadding(0, 0, 0, dp(20))
+        })
+        titleView = textView(36f, R.color.text_primary, bold = true)
+        artistView = textView(22f, R.color.text_secondary).apply { setPadding(0, dp(10), 0, 0) }
+        albumView = textView(16f, R.color.text_tertiary).apply { setPadding(0, dp(6), 0, 0) }
+        senderView = textView(14f, R.color.accent_blue).apply { setPadding(0, dp(28), 0, 0) }
+        details.addView(titleView)
+        details.addView(artistView)
+        details.addView(albumView)
+        details.addView(senderView)
+        details.addView(textView(12f, R.color.text_secondary).apply {
+            setText(R.string.now_playing_remote_hint)
+            setPadding(0, dp(18), 0, 0)
+        })
+        row.addView(artwork)
+        row.addView(details)
+        addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     /** Updates the card to reflect [info]. Falls back to a placeholder glyph when no artwork. */
     fun update(info: NowPlayingInfo) {
-        val bitmap = info.artwork?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
-        if (bitmap != null) {
-            artwork.scaleType = ImageView.ScaleType.CENTER_CROP
-            artwork.setImageBitmap(bitmap)
-            artwork.setColorFilter(null)
-        } else {
-            // No artwork from the sender (typical for raw system audio) — show the AirPlay glyph.
-            artwork.scaleType = ImageView.ScaleType.CENTER_INSIDE
-            artwork.setImageResource(R.drawable.ic_airplay)
-            artwork.setColorFilter(color(R.color.text_secondary))
-            if (bitmap == null && info.artwork != null) {
-                Logger.w("NowPlayingScreen: artwork bytes (${info.artwork.size}B) failed to decode")
+        val bytes = info.artwork
+        if (bytes !== lastArtwork || artwork.drawable == null) {
+            lastArtwork = bytes
+            val bitmap = bytes?.let { BoundedBitmap.decode(it, 1024) }
+            if (bitmap != null) {
+                artwork.scaleType = ImageView.ScaleType.CENTER_CROP
+                artwork.setImageBitmap(bitmap)
+                artwork.setColorFilter(null)
+            } else {
+                // No artwork from the sender (typical for raw system audio) — show the AirPlay glyph.
+                artwork.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                artwork.setImageResource(R.drawable.ic_airplay)
+                artwork.setColorFilter(color(R.color.text_secondary))
+                if (info.artwork != null) {
+                    Logger.w("NowPlayingScreen: artwork bytes (${info.artwork.size}B) failed to decode")
+                }
             }
-        }
 
+        }
         titleView.text = info.title ?: context.getString(R.string.now_playing_audio)
         artistView.setTextVisible(info.artist)
         albumView.setTextVisible(info.album)
@@ -108,6 +112,7 @@ class NowPlayingScreen @JvmOverloads constructor(
 
     /** Releases the (potentially large) artwork bitmap when the card is hidden. */
     fun clear() {
+        lastArtwork = null
         artwork.setImageDrawable(null)
     }
 
@@ -123,8 +128,9 @@ class NowPlayingScreen @JvmOverloads constructor(
     private fun textView(sizeSp: Float, colorRes: Int, bold: Boolean = false) = TextView(context).apply {
         setTextColor(color(colorRes))
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
-        gravity = Gravity.CENTER
+        gravity = Gravity.START
         maxLines = 2
+        ellipsize = android.text.TextUtils.TruncateAt.END
         if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
     }
 
@@ -133,11 +139,4 @@ class NowPlayingScreen @JvmOverloads constructor(
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
-    companion object {
-        private const val ART_SIZE_DP = 360
-        private const val TITLE_SP = 30f
-        private const val ARTIST_SP = 22f
-        private const val ALBUM_SP = 17f
-        private const val SENDER_SP = 16f
-    }
 }

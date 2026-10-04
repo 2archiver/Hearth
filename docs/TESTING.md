@@ -49,17 +49,22 @@ adb devices
 ```bash
 ./gradlew :test-runner:test
 ./gradlew :app:lintGoogletvDebug :app:assembleGoogletvDebug
+./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest'
 ```
 
 GitHub Actions runs the same checks on `main`:
 
 - `JVM protocol tests`: fast protocol/parser/media-unit coverage through `:test-runner:test`
-- `Android lint & debug APKs`: Android lint and both debug APKs
+- `Android lint & debug APKs`: Android lint, both debug APKs, and `HearthUiTest`
+  (`:app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest'`), which inflates the
+  real TV layouts under Robolectric's native graphics mode and uploads rendered PNGs to
+  `app/build/reports/hearth-ui/`
 
-The Android Gradle unit-test tasks are not used as CI gates because several tests
-exercise Android framework classes that are unstable on the host JVM. Use
-`:test-runner:test` for CI-grade protocol/unit coverage and real devices for
-Android framework behavior.
+Everything else under `:app:test*UnitTest` stays out of the CI gates: those tests exercise Android
+framework classes that are unstable on a host JVM. Use `:test-runner:test` for CI-grade
+protocol/unit coverage, `HearthUiTest` for layout/focus/bitmap regressions, and real devices for
+hardware behavior — a rendered preview is not a compatibility claim (see
+[docs/UPSTREAM-REVIEW.md](UPSTREAM-REVIEW.md)).
 
 ---
 
@@ -74,6 +79,8 @@ Android framework behavior.
 | `VideoDecoderTest` | 4 | Pre-init safety, double-release safety, empty input handling, basic construction |
 | `NetworkUtilsTest` | 5 | Device name reading, fallback behavior, special character sanitization, MAC address format |
 | `MainActivityTest` | 3 | Activity startup, WaitingScreen visibility, StreamingScreen hidden at startup |
+| `HearthUiTest` | 4 | Real layout inflation on a TV viewport, D-pad focus order, Settings rows growing to fit text, bounded artwork decoding |
+| `NtpReplyValidatorTest` | 5 | Stale, truncated, wrong-type and clockless AirPlay timing replies are rejected before they can move the clock |
 
 ### What Is NOT Unit Tested (and why)
 

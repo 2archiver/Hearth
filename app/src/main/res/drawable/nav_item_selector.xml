@@ -1,21 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Selector for navigation panel items -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/nav_item_selected" />
-            <corners android:radius="8dp" />
-        </shape>
-    </item>
-    <item android:state_selected="true">
-        <shape android:shape="rectangle">
-            <solid android:color="#221A73E8" />
-            <corners android:radius="8dp" />
-        </shape>
-    </item>
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="@android:color/transparent" />
-        </shape>
-    </item>
+    <item android:state_enabled="false"><shape><solid android:color="@color/background_dark"/><corners android:radius="14dp"/></shape></item>
+    <item android:state_pressed="true"><shape><solid android:color="@color/accent_blue_pressed"/><stroke android:width="2dp" android:color="@color/focus_ring"/><corners android:radius="14dp"/></shape></item>
+    <item android:state_focused="true"><shape><solid android:color="@color/background_surface_elevated"/><stroke android:width="2dp" android:color="@color/focus_ring"/><corners android:radius="14dp"/></shape></item>
+    <item android:state_selected="true"><shape><solid android:color="@color/accent_blue_tint"/><corners android:radius="14dp"/></shape></item>
+    <item><shape><solid android:color="@color/background_surface"/><stroke android:width="1dp" android:color="@color/divider"/><corners android:radius="14dp"/></shape></item>
 </selector>

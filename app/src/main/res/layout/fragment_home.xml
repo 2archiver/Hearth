@@ -1,236 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    fragment_home.xml — HomeFragment layout (Google TV Streamer style).
-
-    Layout:
-    ┌──────────────────────────────────────────────────────────┐
-    │  "Ready for connections"           [●] Service Running   │
-    │                                                          │
-    │  ┌─────────────┐ ┌──────────────────┐                  │
-    │  │  📺 AirPlay │ │ 🍎 Apple Casting │                  │
-    │  │  ●Running   │ │  ●Waiting        │                  │
-    │  │  Waiting... │ │  Screen Mirroring│                  │
-    │  └─────────────┘ └──────────────────┘                  │
-    │  Connection log: 12:01 mDNS registered…                 │
-    │                                                          │
-    │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-    │  │  ▶ Start │  │  ■ Stop  │  │  ↺ Restart│             │
-    │  └──────────┘  └──────────┘  └──────────┘              │
-    └──────────────────────────────────────────────────────────┘
--->
-<ScrollView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/background_dark"
-    android:fillViewport="true">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="32dp">
-
-        <!-- ── Header row ──────────────────────────────────────────────── -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:baselineAligned="false"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="32dp">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/text_page_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/home_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="32sp"
-                    android:fontFamily="sans-serif-light" />
-
-                <TextView
-                    android:id="@+id/text_device_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
-
-                <!-- Which network PhairPlay is advertising on. This is the first thing to
-                     check when a phone cannot see the TV, especially on a wired (Ethernet)
-                     Google TV: the phone must be on the same network as *this* address. -->
-                <TextView
-                    android:id="@+id/text_network"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/text_update"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:textColor="@color/accent_blue"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true" android:clipToPadding="false">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="28dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+            <TextView android:id="@+id/text_page_title" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/home_title" android:textColor="@color/text_primary" android:textSize="28sp" android:fontFamily="sans-serif-medium" />
+            <View android:id="@+id/dot_service_state" android:layout_width="8dp" android:layout_height="8dp" android:layout_marginEnd="8dp" android:background="@drawable/status_dot" />
+            <TextView android:id="@+id/text_service_state" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/service_state_stopped" android:textColor="@color/text_secondary" android:textSize="14sp" android:accessibilityLiveRegion="polite" />
+        </LinearLayout>
+        <TextView android:id="@+id/text_network" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="@color/text_secondary" android:textSize="14sp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="146dp" android:layout_marginTop="20dp" android:padding="22dp" android:background="@drawable/hearth_hero" android:gravity="center_vertical" android:orientation="horizontal" android:baselineAligned="false">
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginEnd="22dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/home_picker_label" android:textSize="12sp" android:letterSpacing="0.12" android:textColor="@color/accent_blue" />
+                <TextView android:id="@+id/text_device_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:textColor="@color/text_primary" android:textSize="30sp" android:fontFamily="sans-serif-medium" android:maxLines="2" android:ellipsize="end" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/home_same_network" android:textColor="@color/text_secondary" android:textSize="13sp" />
             </LinearLayout>
-
-            <!-- Global service state badge -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="@drawable/focus_ring_selector"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp">
-
-                <View
-                    android:id="@+id/dot_service_state"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
-                    android:background="@drawable/status_dot"
-                    android:layout_marginEnd="8dp" />
-
-                <TextView
-                    android:id="@+id/text_service_state"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/service_state_stopped"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="16sp" />
-            </LinearLayout>
+            <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/home_quick_steps" android:textColor="@color/text_primary" android:textSize="15sp" android:lineSpacingExtra="9dp" />
         </LinearLayout>
-
-        <!-- ── Section: Protocol status cards ────────────────────────── -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/section_protocols"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp"
-            android:textAllCaps="true"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="12dp" />
-
-        <LinearLayout
-            android:id="@+id/protocol_cards_row"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:baselineAligned="false"
-            android:orientation="horizontal"
-            android:layout_marginBottom="40dp">
-
-            <!-- AirPlay card -->
-            <include
-                android:id="@+id/card_airplay"
-                layout="@layout/card_protocol_status"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="12dp" />
-
-            <!--
-                Apple Casting card — screen mirroring from an iPhone/iPad/Mac.
-
-                It is the same AirPlay receiver as the card on the left, but it reports a
-                different fact: this one is only "Connected" while mirror *video* is on screen.
-                That makes the pair honest — "AirPlay: connected" plus "Apple Casting: waiting"
-                means a Mac is streaming audio, not that a phone is mirroring.
-            -->
-            <include
-                android:id="@+id/card_apple_casting"
-                layout="@layout/card_protocol_status"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginEnd="12dp" />
-
+        <TextView android:id="@+id/text_update" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:gravity="center_vertical" android:layout_marginTop="10dp" android:paddingHorizontal="16dp" android:background="@drawable/focus_ring_selector" android:focusable="true" android:clickable="true" android:textColor="@color/accent_blue" android:textSize="14sp" android:visibility="gone" />
+        <LinearLayout android:id="@+id/protocol_cards_row" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:orientation="horizontal" android:baselineAligned="false">
+            <include android:id="@+id/card_airplay" layout="@layout/card_protocol_status" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="12dp" />
+            <include android:id="@+id/card_apple_casting" layout="@layout/card_protocol_status" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
         </LinearLayout>
-
-        <!--
-            Connection log — the last few protocol steps from the current/last sender attempt,
-            newest last. On a TV this is the only way to see *where* a connection stopped
-            ("pairing failed", "video stream set up", "no video data arrived") instead of just
-            "nothing happened". Tapping either card shows the full history.
-        -->
-        <TextView
-            android:id="@+id/text_connection_log"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="28dp"
-            android:lineSpacingExtra="2dp"
-            android:fontFamily="monospace"
-            android:textColor="@color/text_tertiary"
-            android:textSize="12sp" />
-
-        <!-- ── Section: Service controls ──────────────────────────────── -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/section_controls"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp"
-            android:textAllCaps="true"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="12dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:baselineAligned="false"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btn_start"
-                android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:layout_marginEnd="12dp"
-                android:paddingHorizontal="24dp"
-                android:text="@string/action_start"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:background="@drawable/btn_control_selector"
-                android:focusable="true"
-                android:nextFocusRight="@id/btn_stop" />
-
-            <Button
-                android:id="@+id/btn_stop"
-                android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:layout_marginEnd="12dp"
-                android:paddingHorizontal="24dp"
-                android:text="@string/action_stop"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:background="@drawable/btn_control_selector"
-                android:focusable="true"
-                android:nextFocusLeft="@id/btn_start"
-                android:nextFocusRight="@id/btn_restart" />
-
-            <Button
-                android:id="@+id/btn_restart"
-                android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:paddingHorizontal="24dp"
-                android:text="@string/action_restart"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:background="@drawable/btn_control_selector"
-                android:focusable="true"
-                android:nextFocusLeft="@id/btn_stop" />
-
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:orientation="horizontal" android:gravity="center_vertical">
+            <Button android:id="@+id/btn_start" style="@style/Hearth.Control" android:text="@string/action_start" />
+            <Button android:id="@+id/btn_stop" style="@style/Hearth.Control" android:text="@string/action_stop" />
+            <Button android:id="@+id/btn_restart" style="@style/Hearth.Control" android:text="@string/action_restart" />
+            <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+            <Button android:id="@+id/btn_connection_log" style="@style/Hearth.Control" android:text="@string/home_log_action" />
         </LinearLayout>
-
+        <TextView android:id="@+id/text_connection_log" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:textColor="@color/text_tertiary" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" />
     </LinearLayout>
 </ScrollView>

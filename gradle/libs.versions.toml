@@ -9,6 +9,7 @@ kotlin = "1.9.23"                      # Kotlin compiler
 desugar-jdk-libs = "2.0.4"            # Core library desugaring (backports Java 8+ APIs to API 25)
 
 # AndroidX
+activity-ktx = "1.7.0"                 # OnBackPressedDispatcher.addCallback (Kotlin extension)
 appcompat = "1.7.0"
 constraintlayout = "2.1.4"
 core-ktx = "1.13.1"
@@ -40,6 +41,7 @@ espresso = "3.5.1"
 
 [libraries]
 # AndroidX
+androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity-ktx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -68,6 +70,9 @@ ddplist = { group = "com.googlecode.plist", name = "dd-plist", version.ref = "dd
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+# Native graphics mode (@GraphicsMode(NATIVE)) loads its JNI libraries from this jar; the
+# `robolectric` artifact does not depend on it, so tests that render views need it explicitly.
+robolectric-nativeruntime = { group = "org.robolectric", name = "nativeruntime", version.ref = "robolectric" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext" }
 espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 

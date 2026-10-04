@@ -154,6 +154,16 @@ jobs:
           set -euo pipefail
           ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
 
+      # HearthUiTest inflates the real TV layouts under Robolectric's native graphics mode and
+      # writes rendered previews to app/build/reports/hearth-ui/, which the build-reports
+      # artifact below already uploads. Appending to build.log keeps a test failure visible in
+      # the PR comment that the failure reporter writes.
+      - name: TV interface tests and native layout previews
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --stacktrace 2>&1 | tee -a build.log
+
       # Lint aborts the build with nothing but "Lint found errors in the project", which is
       # useless in a PR comment. The text report names the file, the line and the check id,
       # so fold it into build.log before the failure reporter reads that log.

@@ -1,46 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ─── Backgrounds ─────────────────────────────────────── -->
-    <!-- True black — best for OLED, minimal visual noise on TV -->
-    <color name="background_dark">#FF000000</color>
-    <!-- Surface elevation: cards, sheets, nav panel -->
-    <color name="background_surface">#FF1C1C1E</color>
-    <!-- Slightly lighter surface for hover/pressed states -->
-    <color name="background_surface_elevated">#FF2C2C2E</color>
-    <!-- Dividers and separators -->
-    <color name="divider">#FF38383A</color>
-
-    <!-- ─── Text ─────────────────────────────────────────────── -->
-    <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#FF8E8E93</color>
-    <color name="text_tertiary">#FF636366</color>
-    <color name="text_on_accent">#FFFFFFFF</color>
-
-    <!-- ─── Accent (Google TV blue) ─────────────────────────── -->
-    <color name="accent_blue">#FF1A73E8</color>
-    <color name="accent_blue_pressed">#FF1557B0</color>
-    <color name="accent_blue_tint">#331A73E8</color>
-    <color name="update_badge_surface">#FF273448</color>
-    <color name="focus_ring">#FF1A73E8</color>
-
-    <!-- ─── Protocol status colors ──────────────────────────── -->
-    <!-- Green: service running / connected -->
-    <color name="status_running">#FF34C759</color>
-    <!-- Red: service stopped / error -->
-    <color name="status_stopped">#FFFF3B30</color>
-    <!-- Gray: service disabled by user -->
-    <color name="status_disabled">#FF636366</color>
-    <!-- Yellow: service starting / restarting -->
-    <color name="status_transitioning">#FFFFD60A</color>
-
-    <!-- ─── Protocol brand colors (docs/DESIGN-SYSTEM.md §2.2) ─── -->
-    <!-- AirPlay: Apple silver-blue. Apple Casting: the same family, one step brighter —
-         colour, and with no Cast entry any more these two are the only protocols in the app. -->
-    <color name="protocol_airplay">#FF5AAEE8</color>
-    <color name="protocol_apple_casting">#FF34A853</color>
-
-    <!-- ─── Navigation ────────────────────────────────────────── -->
-    <color name="nav_panel_background">#FF111111</color>
-    <color name="nav_item_selected">#FF1A73E8</color>
-    <color name="nav_item_normal">#FF8E8E93</color>
+    <!-- Hearth wine palette. Legacy accent resource names remain API-compatible. -->
+    <color name="background_dark">#120D10</color>
+    <color name="background_surface">#241B21</color>
+    <color name="background_surface_elevated">#38252F</color>
+    <color name="divider">#49313E</color>
+    <color name="text_primary">#FFF4EB</color>
+    <color name="text_secondary">#D3BDC5</color>
+    <color name="text_tertiary">#B99DA9</color>
+    <color name="text_on_accent">#211017</color>
+    <color name="accent_blue">#F2A4BB</color>
+    <color name="accent_blue_pressed">#71334B</color>
+    <color name="accent_blue_tint">#442332</color>
+    <color name="update_badge_surface">#442332</color>
+    <color name="focus_ring">#FFBDCF</color>
+    <color name="status_running">#A4D8B2</color>
+    <color name="status_stopped">#FFA69E</color>
+    <color name="status_disabled">#B99DA9</color>
+    <color name="status_transitioning">#F2CE8F</color>
+    <color name="protocol_airplay">#F2A4BB</color>
+    <color name="protocol_apple_casting">#E4C29B</color>
+    <color name="nav_panel_background">#191216</color>
+    <color name="nav_item_selected">#71334B</color>
+    <color name="nav_item_normal">#D3BDC5</color>
 </resources>

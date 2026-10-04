@@ -54,6 +54,8 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 | `NowPlayingScreen` | `ui/NowPlayingScreen.kt` | Now-playing metadata + album artwork overlay |
 | `PinScreen` | `ui/PinScreen.kt` | On-screen PIN entry for legacy SRP pairing |
 | `SettingsFragment` | `ui/SettingsFragment.kt` | Mirror audio toggle, PIN-auth toggle, device name |
+| `SettingsUpdates` | `ui/SettingsUpdates.kt` | Update card, download progress and install dialogs for one Settings view |
+| `BoundedBitmap` | `ui/BoundedBitmap.kt` | Samples photo/cover-art payloads to a fixed pixel budget before decoding |
 | `NetworkUtils` | `util/NetworkUtils.kt` | Reads device name, MAC, IP |
 | `Base64Util` | `util/Base64Util.kt` | Pure-JVM Base64 (unit-testable, no android.util.Base64) |
 
@@ -105,6 +107,7 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 | `AudioPlayer` | `airplay/AudioPlayer.kt` | Low-level AudioTrack wrapper |
 | `alac/` | `cpp/alac/` | Apple ALAC decoder (C++) + JNI bridge |
 | `AirPlayNtpClient` | `airplay/handshake/AirPlayNtpClient.kt` | Apple NTP for A/V synchronisation |
+| `NtpReplyValidator` | `airplay/handshake/NtpReplyValidator.kt` | Rejects timing replies that do not match the last request |
 | `TimingHandler` | `airplay/TimingHandler.kt` | NTP timing state |
 
 ### Metadata & Remote

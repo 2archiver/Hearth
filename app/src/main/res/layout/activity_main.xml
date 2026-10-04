@@ -1,21 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    activity_main.xml — Root layout for MainActivity.
 
-    Layout structure (Google TV Streamer style):
-    ┌──────────┬─────────────────────────────────────────┐
-    │  NAV     │                                         │
-    │  PANEL   │     CONTENT AREA                        │
-    │          │   (fragment container)                  │
-    │  Home    │                                         │
-    │  Settings│                                         │
-    │          │                                         │
-    └──────────┴─────────────────────────────────────────┘
-
-    - Left: narrow navigation panel (always visible on TV, unlike hamburger on phone)
-    - Right: fragment container switches between HomeFragment and SettingsFragment
-    - The streaming_container overlays everything (full-screen, GONE when idle)
--->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -23,32 +7,33 @@
     android:layout_height="match_parent"
     android:background="@color/background_dark">
 
-    <!-- ── Left navigation panel ──────────────────────────────────────── -->
+
     <LinearLayout
         android:id="@+id/nav_panel"
-        android:layout_width="200dp"
+        android:layout_width="160dp"
         android:layout_height="0dp"
         android:orientation="vertical"
         android:background="@color/nav_panel_background"
-        android:paddingTop="48dp"
+        android:paddingTop="32dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <!-- App name header -->
+
+        <ImageView android:layout_width="36dp" android:layout_height="36dp" android:layout_marginBottom="10dp" android:src="@drawable/ic_hearth" android:importantForAccessibility="no" />
         <TextView
             android:id="@+id/nav_app_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="32dp"
+            android:layout_marginBottom="30dp"
             android:text="@string/app_name"
             android:textColor="@color/text_primary"
-            android:textSize="22sp"
+            android:textSize="26sp"
             android:fontFamily="sans-serif-medium" />
 
-        <!-- Home nav item -->
+
         <TextView
             android:id="@+id/nav_item_home"
             android:layout_width="match_parent"
@@ -64,7 +49,7 @@
             android:nextFocusDown="@id/nav_item_settings"
             android:nextFocusRight="@id/content_container" />
 
-        <!-- Settings nav item -->
+
         <TextView
             android:id="@+id/nav_item_settings"
             android:layout_width="match_parent"
@@ -81,9 +66,11 @@
             android:nextFocusUp="@id/nav_item_home"
             android:nextFocusRight="@id/content_container" />
 
+        <Space android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="32dp" android:text="@string/hearth_nav_footer" android:textColor="@color/text_tertiary" android:textSize="12sp" android:lineSpacingExtra="5dp" />
     </LinearLayout>
 
-    <!-- Vertical divider between nav and content -->
+
     <View
         android:id="@+id/nav_divider"
         android:layout_width="1dp"
@@ -93,7 +80,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toEndOf="@id/nav_panel" />
 
-    <!-- ── Main content area (fragments swap here) ────────────────────── -->
+
     <FrameLayout
         android:id="@+id/content_container"
         android:layout_width="0dp"
@@ -103,7 +90,7 @@
         app:layout_constraintStart_toEndOf="@id/nav_divider"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- ── Full-screen streaming overlay (GONE when idle) ─────────────── -->
+
     <FrameLayout
         android:id="@+id/streaming_container"
         android:layout_width="match_parent"

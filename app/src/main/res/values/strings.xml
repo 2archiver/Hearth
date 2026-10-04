@@ -18,9 +18,9 @@
     <string name="nav_settings">Settings</string>
 
     <!-- ── HomeFragment ────────────────────────────────────────── -->
-    <string name="home_title">Ready for connections</string>
+    <string name="home_title">Make room for your favourites.</string>
     <!-- %1$s = device name shown in sender pickers -->
-    <string name="home_device_visible_as">Visible as: %1$s</string>
+    <string name="home_device_visible_as">%1$s</string>
 
     <!-- ── Protocol names ──────────────────────────────────────── -->
     <string name="protocol_airplay">AirPlay</string>
@@ -30,7 +30,7 @@
 
     <!-- ── Protocol states (shown in status cards) ─────────────── -->
     <string name="protocol_state_disabled">Disabled</string>
-    <string name="protocol_state_advertising">Advertising</string>
+    <string name="protocol_state_advertising">Ready to connect</string>
     <string name="protocol_state_connected">Connected</string>
     <!-- Enabled in Settings, but this set cannot run the receiver (no usable network, for
          instance). Grey, not red: nothing is broken and there is nothing to fix. -->
@@ -45,7 +45,7 @@
     <!-- Fallback when a session is connected but the sender name is not known yet -->
     <string name="protocol_detail_connected_fallback">Streaming</string>
     <!-- %1$s = the name this TV advertises (iOS/macOS show it in the Screen Mirroring list) -->
-    <string name="protocol_detail_casting_waiting">On iPhone/iPad/Mac open Control Centre → Screen Mirroring, then pick \"%1$s\"</string>
+    <string name="protocol_detail_casting_waiting">Mirror your iPhone, iPad or Mac screen.</string>
     <!-- %1$s = sender name; shown on the Apple Casting card while mirror video is on screen -->
     <string name="protocol_detail_mirroring">Mirroring from %1$s</string>
     <!-- Per-protocol ERROR details — each card states the real reason instead of a
@@ -78,11 +78,11 @@
     <string name="notification_status_streaming">Streaming from %1$s</string>
 
     <!-- ── Settings section headers ────────────────────────────── -->
-    <string name="settings_section_display">Display</string>
-    <string name="settings_section_protocols">Protocols</string>
-    <string name="settings_section_airplay">AirPlay</string>
-    <string name="settings_section_service">Service</string>
-    <string name="settings_section_developer">Developer</string>
+    <string name="settings_section_display">Picture &amp; identity</string>
+    <string name="settings_section_protocols">Connection</string>
+    <string name="settings_section_airplay">Sound</string>
+    <string name="settings_section_service">Startup</string>
+    <string name="settings_section_developer">Advanced</string>
     <string name="settings_section_about">About</string>
 
     <!-- ── Settings row labels ─────────────────────────────────── -->
@@ -131,10 +131,10 @@
     <string name="home_network">Network: %1$s</string>
     <string name="home_network_unknown">Not connected to a network</string>
     <!-- %1$s = version of the newer build, e.g. "1.4.0-main.131 (20432100)" -->
-    <string name="home_update_available">Update available: %1$s</string>
+    <string name="home_update_available">Update ready: %1$s · Open Settings</string>
 
     <!-- ── Connection log (Home screen) ────────────────────────── -->
-    <string name="home_log_empty">No sender has connected yet. The log fills in as soon as one tries.</string>
+    <string name="home_log_empty">Your connection activity will appear here.</string>
     <string name="home_log_dialog_title">AirPlay connection details</string>
 
     <!-- ── Updates ─────────────────────────────────────────────── -->
@@ -210,4 +210,16 @@
     <string name="update_open_release_title">Could not open release page</string>
     <string name="update_error_title">Update check failed</string>
     <string name="update_no_updates_yet">No releases have been published yet.</string>
+    <string name="hearth_nav_footer">Made for your TV.\nFree. Open source.</string>
+    <string name="home_picker_label">SELECT THIS TV ON YOUR APPLE DEVICE</string>
+    <string name="home_same_network">Connect both devices to the same network.</string>
+    <string name="home_quick_steps">1   Open Control Centre\n2   Choose Screen Mirroring\n3   Select the name shown here</string>
+    <string name="home_log_action">Activity</string>
+    <string name="settings_intro">Make Hearth feel at home. Changes save automatically.</string>
+    <string name="settings_reset_title">Reset your preferences?</string>
+    <string name="settings_reset_message">This restores the receiver name, playback and update preferences, then restarts Hearth’s receiver.</string>
+    <string name="now_playing_eyebrow">NOW PLAYING · AIRPLAY</string>
+    <string name="now_playing_remote_hint">Press OK to play or pause · Use media keys to skip</string>
+    <string name="setting_state_on">On</string>
+    <string name="setting_state_off">Off</string>
 </resources>

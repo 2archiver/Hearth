@@ -26,6 +26,8 @@ import com.phairplay.ui.NowPlayingScreen
 import com.phairplay.ui.PhotoScreen
 import com.phairplay.ui.SettingsFragment
 import com.phairplay.ui.StreamingScreen
+import kotlinx.coroutines.Job
+import androidx.activity.addCallback
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -49,21 +51,16 @@ import timber.log.Timber
  * The nav panel items switch fragments. PhairPlayService is started on app launch.
  */
 class MainActivity : AppCompatActivity() {
-
-    // UI references
     private lateinit var navItemHome: TextView
     private lateinit var navItemSettings: TextView
     private lateinit var contentContainer: FrameLayout
     private lateinit var streamingContainer: FrameLayout
-
-    // The SurfaceView for full-screen video output
     private lateinit var streamingScreen: StreamingScreen
     private lateinit var photoScreen: PhotoScreen
     private lateinit var nowPlayingScreen: NowPlayingScreen
-
-    // Service binding — gives access to state flows for showing/hiding the streaming overlay
     private var service: PhairPlayService? = null
     private var isBound = false
+    private var overlayJob: Job? = null
     private var currentAirPlayState = ProtocolState.DISABLED
     /**
      * Apple Casting (AirPlay screen mirroring) state. Same receiver as [currentAirPlayState] —
@@ -79,22 +76,16 @@ class MainActivity : AppCompatActivity() {
             service = (binder as? PhairPlayService.LocalBinder)?.getService()
             isBound = true
             Timber.d("MainActivity: bound to PhairPlayService")
-
-            // Wire the streaming Surface so the service can pass it to VideoDecoder
             service?.setVideoSurfaceProvider { getVideoSurface() }
-
-            // Show/hide the full-screen overlay for video streams and photos.
             observeOverlayState()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            overlayJob?.cancel()
             service = null
-            isBound = false
             Timber.d("MainActivity: unbound from PhairPlayService")
         }
     }
-
-    // Currently selected nav item index (0 = Home, 1 = Settings)
     private var selectedNavIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,47 +96,33 @@ class MainActivity : AppCompatActivity() {
         bindViews()
         setupOverlayScreens()
         setupNavigation()
-
-        // Show HomeFragment on first launch
         if (savedInstanceState == null) {
             navigateTo(HomeFragment(), navItemHome)
         }
-
-        // Start the service immediately so it's running before any sender discovers us
         ServiceController.start(this)
-
-        // Android 13+ requires an explicit runtime grant for POST_NOTIFICATIONS. Nothing else is
-        // needed any more: the Wi-Fi Direct / location permissions existed only for the Miracast
-        // receiver, which is gone — AirPlay is an ordinary TCP/UDP server and needs no runtime
-        // permission at all. Asking a wired TV owner for "nearby devices" on first launch was a
-        // prompt with no receiver behind it.
         lifecycleScope.launch { requestRuntimePermissions() }
     }
 
     override fun onStart() {
         super.onStart()
-        // Bind so we can observe StateFlows and supply the video Surface
         val intent = Intent(this, PhairPlayService::class.java)
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        isBound = bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onStop() {
+        overlayJob?.cancel()
+        overlayJob = null
         super.onStop()
-        // Clear surface reference before unbinding to avoid holding a dead Surface
         service?.setVideoSurfaceProvider { null }
         if (isBound) {
             unbindService(serviceConnection)
             isBound = false
         }
+        service = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // A user-initiated exit (Back out of the app) should end any active mirror — closing the
-        // service stops the receiver, which drops the RTSP connection so the sender stops mirroring
-        // too. isFinishing distinguishes a real exit from a config-change recreation (where the
-        // service must keep running). Backgrounding via Home goes through onStop only (no destroy),
-        // so the receiver keeps advertising for a quick return.
         if (isFinishing) {
             Timber.d("MainActivity finishing — stopping service so mirroring doesn't linger")
             ServiceController.stop(this)
@@ -153,8 +130,6 @@ class MainActivity : AppCompatActivity() {
             Timber.d("MainActivity destroyed (recreation) — leaving service running")
         }
     }
-
-    // ─── View Setup ──────────────────────────────────────────────────────────
 
     private fun bindViews() {
         navItemHome       = findViewById(R.id.nav_item_home)
@@ -193,10 +168,27 @@ class MainActivity : AppCompatActivity() {
                 navigateTo(SettingsFragment(), navItemSettings)
             }
         }
-
-        // Set initial selected state
-        setNavSelected(navItemHome, true)
-        setNavSelected(navItemSettings, false)
+        selectedNavIndex = if (supportFragmentManager.findFragmentById(R.id.content_container) is SettingsFragment) 1 else 0
+        setNavSelected(navItemHome, selectedNavIndex == 0)
+        setNavSelected(navItemSettings, selectedNavIndex == 1)
+        onBackPressedDispatcher.addCallback(this) {
+            when {
+                streamingContainer.visibility == View.VISIBLE -> {
+                    ServiceController.stop(this@MainActivity)
+                    hideStreamingScreen()
+                    navItemHome.requestFocus()
+                }
+                selectedNavIndex == 1 -> {
+                    navigateTo(HomeFragment(), navItemHome)
+                    navItemHome.requestFocus()
+                }
+                !navItemHome.hasFocus() -> navItemHome.requestFocus()
+                else -> {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        }
     }
 
     /**
@@ -207,12 +199,9 @@ class MainActivity : AppCompatActivity() {
      * @param navItem   The nav panel TextView that was clicked (for highlight update).
      */
     private fun navigateTo(fragment: Fragment, navItem: TextView) {
-        // Update nav highlight
         setNavSelected(navItemHome, navItem == navItemHome)
         setNavSelected(navItemSettings, navItem == navItemSettings)
         selectedNavIndex = if (navItem == navItemHome) 0 else 1
-
-        // Replace fragment
         supportFragmentManager.beginTransaction()
             .replace(R.id.content_container, fragment)
             .commit()
@@ -242,6 +231,7 @@ class MainActivity : AppCompatActivity() {
         nowPlayingScreen.visibility = View.GONE
         nowPlayingScreen.clear()
         streamingScreen.visibility = View.VISIBLE
+        streamingContainer.keepScreenOn = true
         streamingContainer.visibility = View.VISIBLE
         streamingContainer.bringToFront()
     }
@@ -251,6 +241,7 @@ class MainActivity : AppCompatActivity() {
             streamingScreen.visibility = View.GONE
             nowPlayingScreen.visibility = View.GONE
                 photoScreen.visibility = View.VISIBLE
+            streamingContainer.keepScreenOn = true
             streamingContainer.visibility = View.VISIBLE
             streamingContainer.bringToFront()
         }
@@ -262,6 +253,7 @@ class MainActivity : AppCompatActivity() {
         streamingScreen.visibility = View.GONE
         photoScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.VISIBLE
+        streamingContainer.keepScreenOn = true
         streamingContainer.visibility = View.VISIBLE
         streamingContainer.bringToFront()
     }
@@ -276,6 +268,7 @@ class MainActivity : AppCompatActivity() {
         nowPlayingScreen.clear()
         nowPlayingScreen.visibility = View.GONE
         streamingScreen.visibility = View.VISIBLE
+        streamingContainer.keepScreenOn = false
         streamingContainer.visibility = View.GONE
     }
 
@@ -339,8 +332,6 @@ class MainActivity : AppCompatActivity() {
         private const val PERMISSION_REQUEST_NOTIFICATIONS = 1001
     }
 
-    // ─── Streaming overlay ────────────────────────────────────────────────────    // ─── Streaming overlay ────────────────────────────────────────────────────
-
     /**
      * Observes [PhairPlayService.airPlayState], [PhairPlayService.appleCastingState],
      * [PhairPlayService.photoFrame] and shows the appropriate full-screen overlay.
@@ -349,29 +340,32 @@ class MainActivity : AppCompatActivity() {
      * by [lifecycleScope] when the Activity stops.
      */
     private fun observeOverlayState() {
+        overlayJob?.cancel()
         val svc = service ?: return
-        lifecycleScope.launch {
-            svc.airPlayState.collectLatest { state ->
-                currentAirPlayState = state
-                updateOverlay()
+        overlayJob = lifecycleScope.launch {
+            launch {
+                svc.airPlayState.collectLatest { state ->
+                    currentAirPlayState = state
+                    updateOverlay()
+                }
             }
-        }
-        lifecycleScope.launch {
-            svc.appleCastingState.collectLatest { state ->
-                currentAppleCastingState = state
-                updateOverlay()
+            launch {
+                svc.appleCastingState.collectLatest { state ->
+                    currentAppleCastingState = state
+                    updateOverlay()
+                }
             }
-        }
-        lifecycleScope.launch {
-            svc.photoFrame.collectLatest { frame ->
-                currentPhotoFrame = frame
-                updateOverlay()
+            launch {
+                svc.photoFrame.collectLatest { frame ->
+                    currentPhotoFrame = frame
+                    updateOverlay()
+                }
             }
-        }
-        lifecycleScope.launch {
-            svc.nowPlaying.collectLatest { info ->
-                currentNowPlaying = info
-                updateOverlay()
+            launch {
+                svc.nowPlaying.collectLatest { info ->
+                    currentNowPlaying = info
+                    updateOverlay()
+                }
             }
         }
     }
@@ -380,14 +374,10 @@ class MainActivity : AppCompatActivity() {
         val photoFrame = currentPhotoFrame
         val nowPlaying = currentNowPlaying
         when {
-            // Audio-only AirPlay (system audio, Music, podcasts): show the now-playing card instead
-            // of the black video surface. Set whenever audio plays without video.
             nowPlaying != null -> showNowPlayingScreen(nowPlaying)
-            // Full-screen video: Apple Casting (AirPlay screen mirroring) or an AirPlay video
-            // session. Either one means there are frames to show.
+            photoFrame != null -> showPhotoScreen(photoFrame)
             currentAppleCastingState == ProtocolState.CONNECTED ||
                 currentAirPlayState == ProtocolState.CONNECTED -> showStreamingScreen()
-            photoFrame != null -> showPhotoScreen(photoFrame)
             else -> hideStreamingScreen()
         }
     }
