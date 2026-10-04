@@ -143,6 +143,8 @@ class AirPlayReceiver(
     @Volatile private var audioServer: AudioStreamServer? = null
     @Volatile private var bufferedAudioServer: BufferedAudioServer? = null
     @Volatile private var urlVideoPlayer: AirPlayVideoPlayer? = null
+    /** Invalidates completion/error callbacks from a URL player replaced by a newer /play. */
+    private var urlVideoGeneration = 0L
 
     // Reverse remote control (TV → sender). Created lazily once a sender advertises DACP-ID.
     private val dacpClient = DacpClient(context)
@@ -360,6 +362,7 @@ class AirPlayReceiver(
                     emitNowPlaying()
                 },
                 onVideoPlay = { url, start -> startUrlVideo(url, start) },
+                onVideoPlaySeconds = { url, start -> startUrlVideo(url, start, seconds = true) },
                 onVideoRate = { rate -> urlVideoPlayer?.setRate(rate) },
                 onVideoScrub = { pos -> urlVideoPlayer?.scrub(pos) },
                 onVideoStop = { stopUrlVideo() },
@@ -662,21 +665,33 @@ class AirPlayReceiver(
      * AirPlay video URL mode (non-mirroring): show the streaming surface and hand the URL to
      * [AirPlayVideoPlayer], which fetches + plays it via MediaPlayer onto the same Surface.
      */
-    private fun startUrlVideo(url: String, startFraction: Double) {
+    @Synchronized
+    private fun startUrlVideo(url: String, startPosition: Double, seconds: Boolean = false) {
+        val generation = urlVideoGeneration + 1
+        val player = AirPlayVideoPlayer(
+            surfaceProvider = videoSurfaceProvider,
+            onEnded = { stopUrlVideo(generation) }
+        )
+        val previous = urlVideoPlayer
+        urlVideoGeneration = generation
+        urlVideoPlayer = player
+        videoPlaying = true
+        emitNowPlaying() // URL video must win over metadata from the sender's audio session.
         onSenderNameChanged("AirPlay")
         emitState(ProtocolState.CONNECTED)   // shows StreamingScreen → Surface becomes available
-        val player = urlVideoPlayer ?: AirPlayVideoPlayer(
-            surfaceProvider = videoSurfaceProvider,
-            onEnded = { stopUrlVideo() }
-        ).also { urlVideoPlayer = it }
-        player.play(url, startFraction)
-        Logger.i("AirPlay URL video started: $url (start=$startFraction)")
+        previous?.release()
+        AirPlayTrace.record("URL video: player requested")
+        player.play(url, startPosition, seconds)
     }
 
     /** Stops AirPlay video URL playback (POST /stop or end-of-media) and ends the session. */
-    private fun stopUrlVideo() {
-        urlVideoPlayer?.release()
+    @Synchronized
+    private fun stopUrlVideo(expectedGeneration: Long? = null) {
+        if (expectedGeneration != null && expectedGeneration != urlVideoGeneration) return
+        val player = urlVideoPlayer ?: return // Completion/error and RTSP stop may race; end once.
         urlVideoPlayer = null
+        urlVideoGeneration++
+        player.release()
         onStreamingStopped()
         Logger.i("AirPlay URL video stopped")
     }
@@ -702,6 +717,7 @@ class AirPlayReceiver(
     }
 
     /** Clears the video NAL callback, closes the audio socket, and releases media components. */
+    @Synchronized
     private fun releaseMediaComponents() {
         try { audioSocket?.close() } catch (e: Exception) { /* non-fatal */ }
         audioSocket = null
@@ -711,6 +727,7 @@ class AirPlayReceiver(
         audioServer = null
         bufferedAudioServer?.stop()
         bufferedAudioServer = null
+        urlVideoGeneration++
         urlVideoPlayer?.release()
         urlVideoPlayer = null
         ntpClient?.stop()
