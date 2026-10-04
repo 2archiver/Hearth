@@ -490,7 +490,7 @@ class PhairPlayService : Service() {
         UpdateManager.get(applicationContext).downloadAndStage(info)
 
     /** Installs the staged update. */
-    suspend fun installStagedUpdate(): Boolean =
+    suspend fun installStagedUpdate(): com.phairplay.update.InstallStart =
         UpdateManager.get(applicationContext).installStaged()
 
     /** The download waiting to be installed, if any. */

@@ -85,6 +85,13 @@ open class RtspHandler(
     /** Initial AirPlay volume in dB (`-30..0`) carried over from receiver state (UxPlay commit `412c5b7`). */
     initialVolume: Float = 0f,
     /**
+     * Preferred over [onStreamingStopped] when supplied: the same "session over" signal, plus a
+     * plain-language reason ("sender closed the control connection", "TEARDOWN", …) so the
+     * on-TV log says *why* a session ended. [AirPlayReceiver] also uses it to ignore a stop
+     * coming from a connection that no longer owns the session.
+     */
+    private val onSessionStopped: ((reason: String) -> Unit)? = null,
+    /**
      * The accepted socket this handler serves. Supplied by [RtspServer] through the connection
      * factory; null in unit tests, which drive the request handlers directly.
      */
@@ -104,6 +111,23 @@ open class RtspHandler(
     /** Set once the connection is closed, so late callbacks stop writing to a dead socket. */
     @Volatile
     private var closed = false
+
+    /** Why this connection is closing — reported with the session stop (diagnostics). */
+    @Volatile
+    private var closeReason: String = "the sender closed the control connection"
+
+    /** Ends the media session, with a reason when the receiver wants one. */
+    private fun stopSession(reason: String) {
+        val callback = onSessionStopped
+        if (callback != null) callback(reason) else onStreamingStopped()
+    }
+
+    /**
+     * True while this connection carries a live media session. [RtspServer] uses it so that,
+     * when it must retire a connection, it retires an idle probe instead of the control channel.
+     */
+    override val holdsSession: Boolean
+        get() = !closed && isSessionActive()
 
     /** Last volume the sender set (AirPlay dB); returned to GET_PARAMETER and GET /info queries. */
     @Volatile private var currentVolume: Float = initialVolume
@@ -138,6 +162,9 @@ open class RtspHandler(
     protected val activeStreamTypes = mutableSetOf<Int>()
 
     private var setupCount = 0
+
+    /** True while a mirror SETUP that first marked this connection as a session is running. */
+    private var mirrorSetupRollback = false
 
     private val requestReader = RtspRequestReader(
         maxMessageBytes = MAX_MESSAGE_BYTES,
@@ -190,17 +217,25 @@ open class RtspHandler(
 
         try {
             while (!closed && !socket.isClosed) {
-                val request = requestReader.read(inputStream) ?: break
+                val request = requestReader.read(inputStream)
+                if (request == null) {
+                    closeReason = if (isSessionActive()) {
+                        "the sender closed the control connection (no TEARDOWN)"
+                    } else {
+                        "the sender closed the connection before a session started"
+                    }
+                    break
+                }
 
                 if (!sawRequest) {
                     sawRequest = true
                     // From here on this is a control connection: short patience while the
                     // handshake is in progress, none once a session exists.
                     socket.soTimeout = HANDSHAKE_IDLE_TIMEOUT_MS
-                    trace("Control channel opened by ${request.headers["User-Agent"]?.takeIf { it.isNotBlank() } ?: "sender"}")
+                    trace("Control channel opened by ${request.header("User-Agent")?.takeIf { it.isNotBlank() } ?: "sender"}")
                 }
 
-                currentCSeq = request.headers["CSeq"]?.takeIf { it.isNotBlank() }
+                currentCSeq = request.header("CSeq")?.takeIf { it.isNotBlank() }
                 val response = routeRequest(request)
                 sendResponse(outputStream, response)
 
@@ -232,6 +267,7 @@ open class RtspHandler(
                 )
             }
         } catch (e: java.net.SocketTimeoutException) {
+            closeReason = "the connection was idle too long"
             if (!sawRequest) {
                 // A connection that never said anything for ten minutes: either an event channel
                 // from a session that has long since ended, or a probe. Either way it is dead.
@@ -241,7 +277,10 @@ open class RtspHandler(
                 trace("Connection timed out mid-handshake")
             }
         } catch (e: Exception) {
-            if (!closed) Logger.e("Error handling RTSP client", e)
+            if (!closed) {
+                closeReason = "connection error: ${e.message ?: e.javaClass.simpleName}"
+                Logger.e("Error handling RTSP client", e)
+            }
         } finally {
             Logger.i("RTSP connection closed (${client?.inetAddress?.hostAddress ?: "unknown"})")
             closeQuietly()
@@ -250,6 +289,7 @@ open class RtspHandler(
 
     /** Closes this connection. Called by [RtspServer.stop] and by [AirPlayReceiver.stop]. */
     override fun close() {
+        if (!closed) closeReason = "the receiver closed the connection"
         closed = true
         closeQuietly()
     }
@@ -267,7 +307,7 @@ open class RtspHandler(
         if (wasMirror) {
             // A closed control connection ends the mirroring session (the sender does not always
             // send TEARDOWN — locking the phone or losing Wi-Fi just drops the socket).
-            onStreamingStopped()
+            stopSession(closeReason)
         }
     }
 
@@ -287,7 +327,7 @@ open class RtspHandler(
         Logger.d("RTSP ${request.method} ${request.uri}")
         // Senders attach their DACP reverse-control identity to most requests — capture it so the TV
         // remote can drive playback (DacpClient dedups, so this is cheap to call repeatedly).
-        request.headers["Active-Remote"]?.let { onRemoteControlInfo(request.headers["DACP-ID"], it) }
+        request.header("Active-Remote")?.let { onRemoteControlInfo(request.header("DACP-ID"), it) }
         return when (request.method) {
             "OPTIONS"       -> handleOptionsInternal(request)
             "ANNOUNCE"      -> handleAnnounceInternal(request)
@@ -360,7 +400,7 @@ open class RtspHandler(
      * senders issue this before `PUT /photo` or `POST /play`.
      */
     private fun handleReverse(request: RtspRequest): RtspResponse {
-        val purpose = request.headers["X-Apple-Purpose"] ?: "event"
+        val purpose = request.header("X-Apple-Purpose") ?: "event"
         Logger.i("POST /reverse (purpose=$purpose) — 101 Switching Protocols (PTTH/1.0)")
         return RtspResponse(
             statusCode = 101,
@@ -752,7 +792,9 @@ open class RtspHandler(
         })
         val response = mutableMapOf<String, Any?>()
 
+        val wasMirrorSession = isMirrorSession
         isMirrorSession = true
+        mirrorSetupRollback = !wasMirrorSession
         // Extract sender device name / model from SETUP plist (UxPlay raop_handlers.h lines 770-795).
         val senderDeviceName = (req["name"] as? String)?.takeIf { it.isNotBlank() }
             ?: (req["model"] as? String)?.takeIf { it.isNotBlank() }
@@ -767,7 +809,7 @@ open class RtspHandler(
         val ekey = req["ekey"] as? ByteArray
         if (ekey != null) {
             val aesKey = fairPlay!!.decrypt(ekey)
-            val userAgent = request.headers["User-Agent"]
+            val userAgent = request.header("User-Agent")
             val ecdhSecret = pairingSession?.sharedSecret ?: if (isOldProtocolClient(userAgent)) {
                 Logger.i("mirror SETUP: legacy client '$userAgent' without pair-verify — using unhashed AES key")
                 ByteArray(0)
@@ -849,6 +891,7 @@ open class RtspHandler(
             response["streams"] = resStreams
         }
 
+        mirrorSetupRollback = false   // SETUP succeeded: this connection now really holds a session
         RtspResponse(
             200, "OK",
             bodyBytes = PlistCodec.encode(response),
@@ -856,6 +899,10 @@ open class RtspHandler(
             protocol = request.responseProtocol()
         )
     } catch (e: Exception) {
+        // A SETUP that failed did not start a session; leaving the flag set would make this
+        // connection's eventual close tear down whichever session *is* running.
+        if (mirrorSetupRollback && activeStreamTypes.isEmpty()) isMirrorSession = false
+        mirrorSetupRollback = false
         Logger.e("mirror SETUP failed", e)
         trace("Mirroring FAILED at SETUP: ${e.message ?: e.javaClass.simpleName}")
         RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
@@ -882,7 +929,7 @@ open class RtspHandler(
             return RtspResponse(statusCode = 400, statusMessage = "Bad Request")
         }
 
-        currentSession = parsed.copy(senderName = extractSenderName(request.headers["User-Agent"]))
+        currentSession = parsed.copy(senderName = extractSenderName(request.header("User-Agent")))
         val s = currentSession!!
         trace("Session announced: ${sessionSummary(s)}")
         Logger.i("Session: hasVideo=${s.hasVideo} hasAudio=${s.hasAudio} " +
@@ -992,8 +1039,10 @@ open class RtspHandler(
             if (activeStreamTypes.remove(103)) onBufferedAudioStop()
         }
         activeStreamTypes.clear()
-        trace("Session ended by the sender (TEARDOWN)")
-        onStreamingStopped()
+        stopSession(
+            if (streamTypes.isNullOrEmpty()) "the sender sent TEARDOWN"
+            else "the sender sent TEARDOWN for its last stream ($streamTypes)"
+        )
         return RtspResponse(
             statusCode = 200,
             statusMessage = "OK",
@@ -1028,7 +1077,7 @@ open class RtspHandler(
 
     private fun handleSetParameter(request: RtspRequest): RtspResponse {
         val body = request.body
-        val contentType = request.headers["Content-Type"]?.lowercase() ?: ""
+        val contentType = request.header("Content-Type")?.lowercase() ?: ""
         // Text bodies carry "volume: <dB>" or "progress: <start>/<curr>/<end>"; binary bodies carry
         // DMAP now-playing metadata or artwork.
         when {
@@ -1079,8 +1128,8 @@ open class RtspHandler(
      * `RTP-Info: seq=<nextSeq>;rtptime=<rtptime>` (UxPlay `raop_handler_flush`).
      */
     private fun handleFlush(request: RtspRequest): RtspResponse {
-        val nextSeq = parseFlushSeq(request.headers["RTP-Info"])
-        Logger.d("FLUSH (RTP-Info='${request.headers["RTP-Info"] ?: ""}' → nextSeq=$nextSeq)")
+        val nextSeq = parseFlushSeq(request.header("RTP-Info"))
+        Logger.d("FLUSH (RTP-Info='${request.header("RTP-Info") ?: ""}' → nextSeq=$nextSeq)")
         onAudioFlush(nextSeq)
         return RtspResponse(statusCode = 200, statusMessage = "OK")
     }
@@ -1099,7 +1148,7 @@ open class RtspHandler(
 
         return when (val validation = PhotoHandler.validatePhoto(
             request.bodyBytes,
-            request.headers["Content-Type"]
+            request.header("Content-Type")
         )) {
             is PhotoValidation.Valid -> {
                 onPhotoReceived(request.bodyBytes, validation.imageType)

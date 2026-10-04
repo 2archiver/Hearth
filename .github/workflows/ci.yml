@@ -75,8 +75,10 @@ jobs:
             echo '```'
             # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
             # failing unit test names itself; head keeps a wall of warnings from pushing the
-            # real error out of the report.
-            grep -E "^e: |error:|Error: |FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            # real error out of the report. AssertionError/ComparisonFailure/expected:< pick up
+            # the assertion text a failing unit test prints (see testLogging in
+            # app/build.gradle.kts), and "at com.phairplay" names the line of ours behind it.
+            grep -E "^e: |error:|Error: |AssertionError|ComparisonFailure|expected:<|at com\.phairplay|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"
@@ -192,8 +194,10 @@ jobs:
             echo '```'
             # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
             # failing unit test names itself; head keeps a wall of warnings from pushing the
-            # real error out of the report.
-            grep -E "^e: |error:|Error: |FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
+            # real error out of the report. AssertionError/ComparisonFailure/expected:< pick up
+            # the assertion text a failing unit test prints (see testLogging in
+            # app/build.gradle.kts), and "at com.phairplay" names the line of ours behind it.
+            grep -E "^e: |error:|Error: |AssertionError|ComparisonFailure|expected:<|at com\.phairplay|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"

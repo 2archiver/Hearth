@@ -11,6 +11,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.BuildConfig
 import com.phairplay.R
+import com.phairplay.update.InstallStart
+import com.phairplay.update.InstallState
 import com.phairplay.update.StageResult
 import com.phairplay.update.UpdateCheck
 import com.phairplay.update.UpdateFlow
@@ -45,8 +47,11 @@ internal class SettingsUpdates(
     init {
         rowCheckUpdates.setOnClickListener {
             if (updateCheckRunning) return@setOnClickListener
-            val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
+            val manager = com.phairplay.update.UpdateManager.get(requireContext())
+            val staged = manager.stagedUpdate()
             when {
+                staged != null && manager.installState()?.first == InstallState.PERMISSION_REQUIRED &&
+                    !manager.canRequestInstalls() -> openInstallPermissionSettings()
                 staged != null -> showInstallDialog(staged.info)
                 pendingKeyMismatchUpdate != null -> showSigningKeyMismatchDialog(pendingKeyMismatchUpdate)
                 pendingAvailableUpdate != null -> showAvailableDialog(pendingAvailableUpdate!!)
@@ -61,8 +66,12 @@ internal class SettingsUpdates(
     }
 
     private fun refreshStagedUpdateRow() {
-        val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
-        if (staged != null) {
+        val manager = com.phairplay.update.UpdateManager.get(requireContext())
+        val staged = manager.stagedUpdate()
+        if (staged != null && showInstallState(manager, staged.info)) {
+            pendingAvailableUpdate = null
+            pendingKeyMismatchUpdate = null
+        } else if (staged != null) {
             pendingAvailableUpdate = null
             pendingKeyMismatchUpdate = null
             setUpdateCardState(
@@ -318,20 +327,103 @@ internal class SettingsUpdates(
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.update_ready_title)
             .setMessage(getString(R.string.update_ready_message, info.shortLabel()))
-            .setPositiveButton(R.string.update_action_install) { _, _ ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    val installed = com.phairplay.update.UpdateManager.get(requireContext())
-                        .installStaged()
-                    if (installed) {
-                        showMessageDialog(R.string.update_dialog_title, getString(R.string.update_install_started))
-                    } else {
-                        showMessageDialog(R.string.update_install_failed_title, getString(R.string.update_install_failed))
-                    }
-                    refreshStagedUpdateRow()
-                }
-            }
+            .setPositiveButton(R.string.update_action_install) { _, _ -> startInstall() }
             .setNegativeButton(R.string.update_action_later, null)
             .show()
+    }
+
+    /**
+     * Renders the last install state on the card. Returns false when there is nothing to show
+     * (so the caller falls back to "ready to install").
+     */
+    private fun showInstallState(
+        manager: com.phairplay.update.UpdateManager,
+        info: UpdateInfo
+    ): Boolean {
+        val (state, message) = manager.installState() ?: return false
+        val label = info.shortLabel()
+        when (state) {
+            InstallState.INSTALLING -> setUpdateCardState(
+                getString(R.string.update_installing_card, label),
+                R.string.update_status_installing, R.string.update_action_install,
+                R.color.status_transitioning
+            )
+            InstallState.AWAITING_CONFIRMATION -> setUpdateCardState(
+                getString(R.string.update_confirm_card, label),
+                R.string.update_status_confirm, R.string.update_action_install,
+                R.color.status_transitioning
+            )
+            InstallState.PERMISSION_REQUIRED -> {
+                // Returning from Android's permission page: if it is granted now, say so by
+                // offering the install again instead of repeating the request.
+                if (manager.canRequestInstalls()) {
+                    manager.clearInstallState()
+                    return false
+                }
+                setUpdateCardState(
+                    getString(R.string.update_permission_card),
+                    R.string.update_status_permission, R.string.update_action_open_settings,
+                    R.color.status_transitioning
+                )
+            }
+            InstallState.CANCELLED -> setUpdateCardState(
+                getString(R.string.update_cancelled_card, label),
+                R.string.update_status_cancelled, R.string.update_action_install,
+                R.color.status_transitioning
+            )
+            InstallState.FAILED -> setUpdateCardState(
+                message ?: getString(R.string.update_install_failed),
+                R.string.update_status_install_failed, R.string.update_action_retry,
+                R.color.status_stopped
+            )
+            InstallState.SUCCEEDED -> return false
+        }
+        return true
+    }
+
+    /** Starts the install and turns every outcome into a visible state or a next step. */
+    private fun startInstall() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val manager = com.phairplay.update.UpdateManager.get(requireContext())
+            val staged = manager.stagedUpdate()
+            setUpdateCardState(
+                getString(R.string.update_installing_card, staged?.info?.shortLabel() ?: ""),
+                R.string.update_status_installing, R.string.update_action_install,
+                R.color.status_transitioning
+            )
+            when (manager.installStaged()) {
+                InstallStart.QUEUED -> Logger.i("Update install queued — waiting for Android")
+                InstallStart.PERMISSION_REQUIRED -> showInstallPermissionDialog()
+                InstallStart.NOTHING_STAGED ->
+                    showMessageDialog(R.string.update_dialog_title, getString(R.string.update_install_nothing_staged))
+                InstallStart.VERIFICATION_FAILED ->
+                    showMessageDialog(R.string.update_install_failed_title, getString(R.string.update_install_verification_failed))
+                InstallStart.FAILED ->
+                    showMessageDialog(R.string.update_install_failed_title, getString(R.string.update_install_failed))
+            }
+            if (isAdded) refreshStagedUpdateRow()
+        }
+    }
+
+    private fun showInstallPermissionDialog() {
+        if (!isAdded) return
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.update_permission_title)
+            .setMessage(R.string.update_permission_message)
+            .setPositiveButton(R.string.update_action_open_settings) { _, _ -> openInstallPermissionSettings() }
+            .setNegativeButton(R.string.update_action_later, null)
+            .show()
+    }
+
+    private fun openInstallPermissionSettings() {
+        val intent = com.phairplay.update.UpdateManager.get(requireContext()).installPermissionSettingsIntent()
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Several Android TV builds ship without this Settings activity.
+            Logger.w("Could not open the install-permission screen: ${e.message}")
+            showMessageDialog(R.string.update_permission_title, getString(R.string.update_permission_unavailable))
+        }
     }
 
     private fun showSigningKeyMismatchDialog(info: UpdateInfo?) {

@@ -8,7 +8,9 @@ package com.phairplay.airplay
  *
  * @param method  The RTSP method (e.g., "OPTIONS", "ANNOUNCE", "RECORD")
  * @param uri     The request URI (e.g., "rtsp://192.168.1.1/phairplay")
- * @param headers All headers as a key→value map (keys are case-sensitive per RFC 2326)
+ * @param headers All headers as a key→value map. Header names are case-insensitive (RFC 2326
+ *                §4.2): the reader builds a case-insensitive map, and [header] looks names up
+ *                case-insensitively even for maps built elsewhere (tests).
  * @param body    The request body text (empty string if Content-Length was 0 or absent)
  */
 data class RtspRequest(
@@ -18,7 +20,11 @@ data class RtspRequest(
     val body: String,
     val bodyBytes: ByteArray = body.toByteArray(Charsets.UTF_8),
     val protocol: String = "RTSP/1.0"
-)
+) {
+    /** Case-insensitive header lookup. */
+    fun header(name: String): String? =
+        headers[name] ?: headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+}
 
 /**
  * RtspResponse — Represents an RTSP response to send back to the AirPlay sender.

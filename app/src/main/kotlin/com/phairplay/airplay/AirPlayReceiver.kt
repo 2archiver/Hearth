@@ -148,6 +148,9 @@ class AirPlayReceiver(
 
     // Reverse remote control (TV → sender). Created lazily once a sender advertises DACP-ID.
     private val dacpClient = DacpClient(context)
+
+    /** Which RTSP connection owns the media session (see [SessionOwnership]). */
+    private val sessionOwnership = SessionOwnership()
     @Volatile private var ntpClient: AirPlayNtpClient? = null
     @Volatile private var eventSocket: ServerSocket? = null
     @Volatile private var eventClientSocket: java.net.Socket? = null
@@ -288,6 +291,7 @@ class AirPlayReceiver(
             mdnsService?.stop()
             dacpClient.stop()
             releaseMediaComponents()
+            sessionOwnership.reset()
         } catch (e: Exception) {
             Logger.e("Error during AirPlayReceiver stop", e)
         } finally {
@@ -327,6 +331,10 @@ class AirPlayReceiver(
      */
     private fun startRtspServer() {
         val server = RtspServer(RtspHandler.RTSP_PORT) { socket ->
+            // Identity of this connection for session ownership. Every callback that starts a
+            // session claims it; only the owner's stop is honoured.
+            val connectionId = Any()
+            val peer = "${socket.inetAddress?.hostAddress ?: "?"}:${socket.port}"
             RtspHandler(
                 context = context,
                 displayName = advertisedName,
@@ -334,11 +342,16 @@ class AirPlayReceiver(
                 displayHeight = mirrorHeight,
                 audioEnabled = audioEnabled,
                 videoSurfaceProvider = videoSurfaceProvider,
-                onStreamingStarted = { session -> onStreamingStarted(session) },
-                onStreamingStopped = { onStreamingStopped() },
+                onStreamingStarted = { session ->
+                    claimSession(connectionId, peer)
+                    onStreamingStarted(session)
+                },
+                onStreamingStopped = { onSessionStopRequested(connectionId, peer, "session ended") },
+                onSessionStopped = { reason -> onSessionStopRequested(connectionId, peer, reason) },
                 onPhotoReceived = { bytes, imageType -> onPhotoReceived(bytes, imageType) },
                 onPhotoCleared = { onPhotoCleared() },
                 onMirrorSetupKeys = { aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort ->
+                    claimSession(connectionId, peer)
                     startMirrorKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort)
                 },
                 onMirrorStreamStart = { streamConnectionId -> startMirrorStream(streamConnectionId) },
@@ -361,8 +374,14 @@ class AirPlayReceiver(
                     npArtwork = bytes.takeIf { it.isNotEmpty() }
                     emitNowPlaying()
                 },
-                onVideoPlay = { url, start -> startUrlVideo(url, start) },
-                onVideoPlaySeconds = { url, start -> startUrlVideo(url, start, seconds = true) },
+                onVideoPlay = { url, start ->
+                    claimSession(connectionId, peer)
+                    startUrlVideo(url, start)
+                },
+                onVideoPlaySeconds = { url, start ->
+                    claimSession(connectionId, peer)
+                    startUrlVideo(url, start, seconds = true)
+                },
                 onVideoRate = { rate -> urlVideoPlayer?.setRate(rate) },
                 onVideoScrub = { pos -> urlVideoPlayer?.scrub(pos) },
                 onVideoStop = { stopUrlVideo() },
@@ -429,7 +448,34 @@ class AirPlayReceiver(
      * Releases media components and re-advertises so the device reappears
      * in sender pickers immediately.
      */
+    /** Records [connectionId] as the session owner, noting a takeover in the on-TV log. */
+    private fun claimSession(connectionId: Any, peer: String) {
+        if (sessionOwnership.claim(connectionId)) {
+            Logger.i("AirPlay session taken over by a new connection ($peer)")
+            AirPlayTrace.record("Session continues on a new connection from $peer")
+        }
+    }
+
+    /**
+     * A connection asked to end the session. Honoured only from the owner: a probe, a stale
+     * control channel from before a reconnect, or an event socket closing must not release the
+     * pipeline another connection is using. Either way the reason goes into the log, so the
+     * next bug report says what ended the session.
+     */
+    private fun onSessionStopRequested(connectionId: Any, peer: String, reason: String) {
+        if (!sessionOwnership.release(connectionId)) {
+            val detail = if (sessionOwnership.isClaimed()) "another connection owns the session" else "no session was running"
+            Logger.i("Ignoring stop from $peer ($reason) — $detail")
+            AirPlayTrace.record("Ignored a stop from $peer: $reason ($detail)")
+            return
+        }
+        Logger.i("AirPlay session stopped by $peer: $reason")
+        AirPlayTrace.record("Stopped: $reason")
+        onStreamingStopped()
+    }
+
     private fun onStreamingStopped() {
+        sessionOwnership.reset()
         Logger.i("Streaming stopped — releasing media components")
         AirPlayTrace.record("Streaming stopped — ready for the next sender")
         releaseMediaComponents()
@@ -692,6 +738,7 @@ class AirPlayReceiver(
         urlVideoPlayer = null
         urlVideoGeneration++
         player.release()
+        AirPlayTrace.record("Stopped: URL video ended or was stopped by the sender")
         onStreamingStopped()
         Logger.i("AirPlay URL video stopped")
     }

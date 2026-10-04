@@ -20,6 +20,9 @@ interface RtspConnection {
 
     /** Closes the connection. Safe to call from any thread and more than once. */
     fun close()
+
+    /** True while this connection carries a live media session (never retired first). */
+    val holdsSession: Boolean get() = false
 }
 
 /**
@@ -102,10 +105,11 @@ class RtspServer(
                 // client that has gone wrong, so retire the oldest connection instead of refusing
                 // the new one — refusing is what used to break a reconnect after a dropped session.
                 if (live.size >= MAX_CONNECTIONS) {
-                    live.firstOrNull()?.let { oldest ->
-                        Logger.w("RTSP: $MAX_CONNECTIONS connections open — retiring the oldest")
-                        live.remove(oldest)
-                        runCatching { oldest.close() }
+                    retireCandidate(live)?.let { victim ->
+                        Logger.w("RTSP: $MAX_CONNECTIONS connections open — retiring the oldest idle one")
+                        AirPlayTrace.record("Too many connections — closed an idle one")
+                        live.remove(victim)
+                        runCatching { victim.close() }
                     }
                 }
 
@@ -181,3 +185,11 @@ class RtspServer(
         const val MAX_CONNECTIONS = 8
     }
 }
+
+/**
+ * Which connection to retire when [RtspServer]'s cap is hit: the oldest one that does NOT carry
+ * the media session. Retiring "the oldest" outright usually meant the control channel — it is
+ * opened first — so a burst of probe sockets ended a running session.
+ */
+internal fun retireCandidate(live: List<RtspConnection>): RtspConnection? =
+    live.firstOrNull { !it.holdsSession } ?: live.firstOrNull()

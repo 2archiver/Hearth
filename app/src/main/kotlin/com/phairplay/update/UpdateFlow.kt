@@ -64,7 +64,7 @@ object UpdateFlow {
         return when (val staged = manager.downloadAndStage(info)) {
             is StageResult.Staged -> {
                 Logger.i("Update ${info.versionName} downloaded and verified")
-                val installQueued = autoInstall && manager.installStaged()
+                val installQueued = autoInstall && manager.installStaged() == InstallStart.QUEUED
                 if (!installQueued) {
                     // Keep the staged APK discoverable when silent installation is disabled
                     // or the platform rejects the install request (for example, missing
