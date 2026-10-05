@@ -4,69 +4,83 @@ import com.phairplay.util.Logger
 import java.io.InputStream
 
 /**
- * RtspRequestReader parses RTSP/HTTP-style requests from the AirPlay control socket.
- *
- * The reader consumes bytes directly from the socket so the caller can safely switch
- * to binary RTP interleaved frames after RTSP RECORD without losing buffered data.
+ * Binary-safe bounded reader for the persistent RTSP/HTTP connection. [readDetailed] distinguishes
+ * peer EOF from malformed/truncated/oversized input so diagnostics do not report every close as
+ * the same unexplained EOF.
  */
 internal class RtspRequestReader(
     private val maxMessageBytes: Int,
-    private val maxPhotoBytes: Int
+    private val maxPhotoBytes: Int,
 ) {
-    /**
-     * Reads one complete RTSP or AirPlay photo request from [inputStream].
-     *
-     * Returns null on clean EOF, malformed input, or payloads over the configured limits.
-     */
-    fun read(inputStream: InputStream): RtspRequest? {
-        val requestLine = readLine(inputStream) ?: return null
-        if (requestLine.isBlank()) return read(inputStream)
-
-        val parts = requestLine.split(" ")
-        if (parts.size < 3) {
-            Logger.w("Malformed RTSP request line: '$requestLine'")
-            return null
-        }
-
-        val headers = readHeaders(inputStream, requestLine.length) ?: return null
-        val method = parts[0]
-        val uri = parts[1]
-        val protocol = parts[2]
-        val bodyBytes = readBody(inputStream, method, uri, headers) ?: return null
-
-        return RtspRequest(
-            method = method,
-            uri = uri,
-            headers = headers,
-            body = String(bodyBytes, Charsets.UTF_8),
-            bodyBytes = bodyBytes,
-            protocol = protocol
-        )
+    sealed interface ReadOutcome {
+        data class Request(val value: RtspRequest) : ReadOutcome
+        data class End(val reason: String, val cleanEof: Boolean = false) : ReadOutcome
     }
 
-    private fun readHeaders(inputStream: InputStream, requestLineBytes: Int): Map<String, String>? {
-        // Header names are case-insensitive (RFC 2326 §4.2 / RFC 7230 §3.2). Senders differ:
-        // some send "Content-Length", others "content-length", and AirPlay video clients send
-        // "X-Apple-Session-ID" / "x-apple-session-id". A case-sensitive map read a lower-case
-        // Content-Length as 0, left the body in the socket and desynchronised the connection.
+    /** Compatibility helper for tests/callers that only need a request or null. */
+    fun read(inputStream: InputStream): RtspRequest? =
+        (readDetailed(inputStream) as? ReadOutcome.Request)?.value
+
+    fun readDetailed(inputStream: InputStream): ReadOutcome {
+        while (true) {
+            val requestLineResult = readLine(inputStream, maxMessageBytes)
+            val requestLine = requestLineResult.line ?: return ReadOutcome.End(
+                reason = requestLineResult.failure ?: "unexpected end of request line",
+                cleanEof = requestLineResult.cleanEof,
+            )
+            if (requestLine.isBlank()) continue // Iterative: hostile blank lines cannot recurse.
+
+            val parts = requestLine.trim().split(WHITESPACE, limit = 3)
+            if (parts.size != 3 || parts.any { it.isBlank() }) {
+                Logger.w("Malformed RTSP request line — rejecting")
+                return ReadOutcome.End("malformed request line")
+            }
+            val headersResult = readHeaders(inputStream, requestLine.length)
+            val headers = headersResult.value
+                ?: return ReadOutcome.End(headersResult.failure ?: "malformed headers")
+
+            val method = parts[0]
+            val uri = parts[1]
+            val protocol = parts[2]
+            val bodyResult = readBody(inputStream, method, uri, headers)
+            val bodyBytes = bodyResult.value
+                ?: return ReadOutcome.End(bodyResult.failure ?: "malformed request body")
+
+            return ReadOutcome.Request(
+                RtspRequest(
+                    method = method,
+                    uri = uri,
+                    headers = headers,
+                    body = String(bodyBytes, Charsets.UTF_8),
+                    bodyBytes = bodyBytes,
+                    protocol = protocol,
+                )
+            )
+        }
+    }
+
+    private fun readHeaders(inputStream: InputStream, requestLineBytes: Int): ValueResult<Map<String, String>> {
         val headers = java.util.TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
         var totalBytes = requestLineBytes
-
         while (true) {
-            val line = readLine(inputStream) ?: return null
-            if (line.isEmpty()) return headers
-
-            totalBytes += line.length
+            val result = readLine(inputStream, maxMessageBytes)
+            val line = result.line
+                ?: return ValueResult.failure(result.failure ?: "truncated headers")
+            if (line.isEmpty()) return ValueResult.success(headers)
+            totalBytes += line.toByteArray(Charsets.UTF_8).size + 2
             if (totalBytes > maxMessageBytes) {
-                Logger.w("RTSP message too large — rejecting")
-                return null
+                Logger.w("RTSP headers too large — rejecting")
+                return ValueResult.failure("headers exceed message limit")
             }
-
-            val colonIndex = line.indexOf(':')
-            if (colonIndex > 0) {
-                headers[line.substring(0, colonIndex).trim()] =
-                    line.substring(colonIndex + 1).trim()
+            val colon = line.indexOf(':')
+            if (colon <= 0) {
+                return ValueResult.failure("malformed header line")
             }
+            val name = line.substring(0, colon).trim()
+            if (name.isEmpty() || name.any { it <= ' ' || it == ':' }) {
+                return ValueResult.failure("malformed header name")
+            }
+            headers[name] = line.substring(colon + 1).trim()
         }
     }
 
@@ -74,40 +88,67 @@ internal class RtspRequestReader(
         inputStream: InputStream,
         method: String,
         uri: String,
-        headers: Map<String, String>
-    ): ByteArray? {
-        val contentLength = headers["Content-Length"]?.toIntOrNull() ?: 0
-        val bodyLimit = if (method == "PUT" && uri.substringBefore("?") == PhotoHandler.PHOTO_PATH) {
-            maxPhotoBytes
-        } else {
-            maxMessageBytes
+        headers: Map<String, String>,
+    ): ValueResult<ByteArray> {
+        val rawLength = headers["Content-Length"]
+        val contentLength = when {
+            rawLength == null -> 0
+            rawLength.toIntOrNull() == null -> return ValueResult.failure("invalid Content-Length")
+            rawLength.toInt() < 0 -> return ValueResult.failure("negative Content-Length")
+            else -> rawLength.toInt()
         }
-
+        val isPhoto = method.equals("PUT", ignoreCase = true) &&
+            uri.substringBefore('?') == PhotoHandler.PHOTO_PATH
+        val bodyLimit = if (isPhoto) maxPhotoBytes else maxMessageBytes
         if (contentLength > bodyLimit) {
-            Logger.w("Request body too large ($contentLength bytes) — rejecting")
-            return null
+            Logger.w("Request body exceeds the configured limit ($contentLength bytes) — rejecting")
+            return ValueResult.failure("request body exceeds limit")
         }
-        if (contentLength <= 0) return ByteArray(0)
+        if (contentLength == 0) return ValueResult.success(ByteArray(0))
 
-        val buf = ByteArray(contentLength)
-        var read = 0
-        while (read < contentLength) {
-            val n = inputStream.read(buf, read, contentLength - read)
-            if (n == -1) return null
-            read += n
+        val buffer = ByteArray(contentLength)
+        var offset = 0
+        while (offset < contentLength) {
+            val count = try {
+                inputStream.read(buffer, offset, contentLength - offset)
+            } catch (e: Exception) {
+                return ValueResult.failure("body read failed (${e.javaClass.simpleName})")
+            }
+            if (count < 0) return ValueResult.failure("truncated request body")
+            if (count == 0) continue
+            offset += count
         }
-        return buf
+        return ValueResult.success(buffer)
     }
 
-    private fun readLine(inputStream: InputStream): String? {
+    private fun readLine(inputStream: InputStream, lineLimit: Int): LineResult {
         val sb = StringBuilder()
         while (true) {
-            val b = inputStream.read()
-            if (b == -1) return if (sb.isEmpty()) null else sb.toString()
-            if (b == '\r'.code) continue
-            if (b == '\n'.code) return sb.toString()
-            sb.append(b.toChar())
-            if (sb.length > maxMessageBytes) return null
+            val byte = try {
+                inputStream.read()
+            } catch (e: Exception) {
+                return LineResult(null, "line read failed (${e.javaClass.simpleName})")
+            }
+            if (byte == -1) {
+                return if (sb.isEmpty()) LineResult(null, "peer EOF", cleanEof = true)
+                else LineResult(null, "truncated line")
+            }
+            if (byte == '\r'.code) continue
+            if (byte == '\n'.code) return LineResult(sb.toString())
+            if (sb.length >= lineLimit) return LineResult(null, "line exceeds message limit")
+            sb.append(byte.toChar())
         }
+    }
+
+    private data class LineResult(val line: String?, val failure: String? = null, val cleanEof: Boolean = false)
+    private data class ValueResult<T>(val value: T?, val failure: String? = null) {
+        companion object {
+            fun <T> success(value: T) = ValueResult(value)
+            fun <T> failure(reason: String) = ValueResult<T>(null, reason)
+        }
+    }
+
+    private companion object {
+        val WHITESPACE = Regex("\\s+")
     }
 }

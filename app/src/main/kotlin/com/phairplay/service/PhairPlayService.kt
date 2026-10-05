@@ -72,6 +72,13 @@ class PhairPlayService : Service() {
     private val _airPlayState = MutableStateFlow(ProtocolState.DISABLED)
     val airPlayState: StateFlow<ProtocolState> = _airPlayState.asStateFlow()
 
+    /** URL-video player state is distinct from the RTSP connection's connected/advertising state. */
+    private val _airPlayPlaybackState = MutableStateFlow<com.phairplay.airplay.AirPlayPlaybackState?>(null)
+    val airPlayPlaybackState: StateFlow<com.phairplay.airplay.AirPlayPlaybackState?> =
+        _airPlayPlaybackState.asStateFlow()
+    private val _airPlayPlaybackFailure = MutableStateFlow<String?>(null)
+    val airPlayPlaybackFailure: StateFlow<String?> = _airPlayPlaybackFailure.asStateFlow()
+
     /**
      * The **Apple Casting** card: screen mirroring from an iPhone/iPad/Mac.
      *
@@ -331,6 +338,8 @@ class PhairPlayService : Service() {
             Logger.i("AirPlay receiver already running — skipping duplicate start")
             return
         }
+        _airPlayPlaybackState.value = null
+        _airPlayPlaybackFailure.value = null
         // Captures the sender name reported by AirPlayReceiver before CONNECTED fires.
         // onSenderNameChanged is called synchronously before emitState(CONNECTED), so
         // this assignment happens-before the Main-thread read in onStateChanged.
@@ -375,6 +384,12 @@ class PhairPlayService : Service() {
                 _nowPlaying.value = info
             },
             onAdvertiseNotice = { notice -> _airPlayDetail.value = notice },
+            onUrlPlaybackStateChanged = { state, failure ->
+                _airPlayPlaybackState.value = state.takeUnless {
+                    it == com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED
+                }
+                _airPlayPlaybackFailure.value = failure
+            },
             onMirroringChanged = { active ->
                 mirroring = active
                 _appleCastingState.value = when {
@@ -545,6 +560,8 @@ class PhairPlayService : Service() {
 
         airPlayReceiver = null
         _airPlayDetail.value = null
+        _airPlayPlaybackState.value = null
+        _airPlayPlaybackFailure.value = null
         _airPlayState.value = ProtocolState.DISABLED
         _appleCastingState.value = ProtocolState.DISABLED
         _appleCastingDetail.value = null
