@@ -27,6 +27,9 @@ class PhairPlayApp : Application() {
     /**
      * Installs the Android URL-video backend (Media3/ExoPlayer) for this process.
      *
+     * NOTE: [com.phairplay.airplay.ExoUrlVideoBackendFactory] is marked @UnstableApi by Media3, so
+     * this one call site opts in explicitly (per-class opt-in, no project-wide suppression).
+     *
      * WHY HERE: [com.phairplay.airplay.AirPlayVideoPlayer] must stay compilable by the offline JVM
      * test runner, which has no Media3 on its classpath — so it asks
      * [com.phairplay.airplay.UrlVideoBackends] for a factory instead of naming ExoPlayer itself.
@@ -34,6 +37,7 @@ class PhairPlayApp : Application() {
      * sender-mediated HLS bridge) actually playable; without it a `/play` fails with
      * "no URL-video backend is installed in this process" and the AirPlay audio path is untouched.
      */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun installUrlVideoBackend() {
         com.phairplay.airplay.UrlVideoBackends.factory = {
             com.phairplay.airplay.ExoUrlVideoBackendFactory(applicationContext)

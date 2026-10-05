@@ -45,9 +45,9 @@ class HlsPlaylistCodecTest {
 
         var index = 0
         val served = mutableListOf<String>()
-        val rewrite = HlsPlaylistCodec.rewriteMaster(master, masterUri) { resolved ->
+        val rewrite = HlsPlaylistCodec.rewriteMaster(master, masterUri) { resolved, _ ->
             served += resolved
-            "bridge:$index"
+            "bridge:${index++}"
         }
         val ok = rewrite as HlsPlaylistCodec.Rewrite.Ok
 
@@ -64,9 +64,15 @@ class HlsPlaylistCodecTest {
         // rendition, it must be because of a fetch failure, not because the rewrite deleted it.
         assertTrue(ok.text.contains("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\""))
         assertTrue(ok.text.contains("AUDIO=\"audio\""))
-        assertEquals(1, ok.text.lines().count { it.startsWith("bridge:") })
+        // The codec replaces what the callback replaced and reports both counts; it does not decide
+        // for the bridge. Here every reference was bridged, so: one rendition + one i-frame `URI=`
+        // attribute rewritten in place, and the two bare variant lines replaced on their own line.
+        assertEquals(2, ok.text.lines().count { it.startsWith("bridge:") })
         assertTrue(ok.text.contains("URI=\"bridge:0\""))
+        assertTrue(ok.text.contains("URI=\"bridge:1\""))
+        assertEquals(listOf("bridge:2", "bridge:3"), ok.text.lines().filter { it.startsWith("bridge:") })
         assertEquals(4, ok.bridged)
+        assertEquals(0, ok.direct)
     }
 
     @Test
@@ -79,7 +85,10 @@ class HlsPlaylistCodecTest {
         """.trimIndent() + "\n"
 
         var directCalls = 0
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, masterUri) { resolved ->
+        val relativeFlags = mutableListOf<Boolean>()
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, masterUri) { resolved, relative ->
+            assertEquals(false, relative) // written out in full by the sender
+            relativeFlags += relative
             if (HlsPlaylistCodec.isDirectlyFetchable(resolved)) {
                 directCalls++
                 resolved
@@ -88,6 +97,7 @@ class HlsPlaylistCodecTest {
             }
         } as HlsPlaylistCodec.Rewrite.Ok
 
+        assertEquals(listOf(false), relativeFlags)
         assertEquals(1, directCalls)
         assertEquals(1, rewrite.direct)
         assertEquals(0, rewrite.bridged)
@@ -95,6 +105,18 @@ class HlsPlaylistCodecTest {
             "the signed query must be handed over exactly as the sender wrote it",
             rewrite.text.contains("https://cdn.example/seg/1.ts?sig=AbC%2Fd%3D&exp=1700000000"),
         )
+    }
+
+    @Test
+    fun `a url naming the sender's own machine is never treated as fetchable`() {
+        // The sender's HLS locations name its own machine (`localhost:<port>`); a player on the TV
+        // can never reach those, so such a reference must stay on the sender's transport.
+        assertFalse(HlsPlaylistCodec.isDirectlyFetchable("http://localhost:64321/x/seg.ts"))
+        assertFalse(HlsPlaylistCodec.isDirectlyFetchable("http://127.0.0.1/seg.ts"))
+        assertFalse(HlsPlaylistCodec.isDirectlyFetchable("https://[::1]/seg.ts"))
+        assertFalse(HlsPlaylistCodec.isDirectlyFetchable("http://0.0.0.0:8080/seg.ts"))
+        assertTrue(HlsPlaylistCodec.isDirectlyFetchable("https://rr1---sn-abc.googlevideo.com/videoplayback/seg.ts"))
+        assertTrue(HlsPlaylistCodec.isDirectlyFetchable("http://192.168.1.20:8008/seg.ts"))
     }
 
     @Test
@@ -109,10 +131,13 @@ class HlsPlaylistCodecTest {
         """.trimIndent() + "\n"
 
         val resolved = mutableListOf<String>()
-        HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/video/v800/prog.m3u8?token=t") {
-            resolved += it
+        val relativeFlags = mutableListOf<Boolean>()
+        HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/video/v800/prog.m3u8?token=t") { uri, relative ->
+            resolved += uri
+            relativeFlags += relative
             "bridge:${resolved.size - 1}"
         }
+        assertEquals("both references were relative paths in the sender's playlist", listOf(true, true), relativeFlags)
 
         assertEquals(
             listOf(
@@ -145,7 +170,7 @@ class HlsPlaylistCodecTest {
         assertNotNull(parsed.initMapUri)
 
         val mapped = mutableListOf<String>()
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { resolved ->
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { resolved, _ ->
             mapped += resolved
             if (HlsPlaylistCodec.isDirectlyFetchable(resolved)) resolved else "bridge:${mapped.size - 1}"
         } as HlsPlaylistCodec.Rewrite.Ok
@@ -179,7 +204,7 @@ class HlsPlaylistCodecTest {
     fun `a reference that cannot be served fails the rewrite instead of being dropped`() {
         val media = "#EXTM3U\n#EXTINF:6.0,\nseg.ts\n"
 
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { null }
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { _, _ -> null }
 
         val failed = rewrite as HlsPlaylistCodec.Rewrite.Failed
         assertEquals(HlsPlaylistCodec.ReferenceKind.SEGMENT_URI, failed.referenceKind)
@@ -195,7 +220,7 @@ class HlsPlaylistCodecTest {
             seg.ts
         """.trimIndent() + "\n"
 
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { "bridge:0" }
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { _, _ -> "bridge:0" }
 
         val failed = rewrite as HlsPlaylistCodec.Rewrite.Failed
         assertEquals(HlsPlaylistCodec.ReferenceKind.KEY_URI, failed.referenceKind)
@@ -212,8 +237,8 @@ class HlsPlaylistCodecTest {
         """.trimIndent() + "\n"
 
         val mapped = mutableListOf<String>()
-        HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") {
-            mapped += it
+        HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { uri, _ ->
+            mapped += uri
             "bridge:${mapped.size - 1}"
         }
 
@@ -234,7 +259,7 @@ class HlsPlaylistCodecTest {
             seg-2.ts
         """.trimIndent() + "\n"
 
-        val rewritten = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { resolved ->
+        val rewritten = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { resolved, _ ->
             if (HlsPlaylistCodec.isDirectlyFetchable(resolved)) resolved else "bridge:0"
         } as HlsPlaylistCodec.Rewrite.Ok
 
@@ -259,9 +284,11 @@ class HlsPlaylistCodecTest {
             seg.ts
         """.trimIndent() + "\n"
 
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { "bridge:0" }
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { _, _ -> "bridge:0" }
 
+        // The tag is present, so the segment lines are fragments; refusing is the only honest answer.
         assertTrue(rewrite is HlsPlaylistCodec.Rewrite.Failed)
+        assertTrue((rewrite as HlsPlaylistCodec.Rewrite.Failed).reason.contains("BASE-URI"))
     }
 
     @Test
@@ -273,7 +300,7 @@ class HlsPlaylistCodecTest {
             /p/q
         """.trimIndent() + "\n"
 
-        val rewritten = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { uri ->
+        val rewritten = HlsPlaylistCodec.rewriteMedia(media, "https://cdn.example/v/prog.m3u8") { uri, _ ->
             if (HlsPlaylistCodec.isDirectlyFetchable(uri)) uri else "bridge:0"
         } as HlsPlaylistCodec.Rewrite.Ok
 
@@ -284,7 +311,7 @@ class HlsPlaylistCodecTest {
     fun `a playlist with no usable base uri cannot be rewritten`() {
         val media = "#EXTM3U\n#EXTINF:6.0,\nseg.ts\n"
 
-        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "not-a-uri") { "bridge:0" }
+        val rewrite = HlsPlaylistCodec.rewriteMedia(media, "not-a-uri") { _, _ -> "bridge:0" }
 
         assertTrue(rewrite is HlsPlaylistCodec.Rewrite.Failed)
     }

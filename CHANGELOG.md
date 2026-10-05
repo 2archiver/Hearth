@@ -45,9 +45,11 @@ was answered 501.
     bounded waits, cancellation on stop/replacement, and bounded playlists (8 MiB) and items
     (32 MiB, 8 MiB cache);
   - master and media playlists, alternate audio renditions, init maps, keys and byte ranges are
-    fetched through the sender; relative references resolve against the *sender's* playlist URL, and
-    already-absolute signed URLs are handed to the player byte-for-byte (no parent-query
-    propagation);
+    fetched through the sender; relative references resolve against the *sender's* playlist URL and
+    stay on the sender's transport (their base may be a host only the sender can reach:
+    `mlhls://`, `localhost:<port>`, a session-bound CDN), while a URL the sender wrote out in full is
+    handed to the player byte-for-byte (no parent-query propagation); loopback hosts
+    (`localhost`, `127.0.0.0/8`, `0.0.0.0`, `::1`) are never treated as player-fetchable;
   - live playlists are re-read on every refresh; a reference this receiver cannot serve fails the
     playlist instead of silently dropping it (a master is never downgraded to audio-only), and a
     SAMPLE-AES playlist is refused with that reason rather than played as silence;
@@ -87,7 +89,7 @@ was answered 501.
   the bridge serves the player through a private `hearth-hls://` data source instead.
 
 ### Validation
-- New JVM tests: FcupCodec (10), HlsPlaylistCodec (13), SenderMediatedHlsBridge (14, against a fake
+- New JVM tests: FcupCodec (10), HlsPlaylistCodec (15), SenderMediatedHlsBridge (16, against a fake
   sender over the real reverse-channel framing), VideoAudioHandover (8), UrlVideoPlaybackController
   (10 new: first frame, audio-only, mute/handover, stale first frame, bridge failure reason),
   RtspHandler (7 new: `/reverse`, `/action`, sender-mediated `/play`).

@@ -211,7 +211,9 @@ internal class SenderMediatedHlsBridge(
         if (original.size > maxPlaylistBytes) throw HlsBridgeException("master playlist exceeds the size limit")
         val text = original.toString(Charsets.UTF_8)
         var tableFull = false
-        val rewrite = HlsPlaylistCodec.rewriteMaster(text, contentLocation) { resolved ->
+        // Every playlist reference goes through the sender, relative or absolute: a media playlist
+        // has to be re-read for each refresh, so it must be addressed on the sender's own transport.
+        val rewrite = HlsPlaylistCodec.rewriteMaster(text, contentLocation) { resolved, _ ->
             playlistTable.uriFor(resolved) ?: run { tableFull = true; null }
         }
         if (tableFull) {
@@ -253,9 +255,13 @@ internal class SenderMediatedHlsBridge(
         val parsed = HlsPlaylistCodec.parseMedia(text)
         if (parsed.isSampleAes) throw HlsBridgeException("media playlist requires SAMPLE-AES protection")
         var tableFull = false
-        val rewrite = HlsPlaylistCodec.rewriteMedia(text, senderUri) { resolved ->
+        val rewrite = HlsPlaylistCodec.rewriteMedia(text, senderUri) { resolved, relativeReference ->
             when {
-                HlsPlaylistCodec.isDirectlyFetchable(resolved) -> resolved
+                // A reference the sender wrote as a *relative* path is one only the sender can
+                // resolve (its playlist base may be `mlhls://`, `localhost:<port>`, or a
+                // session-bound CDN host): resolve it here, then read it back through the sender.
+                // A URL the sender wrote out in full is the player's to fetch, signed bytes and all.
+                !relativeReference && HlsPlaylistCodec.isDirectlyFetchable(resolved) -> resolved
                 else -> itemTable.uriFor(resolved) ?: run { tableFull = true; null }
             }
         }

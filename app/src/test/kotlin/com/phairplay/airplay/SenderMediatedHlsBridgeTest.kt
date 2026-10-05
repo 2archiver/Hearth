@@ -87,7 +87,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `an absolute segment url is not routed through the sender and keeps its signed query`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         sender.answers[VARIANT_URI] = """
             #EXTM3U
             #EXTINF:6.0,
@@ -104,9 +104,36 @@ class SenderMediatedHlsBridgeTest {
     }
 
     @Test
+    fun `a location only the sender can reach keeps everything on the sender's transport`() {
+        // What the YouTube app actually sends: the HLS location names the *sender's* machine, so the
+        // TV can never fetch it. Both the media playlist and its relative segments must come back
+        // through the sender — handing the player `http://localhost:<port>/…` is a black screen.
+        val sender = FakeSender(session.sessionId)
+        val location = "http://localhost:64321/hls/master.m3u8"
+        val variant = "http://localhost:64321/hls/v800/prog.m3u8"
+        val segment = "http://localhost:64321/hls/v800/seg-1.ts"
+        sender.answers[location] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
+        sender.answers[variant] = "#EXTM3U\n#EXTINF:6.0,\nseg-1.ts\n"
+        sender.answers[segment] = "ONE".toByteArray()
+        val bridge = SenderMediatedHlsBridge(
+            sessionToken = session,
+            contentLocation = location,
+            channel = sender.install(ReverseHttpChannel.DEFAULT_REQUEST_TIMEOUT_MS),
+        )
+
+        bridge.open(bridge.playerUri)
+        val media = bridge.open("hearth-hls://${session.sessionId}/playlist/0.m3u8").toString(Charsets.UTF_8)
+
+        assertTrue(media.contains("hearth-hls://${session.sessionId}/item/0.ts"))
+        assertFalse("the player must never be handed the sender's own loopback", media.contains("localhost"))
+        assertEquals("ONE", bridge.open("hearth-hls://${session.sessionId}/item/0.ts").toString(Charsets.UTF_8))
+        assertEquals(listOf(location, variant, segment), sender.requestedUrls())
+    }
+
+    @Test
     fun `live playlists are re-read from the sender on every refresh`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         sender.answers[VARIANT_URI] = "#EXTM3U\n#EXTINF:6.0,\nseg-1.ts\n"
         val bridge = bridge(sender)
         bridge.open(bridge.playerUri)
@@ -210,14 +237,23 @@ class SenderMediatedHlsBridgeTest {
             request.id, request.url, 0, "#EXTM3U\n".toByteArray(), session.sessionId,
         )
 
-        assertTrue("the sender must not be told its answer failed", delivery.accepted)
+        // A late answer is legitimate traffic: the sender is told it was received (HTTP 200), but it
+        // is not *applied* — the waiter is gone, and its bytes must not be handed to a later read.
+        assertEquals(200, delivery.httpStatus)
+        assertFalse("a late answer is not applied to anything", delivery.accepted)
         assertTrue(delivery.summary.contains("ignored"))
-        assertTrue(bridge.open(bridge.playerUri).isNotEmpty())   // a fresh fetch is served
+
+        // A fresh fetch is served: the stale answer did not poison the channel for the URL.
+        sender.answers[MASTER_URI] = "#EXTM3U\n"
+        sender.autoAnswer = true
+        assertTrue(bridge.open(bridge.playerUri).isNotEmpty())
     }
 
     @Test
     fun `a sender error status fails the read with the status in the reason`() {
         val sender = FakeSender(session.sessionId)
+        // The body itself does not matter (it is never used): the sender answers with a status.
+        sender.answers[MASTER_URI] = "#EXTM3U\n"
         sender.statusOverride = 404
         val bridge = bridge(sender)
 
@@ -285,7 +321,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `a media item larger than the bound is refused rather than buffered`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         sender.answers[VARIANT_URI] = "#EXTM3U\n#EXTINF:6.0,\nseg-1.ts\n"
         sender.answers[SEGMENT_ONE_URI] = ByteArray(64)
         val bridge = bridge(sender, maxSegmentBytes = 16)

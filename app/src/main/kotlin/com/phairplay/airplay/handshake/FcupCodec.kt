@@ -140,18 +140,21 @@ internal object FcupCodec {
         val fields = runCatching { PlistCodec.decode(body) }.getOrElse {
             return ActionParse.Invalid("plist decode failed (${it.javaClass.simpleName})")
         }
-        val type = stringField(fields, "type")
         val params = mapField(fields, "params")
             ?: return ActionParse.Invalid("params dictionary missing")
-        return when (type?.lowercase(Locale.US)) {
+        val type = stringField(fields, "type")
+            ?: return ActionParse.Invalid("type missing")
+        // The subject is lower-cased, so every constant has to be lower-cased too — the playlist
+        // types are camelCase on the wire ("playlistInsert"), unlike the all-lowercase response type.
+        return when (type.lowercase(Locale.US)) {
             RESPONSE_TYPE.lowercase(Locale.US) -> parseResponse(params)
-            TYPE_PLAYLIST_INSERT, TYPE_PLAYLIST_REMOVE -> ActionParse.Playlist(
-                type = type,
-                uuidPresent = params.keys.any { it.equals("uuid", true) } ||
-                    (params["item"] as? Map<*, *>)?.keys
-                        ?.any { (it as? String)?.equals("uuid", true) == true } == true,
-            )
-            null -> ActionParse.Invalid("type missing")
+            TYPE_PLAYLIST_INSERT.lowercase(Locale.US), TYPE_PLAYLIST_REMOVE.lowercase(Locale.US) ->
+                ActionParse.Playlist(
+                    type = type,
+                    uuidPresent = params.keys.any { it.equals("uuid", true) } ||
+                        (params["item"] as? Map<*, *>)?.keys
+                            ?.any { (it as? String)?.equals("uuid", true) == true } == true,
+                )
             else -> ActionParse.Unsupported(type.take(64))
         }
     }

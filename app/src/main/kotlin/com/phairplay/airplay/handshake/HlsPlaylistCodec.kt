@@ -76,7 +76,13 @@ internal object HlsPlaylistCodec {
         val isSampleAes: Boolean get() = keyMethod?.uppercase(Locale.US) == "SAMPLE-AES"
     }
 
-    /** YouTube's condensed-segment tag: shared parts of every segment URI. */
+    /**
+     * YouTube's condensed-segment tag: the shared parts of every segment URI.
+     *
+     * [baseUri] is empty when the tag carries no `BASE-URI`. That is *not* treated as "no condensed
+     * form": the segment lines under such a tag are fragments, not real paths, so the playlist is
+     * refused (see [expandCondensed]) instead of being served with segment names that do not exist.
+     */
     data class CondensedTag(val baseUri: String, val params: String, val prefix: String)
 
     data class Rendition(
@@ -276,18 +282,24 @@ internal object HlsPlaylistCodec {
      * Rewrites every reference in a master playlist.
      *
      * @param baseUri the URI the master was fetched from (for relative references)
-     * @param map resolves one absolute reference: the URI the player should request, or null when
-     *   this receiver cannot serve that reference at all
+     * @param map decides what the player is given for one reference: the URI to serve, or null when
+     *   this receiver cannot serve that reference at all. It is called for **every** reference with
+     *   the resolved absolute URI and whether the playlist wrote that reference as a *relative*
+     *   path — a relative reference belongs to the sender's own transport (its base may be a host
+     *   only the sender can reach: `mlhls://`, `localhost:<port>`, a session-bound CDN), while an
+     *   absolute one is a URL the sender wrote out in full, signed bytes included.
      */
-    fun rewriteMaster(text: String, baseUri: String, map: (String) -> String?): Rewrite =
+    fun rewriteMaster(text: String, baseUri: String, map: (String, Boolean) -> String?): Rewrite =
         rewriteLines(text, baseUri, map, master = true)
 
     /**
      * Rewrites a media playlist: expands YouTube's condensed form when present, then rewrites every
      * segment, init-map and key reference. The bytes of everything else — `#EXTINF`, byte ranges,
      * discontinuity markers, `#EXT-X-PROGRAM-DATE-TIME` — are preserved.
+     *
+     * @param map as for [rewriteMaster]: `(resolvedUri, wasRelative)`
      */
-    fun rewriteMedia(text: String, baseUri: String, map: (String) -> String?): Rewrite {
+    fun rewriteMedia(text: String, baseUri: String, map: (String, Boolean) -> String?): Rewrite {
         val parsed = parseMedia(text)
         if (parsed.isSampleAes) {
             return Rewrite.Failed("media playlist requires SAMPLE-AES protection", ReferenceKind.KEY_URI)
@@ -313,7 +325,7 @@ internal object HlsPlaylistCodec {
     private fun rewriteLines(
         text: String,
         baseUri: String,
-        map: (String) -> String?,
+        map: (String, Boolean) -> String?,
         master: Boolean,
     ): Rewrite {
         val base = runCatching { URI(baseUri) }.getOrNull()
@@ -371,12 +383,12 @@ internal object HlsPlaylistCodec {
     private fun rewriteReference(
         reference: String,
         base: URI,
-        map: (String) -> String?,
+        map: (String, Boolean) -> String?,
         kind: ReferenceKind,
     ): Mapping {
         val resolved = resolve(base, reference)
             ?: return Mapping.Failed("unusable ${kind.label} reference (${describe(reference)})", kind)
-        val replacement = map(resolved)
+        val replacement = map(resolved, isRelativeReference(reference))
             ?: return Mapping.Failed("no transport for the ${kind.label} (${describe(resolved)})", kind)
         return if (replacement == resolved) Mapping.Direct(replacement) else Mapping.Replaced(replacement)
     }
@@ -386,7 +398,7 @@ internal object HlsPlaylistCodec {
         line: String,
         attributeName: String,
         base: URI,
-        map: (String) -> String?,
+        map: (String, Boolean) -> String?,
         kind: ReferenceKind,
     ): Mapping {
         val marker = "$attributeName=\""
@@ -399,7 +411,7 @@ internal object HlsPlaylistCodec {
         if (reference.isBlank()) return Mapping.Keep(line)
         val resolved = resolve(base, reference)
             ?: return Mapping.Failed("unusable ${kind.label} reference (${describe(reference)})", kind)
-        val replacement = map(resolved)
+        val replacement = map(resolved, isRelativeReference(reference))
             ?: return Mapping.Failed("no transport for the ${kind.label} (${describe(resolved)})", kind)
         if (replacement == resolved) return Mapping.Direct(line)
         return Mapping.Replaced(line.substring(0, valueStart) + replacement + line.substring(valueEnd))
@@ -420,11 +432,38 @@ internal object HlsPlaylistCodec {
         return runCatching { base.resolve(parsed).toString() }.getOrNull()
     }
 
-    /** True for URLs this receiver's player can fetch directly (the sender signed them). */
+    /**
+     * True for URLs this receiver's player can fetch directly (the sender signed them).
+     *
+     * A loopback host is never directly fetchable: `http://localhost:<port>/…` and `127.0.0.1` point
+     * at the *sender's* machine, so a URL naming one has to travel through the sender or not at all
+     * (handing it to the player is how a session ends up with a black screen and a connection error
+     * that says nothing about the real cause).
+     */
     fun isDirectlyFetchable(uri: String): Boolean {
         val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
         val scheme = parsed.scheme?.lowercase(Locale.US) ?: return false
-        return (scheme == "http" || scheme == "https") && !parsed.host.isNullOrBlank() && parsed.rawUserInfo == null
+        if (scheme != "http" && scheme != "https") return false
+        val host = parsed.host ?: return false
+        if (host.isBlank() || parsed.rawUserInfo != null) return false
+        return !isLoopbackHost(host)
+    }
+
+    /** True when the reference is not absolute, i.e. relative to the playlist's own URI. */
+    private fun isRelativeReference(reference: String): Boolean {
+        val parsed = runCatching { URI(reference.trim()) }.getOrNull() ?: return true
+        return !parsed.isAbsolute
+    }
+
+    /** `localhost`, `*.localhost`, an IPv4 loopback / `0.0.0.0`, or `::1`. */
+    private fun isLoopbackHost(host: String): Boolean {
+        val lowered = host.trim('[', ']').lowercase(Locale.US)
+        if (lowered == "localhost" || lowered.endsWith(".localhost") || lowered == "::1") return true
+        val octets = lowered.split('.')
+        if (octets.size != 4) return false
+        val values = octets.map { it.toIntOrNull() ?: return false }
+        if (values.any { it < 0 || it > 255 }) return false
+        return values[0] == 127 || lowered == "0.0.0.0"
     }
 
     /** Short description of a reference for diagnostics: scheme, extension, query presence, length. */
@@ -452,11 +491,10 @@ internal object HlsPlaylistCodec {
         data class Unsupported(val reason: String) : CondensedResult
     }
 
-    private fun parseCondensedTag(line: String): CondensedTag? {
+    private fun parseCondensedTag(line: String): CondensedTag {
         val body = line.substringAfter(':', "")
-        val base = attribute(body, "BASE-URI") ?: return null
         return CondensedTag(
-            baseUri = base,
+            baseUri = attribute(body, "BASE-URI").orEmpty(),
             params = attribute(body, "PARAMS").orEmpty(),
             prefix = attribute(body, "PREFIX").orEmpty(),
         )
@@ -483,7 +521,7 @@ internal object HlsPlaylistCodec {
         val tagLine = text.lineSequence().firstOrNull { it.trim().startsWith(TAG_YT_CONDENSED, true) }
             ?: return CondensedResult.Unsupported("condensed tag missing")
         val tag = parseCondensedTag(tagLine)
-            ?: return CondensedResult.Unsupported("condensed tag has no BASE-URI")
+        if (tag.baseUri.isEmpty()) return CondensedResult.Unsupported("condensed tag has no BASE-URI")
         val base = runCatching { URI(tag.baseUri) }.getOrNull()
             ?: return CondensedResult.Unsupported("condensed BASE-URI is not a URI")
         if (!base.isAbsolute || base.host.isNullOrBlank()) {

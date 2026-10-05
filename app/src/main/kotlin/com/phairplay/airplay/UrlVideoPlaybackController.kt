@@ -170,7 +170,9 @@ internal class UrlVideoPlaybackController(
                 }
 
                 val neverPrepared = !prepared
-                val neverStarted = started && surface == null
+                // "Started" only becomes true once a surface was attached, so the player never
+                // starting is exactly "no surface ever showed up" — the original rule, kept as is.
+                val neverStarted = !started && surface == null
                 val neverRendered = started && surface != null && current.hasVideoTrack &&
                     !firstFrameRendered && desiredRate > 0f
                 if ((neverPrepared || neverStarted || neverRendered) && clockMillis() >= deadlineMillis) {
