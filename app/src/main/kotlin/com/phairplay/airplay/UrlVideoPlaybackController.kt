@@ -46,6 +46,7 @@ internal class UrlVideoPlaybackController(
     private val scheduler: UrlVideoScheduler,
     private val clockMillis: () -> Long,
     private val onEnded: () -> Unit,
+    private val onStateChanged: (AirPlayPlaybackState, String?) -> Unit = { _, _ -> },
     private val timeoutMillis: Long = DEFAULT_TIMEOUT_MS,
     private val tickMillis: Long = DEFAULT_TICK_MS,
 ) {
@@ -58,6 +59,7 @@ internal class UrlVideoPlaybackController(
     private var startInSeconds = false
     private var attachedSurface: UrlVideoSurface? = null
     private var deadlineMillis = 0L
+    private var lastReportedState: AirPlayPlaybackState? = null
 
     @Volatile
     private var playbackSnapshot: PlaybackInfo? = null
@@ -77,9 +79,12 @@ internal class UrlVideoPlaybackController(
                         if (!current.isPlaying) current.start()
                         if (!started) AirPlayTrace.record("URL video: playback started")
                         started = true
+                        reportState(AirPlayPlaybackState.PLAYING)
                     } else if (current.isPlaying) {
                         current.pause()
                     }
+                    if (desiredRate <= 0f) reportState(AirPlayPlaybackState.PAUSED)
+                    else if (surface == null) reportState(AirPlayPlaybackState.LOADING)
                     playbackSnapshot = PlaybackInfo(
                         durationSec = current.durationMs.coerceAtLeast(0) / 1000.0,
                         positionSec = current.positionMs.coerceAtLeast(0) / 1000.0,
@@ -108,6 +113,7 @@ internal class UrlVideoPlaybackController(
         desiredRate = 1f
         deadlineMillis = clockMillis() + timeoutMillis
         playbackSnapshot = PlaybackInfo(0.0, 0.0, 0.0, readyToPlay = false)
+        reportState(AirPlayPlaybackState.LOADING)
 
         try {
             val player = backendFactory.create()
@@ -136,7 +142,8 @@ internal class UrlVideoPlaybackController(
             if (current == null) {
                 logFailure("setup", error)
                 AirPlayTrace.record("URL video failed: setup")
-                finish()
+                reportState(AirPlayPlaybackState.FAILED, "player setup failed")
+                finish(failed = true)
             } else {
                 fail(current, "setup", error)
             }
@@ -144,7 +151,15 @@ internal class UrlVideoPlaybackController(
     }
 
     fun setRate(rate: Float) = onMain {
-        if (rate.isFinite()) desiredRate = rate
+        if (!rate.isFinite()) return@onMain
+        desiredRate = rate
+        val current = backend
+        if (rate <= 0f && prepared) {
+            if (current?.isPlaying == true) current.pause()
+            reportState(AirPlayPlaybackState.PAUSED)
+        } else if (!prepared) {
+            reportState(AirPlayPlaybackState.LOADING)
+        }
     }
 
     fun scrub(positionSec: Double) = onMain {
@@ -172,6 +187,7 @@ internal class UrlVideoPlaybackController(
 
     private fun onPrepared(player: UrlVideoBackend) {
         prepared = true
+        reportState(AirPlayPlaybackState.LOADING)
         runCatching {
             val initialMs = if (startInSeconds) {
                 (startPosition * 1000.0).coerceAtMost(Int.MAX_VALUE.toDouble())
@@ -188,7 +204,23 @@ internal class UrlVideoPlaybackController(
         if (backend !== player) return
         logFailure(reason, error)
         AirPlayTrace.record("URL video failed: $reason")
-        finish()
+        reportState(AirPlayPlaybackState.FAILED, safeFailure(reason))
+        finish(failed = true)
+    }
+
+    private fun safeFailure(reason: String): String = when (reason) {
+        "prepare/surface timeout" -> "prepare/surface timeout"
+        "setup" -> "player setup failed"
+        "playback state" -> "player state error"
+        "seek", "initial seek" -> "seek failed"
+        else -> "media playback error"
+    }
+
+    private fun reportState(state: AirPlayPlaybackState, failureReason: String? = null) {
+        if (lastReportedState == state && failureReason == null) return
+        lastReportedState = state
+        runCatching { onStateChanged(state, failureReason) }
+            .onFailure { Logger.e("AirPlay URL video state callback failed (${it.javaClass.simpleName})") }
     }
 
     private fun logFailure(reason: String, error: Throwable? = null) {
@@ -201,10 +233,11 @@ internal class UrlVideoPlaybackController(
         Logger.e("AirPlay URL video: $reason$type", safeThrowable)
     }
 
-    private fun finish() {
+    private fun finish(failed: Boolean = false) {
+        if (!failed) reportState(AirPlayPlaybackState.DISCONNECTED)
         releaseMain()
         runCatching { onEnded() }
-            .onFailure { Logger.e("AirPlay URL video end callback failed", it) }
+            .onFailure { Logger.e("AirPlay URL video end callback failed (${it.javaClass.simpleName})") }
     }
 
     private fun releaseMain() {
@@ -217,6 +250,7 @@ internal class UrlVideoPlaybackController(
         pendingSeekMs = null
         attachedSurface = null
         playbackSnapshot = null
+        lastReportedState = null
         if (old != null) {
             runCatching { old.setOnPreparedListener(null) }
             runCatching { old.setOnCompletionListener(null) }

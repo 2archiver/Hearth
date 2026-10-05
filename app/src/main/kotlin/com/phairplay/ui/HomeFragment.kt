@@ -68,6 +68,7 @@ class HomeFragment : Fragment() {
     private var airPlayState = ProtocolState.DISABLED
     private var appleCastingState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
+    private var airPlayPlaybackState: com.phairplay.airplay.AirPlayPlaybackState? = null
     /** The name mDNS actually registered (differs from the requested one on a collision). */
     private var registeredName: String? = null
     /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
@@ -142,6 +143,22 @@ class HomeFragment : Fragment() {
         // The receiver name is printed on the hero card above, so this line takes no argument.
         state == ProtocolState.ADVERTISING -> getString(R.string.protocol_detail_casting_waiting)
         else -> null
+    }
+
+    private fun airPlayPlaybackDetail(): String? = when (airPlayPlaybackState) {
+        com.phairplay.airplay.AirPlayPlaybackState.FAILED -> getString(R.string.protocol_detail_video_failed)
+        com.phairplay.airplay.AirPlayPlaybackState.LOADING -> getString(R.string.protocol_detail_video_loading)
+        com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> getString(R.string.protocol_detail_video_playing)
+        com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> getString(R.string.protocol_detail_video_paused)
+        else -> null
+    }
+
+    private fun airPlayConnectedFormat(): Int = when (airPlayPlaybackState) {
+        com.phairplay.airplay.AirPlayPlaybackState.LOADING -> R.string.protocol_detail_video_loading
+        com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> R.string.protocol_detail_video_playing
+        com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> R.string.protocol_detail_video_paused
+        com.phairplay.airplay.AirPlayPlaybackState.FAILED -> R.string.protocol_detail_video_failed
+        else -> R.string.protocol_detail_connected
     }
 
     /** Full connection history, newest last — what a Settings screen would show if a TV had room. */
@@ -253,7 +270,8 @@ class HomeFragment : Fragment() {
                     updateProtocolCard(
                         cardAirPlay, state,
                         R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
-                        detailOverride = airPlayDetail
+                        detailOverride = airPlayPlaybackDetail() ?: airPlayDetail,
+                        connectedFormat = airPlayConnectedFormat(),
                     )
                 }
             }
@@ -263,8 +281,15 @@ class HomeFragment : Fragment() {
                     updateProtocolCard(
                         cardAirPlay, airPlayState,
                         R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
-                        detailOverride = detail
+                        detailOverride = airPlayPlaybackDetail() ?: detail,
+                        connectedFormat = airPlayConnectedFormat(),
                     )
+                }
+            }
+            launch {
+                svc.airPlayPlaybackState.collectLatest { state ->
+                    airPlayPlaybackState = state
+                    refreshProtocolCardDetails()
                 }
             }
             launch {
@@ -308,7 +333,8 @@ class HomeFragment : Fragment() {
         updateProtocolCard(
             cardAirPlay, airPlayState,
             R.string.protocol_detail_error_airplay, Protocol.AIRPLAY,
-            detailOverride = airPlayDetail
+            detailOverride = airPlayPlaybackDetail() ?: airPlayDetail,
+            connectedFormat = airPlayConnectedFormat(),
         )
         updateProtocolCard(
             cardAppleCasting, appleCastingState,

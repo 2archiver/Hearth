@@ -19,6 +19,7 @@ data class PlaybackInfo(
 class AirPlayVideoPlayer(
     surfaceProvider: () -> Surface?,
     onEnded: () -> Unit = {},
+    onStateChanged: (AirPlayPlaybackState, String?) -> Unit = { _, _ -> },
 ) {
     private val controller = UrlVideoPlaybackController(
         surfaceProvider = { surfaceProvider()?.let(::AndroidUrlVideoSurface) },
@@ -26,6 +27,7 @@ class AirPlayVideoPlayer(
         scheduler = AndroidMainLooperScheduler(),
         clockMillis = { SystemClock.elapsedRealtime() },
         onEnded = onEnded,
+        onStateChanged = onStateChanged,
     )
 
     fun play(url: String, startPosition: Double, seconds: Boolean = false) =
