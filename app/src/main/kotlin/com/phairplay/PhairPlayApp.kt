@@ -21,6 +21,23 @@ class PhairPlayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         initLogging()
+        installUrlVideoBackend()
+    }
+
+    /**
+     * Installs the Android URL-video backend (Media3/ExoPlayer) for this process.
+     *
+     * WHY HERE: [com.phairplay.airplay.AirPlayVideoPlayer] must stay compilable by the offline JVM
+     * test runner, which has no Media3 on its classpath — so it asks
+     * [com.phairplay.airplay.UrlVideoBackends] for a factory instead of naming ExoPlayer itself.
+     * Installing it once, at process start, is what makes URL video (direct URLs *and* the
+     * sender-mediated HLS bridge) actually playable; without it a `/play` fails with
+     * "no URL-video backend is installed in this process" and the AirPlay audio path is untouched.
+     */
+    private fun installUrlVideoBackend() {
+        com.phairplay.airplay.UrlVideoBackends.factory = {
+            com.phairplay.airplay.ExoUrlVideoBackendFactory(applicationContext)
+        }
     }
 
     /**

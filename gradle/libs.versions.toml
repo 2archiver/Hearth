@@ -28,6 +28,14 @@ timber = "5.0.1"
 # (Android's built-in javax.crypto lacks full SRP support)
 bouncycastle = "1.78.1"
 
+# Media3 (ExoPlayer) — the HLS-capable player for AirPlay *video*.
+# WHY THIS SPECIFIC VERSION: 1.4.1 declares minCompileSdk 34, so it builds against this
+# project's compileSdk 35 and needs no newer AGP than 8.6.1. It provides everything the
+# sender-mediated path uses (HlsMediaSource, DefaultMediaSourceFactory, a custom DataSource,
+# Player.Listener.onRenderedFirstFrame) in one release. Only 1.4.1 is pinned here: mixing
+# media3 modules across versions is the classic source of runtime ABI breakage.
+media3 = "1.4.1"
+
 # Binary property lists — Apple's bplist format used across the AirPlay 2 handshake
 # (GET /info, SETUP) for encoding/decoding NSDictionary-style payloads.
 ddplist = "1.28"
@@ -53,6 +61,12 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 # Kotlin Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# Media3 (ExoPlayer) core + HLS; media3-datasource comes in transitively and is where the
+# custom DataSource lives. androidx.media3:media3-ui is deliberately NOT used: the streaming
+# surface is a plain SurfaceView owned by StreamingScreen, so no PlayerView is needed.
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 
 # Logging
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }

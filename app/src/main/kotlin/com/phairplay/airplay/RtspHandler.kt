@@ -143,6 +143,12 @@ open class RtspHandler(
     private val onVideoPlaybackState: (
         (connectionId: String, token: SessionToken?, state: AirPlayPlaybackState, failureReason: String?) -> Unit
     ) = { _, _, _, _ -> },
+    /**
+     * The receiver's sender-mediated (FCUP) HLS transport: the PTTH reverse channel, the `/play`
+     * that needs it, and the `POST /action` replies that answer it. Null when the receiver cannot
+     * host a bridge, in which case a sender-mediated `/play` is refused with 400 as before.
+     */
+    private val hlsHost: SenderMediatedHlsHost? = null,
 ) : RtspConnection {
 
     /**
@@ -161,6 +167,18 @@ open class RtspHandler(
 
     /** Makes socket shutdown and session callbacks idempotent across close()/serve() races. */
     private val closeProcessed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Serializes every write to this connection's socket. Two writers exist once a connection is
+     * upgraded to PTTH: the request/response loop, and the reverse channel (which writes FCUP
+     * requests to the same socket from the bridge's threads). A frame must never interleave with
+     * another frame's header block.
+     */
+    private val writeLock = Any()
+
+    /** True once `POST /reverse` upgraded this connection to the PTTH reverse-HTTP channel. */
+    @Volatile
+    private var reverseUpgraded = false
     private val stopReported = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Why this connection is closing — reported with the session stop (diagnostics). */
@@ -251,9 +269,10 @@ open class RtspHandler(
      * when it must retire a connection, it retires an idle probe instead of the control channel.
      */
     override val holdsSession: Boolean
-        get() = !closed && (isSessionActive() || (
+        get() = !closed && (isSessionActive() || reverseUpgraded || (
             currentRole == AirPlayConnectionRole.DIRECT_VIDEO_CONTROL &&
-                currentMode == AirPlaySessionMode.URL_VIDEO &&
+                (currentMode == AirPlaySessionMode.URL_VIDEO ||
+                    currentMode == AirPlaySessionMode.SENDER_MEDIATED_HLS) &&
                 playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.DISCONNECTED)
             ))
 
@@ -337,7 +356,7 @@ open class RtspHandler(
      */
     private fun isSessionActive(): Boolean =
         isMirrorSession || setupCount > 0 || activeStreamTypes.isNotEmpty() || currentSession != null ||
-            (currentMode == AirPlaySessionMode.URL_VIDEO &&
+            (currentMode in URL_VIDEO_MODES &&
                 playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.DISCONNECTED))
 
     /**
@@ -386,6 +405,18 @@ open class RtspHandler(
                 }
                 val request = (outcome as RtspRequestReader.ReadOutcome.Request).value
 
+                if (reverseUpgraded) {
+                    // This socket is the PTTH reverse channel now: it is write-only from the receiver
+                    // to the sender, and anything arriving on it is not a control request. Answering
+                    // would interleave a response with the bridge's own frames, so the channel is
+                    // released with a stated reason instead — which also ends any sender-mediated
+                    // session that was using it, rather than leaving a player waiting for playlists.
+                    hlsHost?.releaseReverseChannel(traceConnectionId)
+                    closeReason = "request received on the upgraded PTTH reverse channel"
+                    trace(closeReason, kind = AirPlayTrace.Kind.FAILURE)
+                    break
+                }
+
                 if (!sawRequest) {
                     sawRequest = true
                     // A silent reverse/event socket is classified when its upgrade request arrives.
@@ -400,7 +431,7 @@ open class RtspHandler(
                 // Once a session exists the control channel may legitimately go quiet for
                 // minutes (video flows over its own data channel, audio over UDP), so stop
                 // timing the connection out.
-                if (isSessionActive()) socket.soTimeout = 0
+                if (isSessionActive() || reverseUpgraded) socket.soTimeout = 0
 
                 if (response.headers.entries.any { it.key.equals("Connection", true) && it.value.equals("close", true) }) {
                     closeReason = if (explicitTeardown) "sender closed the RTSP connection after TEARDOWN" else "peer requested connection close"
@@ -464,6 +495,9 @@ open class RtspHandler(
 
     private fun closeQuietly() {
         if (!closeProcessed.compareAndSet(false, true)) return
+        if (reverseUpgraded) {
+            hlsHost?.releaseReverseChannel(traceConnectionId)
+        }
         closed = true
         val hadSession = sessionToken != null || isSessionActive()
         runCatching { client?.close() }
@@ -608,7 +642,7 @@ open class RtspHandler(
         "/feedback"    -> handleFeedback(request)
         "/audiomode"   -> handleAudioMode(request)
         "/reverse"     -> handleReverse(request)
-        "/action"      -> handleUnsupportedAction(request)
+        "/action"      -> handleAction(request)
         "/getproperty" -> handlePropertyXmlOk(request, "POST /getProperty")
         // AirPlay video URL mode (non-mirroring): play a URL + drive transport.
         "/play"        -> handleVideoPlay(request)
@@ -629,11 +663,29 @@ open class RtspHandler(
             "display" -> "display"
             else -> "other"
         }
-        trace(
-            "Reverse upgrade acknowledged (purpose=$purpose); PTTH request/reply bridge is not implemented",
-            role = AirPlayConnectionRole.REVERSE_EVENT.name,
-        )
-        Logger.i("POST /reverse (purpose=$purpose) — 101 Switching Protocols; PTTH bridge unavailable")
+        val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
+        // The writer hands one whole frame to this connection's socket. It never logs bytes.
+        val writer: (ByteArray) -> Boolean = { frame -> writeRaw(frame) }
+        val accepted = hlsHost?.registerReverseChannel(traceConnectionId, senderSessionId, writer) == true
+        if (accepted) {
+            reverseUpgraded = true
+            // From here the sender writes nothing on this socket: it exists so the receiver can
+            // send FCUP requests. Without clearing the idle timeout the channel would be torn down
+            // mid-session by the read loop's silence timeout.
+            runCatching { client?.soTimeout = 0 }
+            trace(
+                "Reverse PTTH channel registered (purpose=$purpose, senderSessionIdPresent=${senderSessionId != null})",
+                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+            )
+            Logger.i("POST /reverse (purpose=$purpose) — 101 Switching Protocols; reverse channel registered")
+        } else {
+            trace(
+                "Reverse upgrade acknowledged but no bridge is available to host it (purpose=$purpose)",
+                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                kind = AirPlayTrace.Kind.FAILURE,
+            )
+            Logger.i("POST /reverse (purpose=$purpose) — 101 Switching Protocols; no bridge host")
+        }
         return RtspResponse(
             statusCode = 101,
             statusMessage = "Switching Protocols",
@@ -642,30 +694,53 @@ open class RtspHandler(
         )
     }
 
-    /** The reverse-channel FCUP transport is not implemented; never acknowledge playlist actions as success. */
-    private fun handleUnsupportedAction(request: RtspRequest): RtspResponse {
-        val contentType = request.header("Content-Type").orEmpty()
-        val xmlPlist = request.body.trimStart().startsWith("<?xml", true) ||
-            request.body.trimStart().startsWith("<plist", true)
-        val isPlist = request.isPlistBody() || contentType.contains("plist", true) || xmlPlist
-        val encoding = when {
-            request.bodyBytes.isEmpty() -> "empty"
-            request.isPlistBody() -> "binary plist"
-            isPlist -> "XML/declared plist"
-            else -> "other"
+    /**
+     * POST /action — the sender's answer to a reverse-channel FCUP request.
+     *
+     * The body is a binary plist whose `params` carry the request id Hearth sent and the fetched
+     * playlist/segment bytes. It is handed to the session bridge, which matches the id, refuses a
+     * mismatched URL, and either accepts the bytes or reports a URL-free reason. Without a bridge
+     * (no reverse channel was ever upgraded, or the receiver has no host) the request is refused
+     * with 501 and a trace line — never acknowledged as success.
+     */
+    private fun handleAction(request: RtspRequest): RtspResponse {
+        val host = hlsHost
+        val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
+        if (host == null) {
+            return handleUnsupportedAction(request)
         }
-        val fields = if (isPlist) runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull() else null
-        val safeFields = fields?.keys.orEmpty()
-            .mapNotNull { raw -> raw.lowercase(Locale.US).takeIf { it in SAFE_ACTION_FIELDS } }
-            .distinct()
-            .sorted()
-            .take(12)
-            .joinToString(",")
-            .ifBlank { "none" }
-        val hasRequestId = fields?.keys?.any { it.equals("requestId", true) || it.equals("request-id", true) } == true
+        val result = host.deliverAction(senderSessionId, request.bodyBytes)
         trace(
-            "FCUP/action rejected: sender-mediated HLS is unsupported " +
-                "(body=$encoding, fieldCount=${fields?.size ?: 0}, fields=$safeFields, requestIdPresent=$hasRequestId)",
+            "FCUP/action ${if (result.httpStatus < 400) "accepted" else "rejected"}: ${result.summary}",
+            kind = if (result.httpStatus < 400) AirPlayTrace.Kind.INFO else AirPlayTrace.Kind.FAILURE,
+        )
+        return RtspResponse(
+            result.httpStatus,
+            if (result.httpStatus < 400) "OK" else "Bad Request",
+            protocol = request.responseProtocol(),
+        )
+    }
+
+    /**
+     * `POST /action` with no bridge host: a build (or a test) without the FCUP transport, or an
+     * answer that arrived after its session had already ended.
+     *
+     * It is deliberately **not** answered with 200: a sender whose playlist action was accepted
+     * keeps a session in a state Hearth cannot serve, and the user is left with a connection and no
+     * video. The reply is 501, the reason is traced, and the *field names* (never the values, which
+     * can carry signed URLs) are recorded so the log shows which action arrived.
+     */
+    private fun handleUnsupportedAction(request: RtspRequest): RtspResponse {
+        val decoded = runCatching { PlistCodec.decode(request.bodyBytes) }.getOrNull()
+        val type = (decoded?.get("type") as? String)?.take(MAX_ACTION_TYPE_CHARS)
+        val fields = decoded?.keys
+            ?.map { it.lowercase(Locale.US) }
+            ?.filter { it in SAFE_ACTION_FIELDS }
+            ?.sorted()
+        trace(
+            "FCUP/action rejected: no sender-mediated session is active" +
+                (type?.let { " (type=$it)" } ?: "") +
+                (fields?.takeIf { it.isNotEmpty() }?.let { " (fields=${it.joinToString(",")})" } ?: ""),
             kind = AirPlayTrace.Kind.FAILURE,
         )
         return RtspResponse(501, "Not Implemented", protocol = request.responseProtocol())
@@ -736,6 +811,7 @@ open class RtspHandler(
             }
             RtspResponse(200, "OK", protocol = request.responseProtocol())
         }
+        is BodyParse.SenderMediated -> handleSenderMediatedPlay(request, parsed)
         is BodyParse.UnsupportedScheme -> {
             val scheme = parsed.scheme.takeIf { it.matches(SCHEME_PATTERN) } ?: "unknown"
             trace(
@@ -757,13 +833,57 @@ open class RtspHandler(
         }
     }
 
+    /**
+     * `POST /play` for a sender-mediated location (the YouTube app's `mlhls://…/master.m3u8`).
+     *
+     * The location is only resolvable by the sender, so the receiver needs a live PTTH reverse
+     * channel to ask it for the playlists. If there is none (or the receiver has no bridge host),
+     * the honest answer is 400 with a stated reason: Hearth cannot play this, and pretending
+     * otherwise would leave the sender believing video is on its way. No capability bit is flipped.
+     */
+    private fun handleSenderMediatedPlay(request: RtspRequest, parsed: BodyParse.SenderMediated): RtspResponse {
+        val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
+        val host = hlsHost
+        if (host == null) {
+            trace(
+                "Sender-mediated /play (${parsed.scheme}) rejected: no FCUP bridge host in this build",
+                kind = AirPlayTrace.Kind.FAILURE,
+            )
+            return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
+        }
+        claimSession(AirPlaySessionMode.SENDER_MEDIATED_HLS, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
+        val result = host.startSenderMediatedPlay(
+            SenderMediatedPlayRequest(
+                connectionId = traceConnectionId,
+                senderSessionId = senderSessionId,
+                location = parsed.request.url,
+                startSeconds = parsed.request.start,
+                seconds = parsed.request.seconds,
+                token = sessionToken,
+            )
+        )
+        return if (result.accepted) {
+            trace(
+                "Sender-mediated /play accepted (${parsed.encoding.name.lowercase(Locale.US)}, " +
+                    "${if (parsed.request.seconds) "seconds" else "fraction"} offset)",
+                kind = AirPlayTrace.Kind.LIFECYCLE,
+            )
+            RtspResponse(200, "OK", protocol = request.responseProtocol())
+        } else {
+            val reason = result.reason?.take(96) ?: "unsupported"
+            trace("Sender-mediated /play rejected: $reason", kind = AirPlayTrace.Kind.FAILURE)
+            reportPlaybackState(AirPlayPlaybackState.FAILED, "video transport unavailable: $reason")
+            RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
+        }
+    }
+
     /** POST /rate?value=X — X=0 pause, X≥1 resume. */
     private fun handleVideoRate(request: RtspRequest): RtspResponse {
         val parsed = queryParam(request.uri, "value")?.toFloatOrNull()
         val rate = parsed?.takeIf { it.isFinite() } ?: 1f
         Logger.d("POST /rate received (pause=${rate <= 0f})")
         onVideoRateSession?.invoke(rate, sessionToken) ?: onVideoRate(rate)
-        if (currentMode == AirPlaySessionMode.URL_VIDEO) {
+        if (currentMode in URL_VIDEO_MODES) {
             reportPlaybackState(if (rate <= 0f) AirPlayPlaybackState.PAUSED else AirPlayPlaybackState.LOADING)
         }
         return RtspResponse(200, "OK", protocol = request.responseProtocol())
@@ -1545,11 +1665,34 @@ open class RtspHandler(
             head.append("Content-Length: ${wire.size}\r\n")
         }
         head.append("\r\n")
-        outputStream.write(head.toString().toByteArray(Charsets.US_ASCII))
-        if (wire.isNotEmpty()) {
-            outputStream.write(wire)
+        val headBytes = head.toString().toByteArray(Charsets.US_ASCII)
+        synchronized(writeLock) {
+            outputStream.write(headBytes)
+            if (wire.isNotEmpty()) {
+                outputStream.write(wire)
+            }
+            outputStream.flush()
         }
-        outputStream.flush()
+    }
+
+    /**
+     * Writes one already-framed request to this connection's socket (used by the PTTH reverse
+     * channel). Returns false when the socket is gone; bytes are never logged.
+     */
+    private fun writeRaw(frame: ByteArray): Boolean {
+        val stream = synchronized(this) { if (closed) null else client?.getOutputStream() } ?: return false
+        return try {
+            synchronized(writeLock) {
+                if (closed) return false
+                stream.write(frame)
+                stream.flush()
+            }
+            true
+        } catch (e: Exception) {
+            // The channel notices the false return and stops trying; the connection's own read loop
+            // reports the socket failure with its reason.
+            false
+        }
     }
 
     companion object {
@@ -1577,6 +1720,14 @@ open class RtspHandler(
         private const val AUDIO_RTP_PORT = 6001
         private const val DEFAULT_SENDER_NAME = "AirPlay Sender"
 
+        /**
+         * Session modes in which a URL player is (or may become) the picture on screen. Used by the
+         * idle-connection rules and the URL-video control verbs, so a sender-mediated session is
+         * treated exactly like a direct one once its `/play` was accepted.
+         */
+        private val URL_VIDEO_MODES =
+            setOf(AirPlaySessionMode.URL_VIDEO, AirPlaySessionMode.SENDER_MEDIATED_HLS)
+
         private val KNOWN_ENDPOINTS = setOf(
             "/", "/1", "/action", "/audiomode", "/feedback", "/fp-setup", "/fp-setup2",
             "/getproperty", "/info", "/pair-pin-start", "/pair-setup", "/pair-setup-pin",
@@ -1590,6 +1741,9 @@ open class RtspHandler(
             "GET", "POST",
         )
         private val SCHEME_PATTERN = Regex("[a-z][a-z0-9+.-]{0,15}")
+        /** A `/action` type is a short tag (`unhandledURLResponse`); anything longer is not one. */
+        private const val MAX_ACTION_TYPE_CHARS = 48
+
         private val SAFE_ACTION_FIELDS = setOf(
             "action", "content-location", "contentlocation", "contenttype", "id", "metadata",
             "mediatype", "params", "playback-mode", "protocolversion", "request-id",

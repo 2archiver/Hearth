@@ -226,16 +226,194 @@ class UrlVideoPlaybackControllerTest {
         assertNull(controller.info())
     }
 
+
+    @Test
+    fun `a prepared and started player is only PLAYING after a frame was rendered`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.firePrepared()
+        fixture.scheduler.runCurrent()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+
+        // Started, but nothing has been drawn: still LOADING, and no first-frame callback yet.
+        assertTrue(backend.playing)
+        assertEquals(AirPlayPlaybackState.LOADING, fixture.states.last())
+        assertEquals(0, fixture.firstFrameCount)
+
+        backend.fireFirstFrame()
+        fixture.scheduler.runCurrent()
+        assertEquals(AirPlayPlaybackState.PLAYING, fixture.states.last())
+        assertEquals(1, fixture.firstFrameCount)
+    }
+
+    @Test
+    fun `media that never renders a frame fails with a stated reason after the deadline`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.firePrepared()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertTrue(backend.playing)
+
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TIMEOUT_MS)
+        assertEquals(1, fixture.endedCount)
+        assertFalse(backend.playing)
+        assertEquals(listOf("video did not start"), fixture.failures)
+        assertTrue(fixture.states.contains(AirPlayPlaybackState.FAILED))
+    }
+
+    @Test
+    fun `media without a video track is AUDIO_ONLY not a stalled video`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/audio.m3u8", 0.0, seconds = true)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.hasVideoTrack = false
+        backend.firePrepared()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        backend.fireFirstFrame()   // never happens for audio-only media; must not change the state
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+
+        assertEquals(AirPlayPlaybackState.AUDIO_ONLY, fixture.states.last())
+        // The deadline only turns "a video that never draws" into a failure.
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TIMEOUT_MS)
+        assertEquals(AirPlayPlaybackState.AUDIO_ONLY, fixture.states.last())
+        assertEquals(0, fixture.endedCount)
+    }
+
+    @Test
+    fun `the player starts muted and hands the soundtrack over only when the media has audio`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        assertEquals(listOf(true), backend.muteCalls)
+
+        backend.firePrepared()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        // Prepared alone proves nothing: no takeover, still muted.
+        assertTrue(backend.muted)
+        assertTrue(fixture.audioOwnership.isEmpty())
+
+        backend.hasVideoTrack = true
+        backend.hasAudioTrack = true
+        backend.fireFirstFrame()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertEquals(listOf(true, false), backend.muteCalls)
+        assertEquals(listOf(true), fixture.audioOwnership)
+    }
+
+    @Test
+    fun `media without an audio track keeps the AirPlay audio stream and stays muted`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.hasAudioTrack = false
+        backend.firePrepared()
+        backend.fireFirstFrame()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+
+        assertEquals(listOf(false), fixture.audioOwnership)
+        assertTrue(backend.muted)
+    }
+
+    @Test
+    fun `an audio track the backend cannot report is decided as keep-AirPlay after the grace`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.hasAudioTrack = null
+        backend.firePrepared()
+        backend.fireFirstFrame()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+
+        assertTrue(fixture.audioOwnership.isEmpty())
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.AUDIO_DECISION_GRACE_MS)
+        assertEquals(listOf(false), fixture.audioOwnership)
+        assertTrue(backend.muted)
+    }
+
+    @Test
+    fun `the session source is passed to the backend and its failure reason reaches the failure`() {
+        val fixture = Fixture { FakeSurface() }
+        val source = object : UrlVideoSessionSource {
+            override val sessionId: String = "S1"
+            override fun open(uri: String): ByteArray = throw java.io.IOException("no")
+            override fun failureReason(): String? = "the reverse channel closed"
+        }
+        val scheduler = fixture.scheduler
+        val controller = UrlVideoPlaybackController(
+            surfaceProvider = { FakeSurface() },
+            backendFactory = fixture.factory,
+            scheduler = scheduler,
+            clockMillis = { scheduler.nowMillis },
+            onEnded = { fixture.endedCount++ },
+            onStateChanged = { _, failure -> failure?.let { fixture.failures += it } },
+            sessionSource = source,
+        )
+        controller.play("hearth-hls://S1/master.m3u8", 0.0)
+        scheduler.runCurrent()
+        assertSame(source, fixture.factory.sources.last())
+        val backend = fixture.factory.players.last()
+        backend.firePrepared()
+        scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        backend.fireError(1, 0)
+        scheduler.runCurrent()
+        assertEquals(1, fixture.endedCount)
+        assertEquals(listOf("media playback error"), fixture.failures)
+    }
+
+    @Test
+    fun `a first frame from a replaced player cannot report the new generation as playing`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/one.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val first = fixture.factory.players.single()
+        first.firePrepared()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+
+        fixture.controller.play("https://media.example/two.mp4", 0.0)
+        fixture.scheduler.runCurrent()
+        val second = fixture.factory.players.last()
+        assertTrue(first.released)
+
+        first.fireFirstFrame()   // late callback from the released player
+        fixture.scheduler.runCurrent()
+        assertEquals(0, fixture.firstFrameCount)
+        assertFalse(fixture.states.last() == AirPlayPlaybackState.PLAYING)
+
+        second.firePrepared()
+        second.fireFirstFrame()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertEquals(1, fixture.firstFrameCount)
+        assertEquals(AirPlayPlaybackState.PLAYING, fixture.states.last())
+    }
+
     private class Fixture(surfaceProvider: () -> UrlVideoSurface?) {
         val scheduler = FakeScheduler()
         val factory = FakeBackendFactory()
         var endedCount = 0
+        var firstFrameCount = 0
+        val audioOwnership = mutableListOf<Boolean>()
+        val states = mutableListOf<AirPlayPlaybackState>()
+        val failures = mutableListOf<String>()
         val controller = UrlVideoPlaybackController(
             surfaceProvider = surfaceProvider,
             backendFactory = factory,
             scheduler = scheduler,
             clockMillis = { scheduler.nowMillis },
             onEnded = { endedCount++ },
+            onFirstFrame = { firstFrameCount++ },
+            onAudioOwnership = { audioOwnership += it },
+            onStateChanged = { state, failure ->
+                states += state
+                failure?.let { failures += it }
+            },
         )
     }
 
@@ -288,9 +466,11 @@ class UrlVideoPlaybackControllerTest {
 
     private class FakeBackendFactory : UrlVideoBackendFactory {
         val players = mutableListOf<FakeBackend>()
-        override fun create(): UrlVideoBackend {
+        val sources = mutableListOf<UrlVideoSessionSource?>()
+        override fun create(source: UrlVideoSessionSource?): UrlVideoBackend {
             val player = FakeBackend()
             players += player
+            sources += source
             return player
         }
     }
@@ -317,6 +497,15 @@ class UrlVideoPlaybackControllerTest {
             private set
         var released = false
             private set
+        private var firstFrameListener: (() -> Unit)? = null
+        var savedFirstFrameListener: (() -> Unit)? = null
+            private set
+        /** What the media reports; [hasAudioTrack] null stands for "the backend cannot tell yet". */
+        override var hasVideoTrack = true
+        override var hasAudioTrack: Boolean? = null
+        val muteCalls = mutableListOf<Boolean>()
+        var muted = true
+            private set
         override val isPlaying: Boolean get() = playing
         override val durationMs: Int = 90_000
         override val positionMs: Int = 12_000
@@ -334,6 +523,16 @@ class UrlVideoPlaybackControllerTest {
         override fun setOnErrorListener(listener: ((what: Int, extra: Int) -> Boolean)?) {
             errorListener = listener
             if (listener != null) savedErrorListener = listener
+        }
+
+        override fun setOnFirstFrameListener(listener: (() -> Unit)?) {
+            firstFrameListener = listener
+            if (listener != null) savedFirstFrameListener = listener
+        }
+
+        override fun setMuted(muted: Boolean) {
+            muteCalls += muted
+            this.muted = muted
         }
 
         override fun setDataSource(url: String) {
@@ -362,6 +561,10 @@ class UrlVideoPlaybackControllerTest {
         override fun release() {
             released = true
             playing = false
+        }
+
+        fun fireFirstFrame() {
+            (firstFrameListener ?: savedFirstFrameListener)?.invoke()
         }
 
         fun firePrepared() {

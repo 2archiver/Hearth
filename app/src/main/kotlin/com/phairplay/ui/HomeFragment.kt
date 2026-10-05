@@ -150,6 +150,8 @@ class HomeFragment : Fragment() {
         com.phairplay.airplay.AirPlayPlaybackState.LOADING -> getString(R.string.protocol_detail_video_loading)
         com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> getString(R.string.protocol_detail_video_playing)
         com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> getString(R.string.protocol_detail_video_paused)
+        com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY ->
+            getString(R.string.protocol_detail_video_audio_only)
         else -> null
     }
 
@@ -158,6 +160,7 @@ class HomeFragment : Fragment() {
         com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> R.string.protocol_detail_video_playing
         com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> R.string.protocol_detail_video_paused
         com.phairplay.airplay.AirPlayPlaybackState.FAILED -> R.string.protocol_detail_video_failed
+        com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY -> R.string.protocol_detail_video_audio_only
         else -> R.string.protocol_detail_connected
     }
 

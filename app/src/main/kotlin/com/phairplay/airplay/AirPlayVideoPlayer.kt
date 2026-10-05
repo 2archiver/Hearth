@@ -1,7 +1,5 @@
 package com.phairplay.airplay
 
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,19 +13,38 @@ data class PlaybackInfo(
     val readyToPlay: Boolean,
 )
 
-/** Direct AirPlay HTTP/HLS video; mirroring and RAOP use separate media pipelines. */
+/**
+ * AirPlay URL video (direct `http(s)` locations, direct HLS, and sender-mediated HLS).
+ *
+ * The Android player implementation lives behind [UrlVideoBackends] (Media3/ExoPlayer in its own
+ * file, so the offline JVM test runner can compile this class). Everything here is a thin,
+ * main-Looper-confined wrapper: the controller owns the state machine, this class only supplies the
+ * Android surface, the clock and the scheduler.
+ *
+ * @param onFirstFrameRendered the first frame actually reached the surface — this, and not
+ *   "the player is ready", is the moment video can take over audio output
+ * @param onMediaAudioOwnership called once per generation when it is known whether the media's own
+ *   audio should own the sound (true) or the AirPlay audio stream keeps it (false)
+ * @param sessionSource bridge media access for a sender-mediated session; null for direct URLs
+ */
 class AirPlayVideoPlayer(
     surfaceProvider: () -> Surface?,
     onEnded: () -> Unit = {},
     onStateChanged: (AirPlayPlaybackState, String?) -> Unit = { _, _ -> },
+    onFirstFrameRendered: () -> Unit = {},
+    onMediaAudioOwnership: (Boolean) -> Unit = {},
+    sessionSource: UrlVideoSessionSource? = null,
 ) {
     private val controller = UrlVideoPlaybackController(
         surfaceProvider = { surfaceProvider()?.let(::AndroidUrlVideoSurface) },
-        backendFactory = UrlVideoBackendFactory { AndroidUrlVideoBackend() },
+        backendFactory = UrlVideoBackends.resolve(),
         scheduler = AndroidMainLooperScheduler(),
         clockMillis = { SystemClock.elapsedRealtime() },
         onEnded = onEnded,
         onStateChanged = onStateChanged,
+        onFirstFrame = onFirstFrameRendered,
+        onAudioOwnership = onMediaAudioOwnership,
+        sessionSource = sessionSource,
     )
 
     fun play(url: String, startPosition: Double, seconds: Boolean = false) =
@@ -51,6 +68,7 @@ class AirPlayVideoPlayer(
 private class AndroidUrlVideoSurface(val surface: Surface) : UrlVideoSurface {
     override val identity: Any get() = surface
     override val isValid: Boolean get() = surface.isValid
+    override val platformSurface: Surface get() = surface
 }
 
 private class AndroidMainLooperScheduler : UrlVideoScheduler {
@@ -68,45 +86,4 @@ private class AndroidMainLooperScheduler : UrlVideoScheduler {
     override fun removeCallbacks(task: Runnable) {
         handler.removeCallbacks(task)
     }
-}
-
-/** Adapter is created by [UrlVideoPlaybackController.play] on the main Looper. */
-private class AndroidUrlVideoBackend : UrlVideoBackend {
-    private val player = MediaPlayer()
-
-    init {
-        player.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build()
-        )
-    }
-
-    override fun setOnPreparedListener(listener: (() -> Unit)?) {
-        player.setOnPreparedListener(listener?.let { callback -> MediaPlayer.OnPreparedListener { callback() } })
-    }
-
-    override fun setOnCompletionListener(listener: (() -> Unit)?) {
-        player.setOnCompletionListener(listener?.let { callback -> MediaPlayer.OnCompletionListener { callback() } })
-    }
-
-    override fun setOnErrorListener(listener: ((what: Int, extra: Int) -> Boolean)?) {
-        player.setOnErrorListener(listener?.let { callback ->
-            MediaPlayer.OnErrorListener { _, what, extra -> callback(what, extra) }
-        })
-    }
-
-    override fun setDataSource(url: String) = player.setDataSource(url)
-    override fun prepareAsync() = player.prepareAsync()
-    override fun setSurface(surface: UrlVideoSurface?) {
-        player.setSurface((surface as? AndroidUrlVideoSurface)?.surface)
-    }
-    override fun seekTo(positionMs: Int) = player.seekTo(positionMs)
-    override fun start() = player.start()
-    override fun pause() = player.pause()
-    override val isPlaying: Boolean get() = player.isPlaying
-    override val durationMs: Int get() = player.duration
-    override val positionMs: Int get() = player.currentPosition
-    override fun release() = player.release()
 }

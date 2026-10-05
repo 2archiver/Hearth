@@ -370,6 +370,16 @@ dependencies {
     // Binary property lists — AirPlay 2 handshake payloads (GET /info, SETUP)
     implementation(libs.ddplist)
 
+    // Media3 (ExoPlayer) — the player for AirPlay *video*. WHY: the platform MediaPlayer cannot
+    // play the sender-mediated HLS form (its playlists exist only behind the sender's own
+    // authenticated session, so they are delivered over the FCUP reverse channel and then read
+    // through a custom DataSource) and its HLS implementation does not handle alternate audio
+    // renditions or a live sliding window the way ExoPlayer's does. Mirroring and RAOP audio keep
+    // their own pipelines; only the URL-video path is affected. Pinned to one version — see
+    // gradle/libs.versions.toml.
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
+
     // Unit Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

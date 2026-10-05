@@ -81,14 +81,25 @@ class VideoPlayRequestTest {
         assertEquals(0.5, success.request.start, 0.0)
     }
 
-    @Test fun `internal HLS locations are reported as an unsupported scheme`() {
-        val body = PlistCodec.encode(mapOf("Content-Location" to "mlhls://localhost/master.m3u8"))
+    @Test fun `internal HLS locations are classified as sender-mediated, never as a direct URL`() {
+        val body = PlistCodec.encode(
+            mapOf(
+                "Content-Location" to "mlhls://localhost/abcd/master.m3u8",
+                "Start-Position-Seconds" to 3.0,
+            )
+        )
 
         val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
 
-        assertTrue("expected unsupported scheme, got $parsed", parsed is BodyParse.UnsupportedScheme)
-        val unsupported = parsed as BodyParse.UnsupportedScheme
-        assertEquals("mlhls", unsupported.scheme)
+        // This location is only resolvable by the *sender*, so it must never reach the player as if
+        // it were a URL, and it must not be reported as an unknown scheme either: the handler needs
+        // to see it as the sender-mediated case it is (and answer honestly if no bridge can serve it).
+        assertTrue("expected sender-mediated, got $parsed", parsed is BodyParse.SenderMediated)
+        val senderMediated = parsed as BodyParse.SenderMediated
+        assertEquals("mlhls", senderMediated.scheme)
+        assertEquals("mlhls://localhost/abcd/master.m3u8", senderMediated.request.url)
+        assertEquals(3.0, senderMediated.request.start, 0.0)
+        assertTrue(senderMediated.request.seconds)
     }
 
     @Test fun `oversized and empty bodies are rejected without parsing`() {

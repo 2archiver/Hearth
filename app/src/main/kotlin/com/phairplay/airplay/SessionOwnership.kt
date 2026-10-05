@@ -14,6 +14,12 @@ enum class AirPlayPlaybackState {
     LOADING,
     PLAYING,
     PAUSED,
+    /**
+     * The session is playing media that carries no video track (an audio-only HLS playlist, an audio
+     * file). Deliberately distinct from both [PLAYING] — no frame will ever render — and [FAILED]:
+     * audio is working, and the UI should say so instead of showing a black "video" screen.
+     */
+    AUDIO_ONLY,
     STOPPING,
     FAILED,
     DISCONNECTED,
