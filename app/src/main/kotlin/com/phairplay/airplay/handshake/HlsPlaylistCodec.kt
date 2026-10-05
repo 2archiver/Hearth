@@ -443,7 +443,11 @@ internal object HlsPlaylistCodec {
 
     // ─── YouTube condensed segments ─────────────────────────────────────────────────────────────
 
-    private sealed interface CondensedResult {
+    /**
+     * Result of [expandCondensed]. Not private: [expandCondensed] is callable from the same module
+     * (tests, diagnostics) and a private return type would make that impossible.
+     */
+    sealed interface CondensedResult {
         data class Expanded(val text: String) : CondensedResult
         data class Unsupported(val reason: String) : CondensedResult
     }

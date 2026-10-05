@@ -140,7 +140,7 @@ class SenderMediatedHlsBridgeTest {
         // Pre-queue a wrong answer for the master request, then let the real one arrive.
         sender.answerOverride = { request ->
             sender.channel?.deliver(request.id, "https://elsewhere.example/master.m3u8", 0, "WRONG".toByteArray(), session.sessionId)
-            sender.channel?.deliver(request.id, request.url, 0, sender.answers.getValue(request.url), session.sessionId)
+            sender.channel?.deliver(request.id, request.url, 0, sender.answers[request.url]!!, session.sessionId)
         }
 
         val master = bridge.open(bridge.playerUri).toString(Charsets.UTF_8)
@@ -350,7 +350,7 @@ class SenderMediatedHlsBridgeTest {
      */
     private class FakeSender(val sessionId: String) {
         val requests = CopyOnWriteArrayList<Request>()
-        val answers = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+        val answers = Answers()
         var autoAnswer = true
         var statusOverride: Int? = null
         /** Optional hook that replaces the standard answer for one request. */
@@ -381,6 +381,24 @@ class SenderMediatedHlsBridgeTest {
                 channel?.deliver(request.id, request.url, statusOverride ?: 0, data, sessionId)
             }
             return true
+        }
+
+        /**
+         * Answer bodies: the setters take either text (a playlist, which is what most tests write)
+         * or raw bytes (a segment), so a test reads like the sender's own traffic.
+         */
+        class Answers {
+            private val bodies = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+            operator fun set(url: String, body: String) {
+                bodies[url] = body.toByteArray(Charsets.UTF_8)
+            }
+
+            operator fun set(url: String, body: ByteArray) {
+                bodies[url] = body
+            }
+
+            operator fun get(url: String): ByteArray? = bodies[url]
         }
 
         /** Reads the FCUP plist out of one already-framed reverse request. */

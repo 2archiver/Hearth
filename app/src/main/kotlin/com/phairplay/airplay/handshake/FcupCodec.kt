@@ -148,7 +148,8 @@ internal object FcupCodec {
             TYPE_PLAYLIST_INSERT, TYPE_PLAYLIST_REMOVE -> ActionParse.Playlist(
                 type = type,
                 uuidPresent = params.keys.any { it.equals("uuid", true) } ||
-                    (params["item"] as? Map<*, *>)?.keys?.any { it.equals("uuid", true) } == true,
+                    (params["item"] as? Map<*, *>)?.keys
+                        ?.any { (it as? String)?.equals("uuid", true) == true } == true,
             )
             null -> ActionParse.Invalid("type missing")
             else -> ActionParse.Unsupported(type.take(64))

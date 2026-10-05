@@ -639,6 +639,7 @@ class RtspHandlerTest {
                 "Upgrade" to "PTTH/1.0",
                 "Connection" to "Upgrade",
             ),
+            body = "",
             protocol = "HTTP/1.1",
         )
 
@@ -656,7 +657,13 @@ class RtspHandlerTest {
         val handler = TestableRtspHandler(onStreamingStarted = {}, onStreamingStopped = {})
 
         val response = handler.routeRequest(
-            RtspRequest(method = "POST", uri = "/reverse", headers = emptyMap(), protocol = "HTTP/1.1")
+            RtspRequest(
+                method = "POST",
+                uri = "/reverse",
+                headers = emptyMap(),
+                body = "",
+                protocol = "HTTP/1.1",
+            )
         )
 
         assertEquals(101, response.statusCode)
@@ -710,6 +717,7 @@ class RtspHandlerTest {
                 method = "POST",
                 uri = "/action",
                 headers = mapOf("X-Apple-Session-ID" to "another-session"),
+                body = "",
                 bodyBytes = PlistCodec.encode(mapOf("type" to "unhandledURLResponse")),
                 protocol = "HTTP/1.1",
             )
@@ -727,6 +735,7 @@ class RtspHandlerTest {
                 method = "POST",
                 uri = "/action",
                 headers = mapOf("X-Apple-Session-ID" to "S"),
+                body = "",
                 bodyBytes = PlistCodec.encode(
                     mapOf("type" to "unhandledURLResponse", "params" to mapOf("a" to 1L))
                 ),
@@ -754,6 +763,7 @@ class RtspHandlerTest {
                 "Content-Type" to "application/x-apple-binary-plist",
                 "X-Apple-Session-ID" to "SESSION-1",
             ),
+            body = "",
             bodyBytes = PlistCodec.encode(
                 mapOf(
                     "Content-Location" to "mlhls://localhost/abcd/master.m3u8",
@@ -791,6 +801,7 @@ class RtspHandlerTest {
                     "Content-Type" to "application/x-apple-binary-plist",
                     "X-Apple-Session-ID" to "SESSION-1",
                 ),
+                body = "",
                 bodyBytes = PlistCodec.encode(
                     mapOf("Content-Location" to "mlhls://localhost/abcd/master.m3u8")
                 ),

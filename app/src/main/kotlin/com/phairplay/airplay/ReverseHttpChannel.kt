@@ -106,7 +106,7 @@ internal class ReverseHttpChannel(
             pending[requestId] = entry
             inFlightByUrl[url] = entry.future
         }
-        val body = FcupCodec.buildEventRequest(url = url, requestId = requestId, sessionId = senderSessionId)
+        val body = FcupCodec.buildEventRequest(mediaUrl = url, requestId = requestId, sessionId = senderSessionId)
         val frame = buildRequestFrame(body)
         val written = runCatching { writeFrame(frame) }.getOrDefault(false)
         if (!written) {
