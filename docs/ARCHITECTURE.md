@@ -99,7 +99,7 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 | `UrlVideoPlaybackController` | `airplay/UrlVideoPlaybackController.kt` | Playback state machine: loading → *first frame* → playing, bounded failure deadlines, audio-ownership decisions, generation checks |
 | `ExoUrlVideoBackend` | `airplay/ExoUrlVideoBackend.kt` | Media3/ExoPlayer backend (progressive + HLS) and the `hearth-hls://` data source for bridge media |
 | `UrlVideoBackends` | `airplay/UrlVideoBackends.kt` | Process-wide backend factory install (Media3 stays out of the offline JVM build) |
-| `SenderMediatedHlsBridge` | `airplay/SenderMediatedHlsBridge.kt` | Sender-mediated (FCUP) HLS: playlists/items fetched *through the sender*, rewritten to player-facing URIs |
+| `SenderMediatedHlsBridge` | `airplay/SenderMediatedHlsBridge.kt` | Sender-mediated (FCUP) HLS: playlists/items fetched *through the sender*, rewritten to player-facing URIs (relative references stay on the sender's transport; loopback hosts are never player-fetchable) |
 | `ReverseHttpChannel` | `airplay/ReverseHttpChannel.kt` | PTTH reverse channel: request ids, per-URL de-duplication, bounded waits, matched replies |
 | `FcupCodec` | `airplay/handshake/FcupCodec.kt` | FCUP wire contract (`POST /event` request, `POST /action` reply) |
 | `HlsPlaylistCodec` | `airplay/handshake/HlsPlaylistCodec.kt` | HLS parsing/rewriting: variants, alternate audio, init maps, keys, byte ranges, condensed YouTube segments |

@@ -93,8 +93,12 @@ was answered 501.
   sender over the real reverse-channel framing), VideoAudioHandover (8), UrlVideoPlaybackController
   (10 new: first frame, audio-only, mute/handover, stale first frame, bridge failure reason),
   RtspHandler (7 new: `/reverse`, `/action`, sender-mediated `/play`).
-- `./gradlew :test-runner:test`, the Android debug APK + lint job and the release build run in CI on
-  this commit (`.github/workflows/ci.yml`, `release.yml`).
+- CI on this branch: `:test-runner:test` **404 tests, 0 failures**; `:app:lintGoogletvDebug` pass;
+  `:app:assembleGoogletvDebug` + `HearthUiTest` pass (runs 37280621800 / 37280621742). The debug APK
+  in that run is debug-signed (a fresh sideload, not an upgrade over the release-signed 1.8.3); the
+  signed release is produced by `release.yml` from `main` with this `gradle.properties` version.
+- A failing CI run now also prints the failing tests' own messages from the JUnit XML — Gradle's
+  console output did not always carry them, and the runner log host is not reachable here.
 - **No real hardware was used for this change** — no capture, no device playback. The device matrix
   (YouTube app, Rumble app, Safari YouTube, Safari Rumble, pause/seek/stop, 10-minute stability,
   mirroring, idle leak check) is still **NOT RUN**; see the pull request for the checklist.
