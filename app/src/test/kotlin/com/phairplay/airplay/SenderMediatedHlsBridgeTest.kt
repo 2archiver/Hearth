@@ -149,7 +149,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `the master playlist is fetched once and cached for the session`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         val bridge = bridge(sender)
 
         bridge.open(bridge.playerUri)
@@ -161,7 +161,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `a reply whose url does not match the request is ignored`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         val bridge = bridge(sender, requestTimeoutMs = 250L)
 
         // Pre-queue a wrong answer for the master request, then let the real one arrive.
@@ -179,7 +179,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `replies may arrive out of order and each waiter gets its own bytes`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         sender.answers[VARIANT_URI] = "#EXTM3U\n#EXTINF:6.0,\nseg-1.ts\n#EXTINF:6.0,\nseg-2.ts\n"
         sender.answers[SEGMENT_ONE_URI] = "ONE".toByteArray()
         sender.answers[SEGMENT_TWO_URI] = "NINE".toByteArray()
@@ -273,7 +273,7 @@ class SenderMediatedHlsBridgeTest {
     @Test
     fun `another session's uri is refused and a closed session serves nothing`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/prog.m3u8\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv800/prog.m3u8\n"
         val bridge = bridge(sender)
         bridge.open(bridge.playerUri)
 
