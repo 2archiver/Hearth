@@ -163,7 +163,9 @@ object AirPlayTrace {
     private val SAFE_LABEL = Regex("[A-Z][A-Z0-9_-]{0,15}", RegexOption.IGNORE_CASE)
     private val SAFE_ROLE = Regex("[A-Z][A-Z0-9_-]{0,31}", RegexOption.IGNORE_CASE)
     private val SAFE_EVIDENCE = Regex("[A-Z][A-Z0-9_-]{0,31}", RegexOption.IGNORE_CASE)
-    private val MEDIA_URI = Regex("(?i)\\b(https?|mlhls)://[^\\s\\\"'<>]+")
+    // The lookahead keeps [redact] idempotent: entry messages are redacted once when recorded and
+    // again on export, and a second pass must not chew into the placeholder it wrote the first time.
+    private val MEDIA_URI = Regex("(?i)\\b(https?|mlhls)://(?!\\[media location redacted\\])[^\\s\\\"'<>]+")
     private val BEARER_TOKEN = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{8,}")
     private val LONG_OPAQUE_TOKEN = Regex("(?<![A-Za-z0-9])[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9])")
     private val SENSITIVE_PAIR = Regex(

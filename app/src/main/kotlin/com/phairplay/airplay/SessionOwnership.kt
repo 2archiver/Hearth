@@ -148,8 +148,12 @@ class SessionOwnership {
         return true
     }
 
+    /**
+     * Records playback state for [token]. A null token (a connection that never claimed a session)
+     * and a stale generation both report false, so callers can drop the callback.
+     */
     @Synchronized
-    fun updatePlaybackState(token: SessionToken, state: AirPlayPlaybackState): Boolean {
+    fun updatePlaybackState(token: SessionToken?, state: AirPlayPlaybackState): Boolean {
         val session = active?.takeIf { it.token == token } ?: return false
         session.playbackState = state
         if (state == AirPlayPlaybackState.FAILED || state == AirPlayPlaybackState.DISCONNECTED) {

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.3] — hardening the 1.8.2 session model (build fix + successor release)
+
+Direct successor to 1.8.2: same signing key, same package id, same updater repository, and a
+versionCode above the published 1.8.2 APK, so it installs over an existing 1.8.2 in place.
+The base version moved from 1.8.2 to 1.8.3 so the published APK is named for the release train
+that contains it (`Hearth-1.8.3-main.N-googletv.apk`).
+
+### Fixed — build
+- **The 1.8.2 follow-up commit did not compile.** `AirPlayReceiver` reported URL-video playback
+  state with a nullable session token while `SessionOwnership.updatePlaybackState` accepted only a
+  non-null token, so `:app:compileGoogletvReleaseKotlin` (and the debug compile, lint and the JVM
+  test compile behind it) failed with a type mismatch. `updatePlaybackState` now accepts a nullable
+  token and reports `false` for a connection that never claimed a session, matching
+  `updateMediaRole`/`closeConnection`/`isCurrent`.
+- Failure reports now reach the commit for `CI`/`Lint` runs on `main`: both workflows asked for
+  `contents: read`, which cannot create commit comments, so a red build on `main` produced no
+  readable cause on GitHub. They now request `contents: write` like the Release workflow does.
+
+### Fixed — AirPlay sessions
+- **A stale RTSP close, teardown or media callback can no longer tear down a newer session.** Each
+  session gets a generation token; callbacks carry it and are inert once the generation is
+  replaced. A connection that never claimed the session (a probe, a failed mirror `SETUP`, an
+  event-only socket) cannot end it either.
+- **Secondary sockets join only by protocol identity.** A reverse/event channel or a follow-up
+  connection is associated with the active session only when it presents the same
+  `X-Apple-Session-ID` fingerprint; sender IP addresses are never used for association (two
+  senders behind one NAT used to look identical).
+- EOF is no longer treated as a session teardown: the pipeline is released only when the last
+  control connection and all confirmed media roles (mirror video/audio, URL video) are gone.
+  Protocol `TEARDOWN` and `POST /stop` remain terminal.
+- Media lifetimes are mirrored into the ownership model, so a stream that stops on its own can end
+  an orphaned session while a still-running stream keeps it alive.
+
+### Added — diagnostics
+- URL-video states (loading/playing/paused/failed) are shown on the AirPlay card, with failures
+  reported as a short reason — never the media URL.
+- The connection trace is now structured (session, connection, role, kind) and bounded to 256
+  entries, with a redaction pass that strips media URLs, bearer tokens, keystream parameters,
+  IP/MAC addresses, UUIDs and long opaque values before anything is logged or exported, plus a
+  UTC export formatter for support reports.
+- RTSP reads distinguish clean peer EOF from malformed/truncated/oversized input and time out with
+  a stated reason, so "it just disconnected" reports say what actually happened.
+- `/play` bodies are decoded from binary plist, XML plist or legacy text with explicit size limits;
+  only direct `http`/`https` locations are played, and a sender-mediated (`mlhls`/FCUP) location is
+  rejected with the same 400 as before while recording *why* in the trace.
+
+### Validation
+- `./gradlew :test-runner:test` (JVM suite: ownership, RTSP routing/robustness, URL-video parsing
+  and playback-controller fakes, redaction), the Android debug APK + lint job, and the release APK
+  build all run in CI on this commit.
+- Still pending: casting from the Rumble app and Safari AirPlay video on real hardware. This
+  release does not claim the Rumble issue is fixed; it removes the session-teardown causes the
+  1.8.2 trace showed and fixes the build that 1.8.2's follow-up left broken.
+
 ## [1.8.2] — installs that finish, prompts that stop, sessions that survive reconnects
 
 ### Fixed — updater
