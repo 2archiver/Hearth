@@ -52,6 +52,7 @@
     <string name="protocol_detail_video_playing">Video: playing</string>
     <string name="protocol_detail_video_paused">Video: paused</string>
     <string name="protocol_detail_video_failed">Video playback failed — open the connection log</string>
+    <string name="protocol_detail_video_audio_only">Audio only — the sender is not sending video</string>
     <!-- Per-protocol ERROR details — each card states the real reason instead of a
          generic (and often fake) "Check Wi-Fi settings" hint. -->
     <string name="protocol_detail_error_airplay">Receiver error — try Restart</string>

@@ -55,6 +55,15 @@ class AudioPlayer {
     @Volatile private var muted = false
 
     /**
+     * Receiver-side output suspension, independent of the decode-health [muted] gate.
+     *
+     * Used when a URL-video session takes the soundtrack over: the packets keep arriving and are
+     * still decoded (so the sender sees a healthy stream and does not tear the session down), but
+     * nothing is written to the output, which is what keeps the video's own audio from being doubled.
+     */
+    @Volatile private var outputSuspended = false
+
+    /**
      * Initializes the AudioPlayer with the stream parameters from the SDP.
      *
      * AES key and IV come from the SDP body in the RTSP ANNOUNCE message.
@@ -122,6 +131,11 @@ class AudioPlayer {
      *
      * @param rtpPacket The complete RTP packet bytes (header + encrypted payload)
      */
+    /** Silences or restores this output without touching the stream the sender keeps sending. */
+    fun suspendOutput(suspended: Boolean) {
+        outputSuspended = suspended
+    }
+
     fun playAudioPacket(rtpPacket: ByteArray) {
         if (!isInitialized) {
             Logger.w("playAudioPacket() called but AudioPlayer not initialized")
@@ -139,6 +153,12 @@ class AudioPlayer {
             // port — feeding them to the ALAC decoder produces errors and no audio.
             if ((rtpPacket[1].toInt() and 0x7F) != AUDIO_PAYLOAD_TYPE) return
             val encryptedPayload = rtpPacket.copyOfRange(RTP_HEADER_MIN_BYTES, rtpPacket.size)
+
+            // Nothing reaches the output while this path is suspended for a video session. The
+            // packet is dropped *before* decryption so a suspended path costs nothing, and the
+            // sender's stream is untouched (upstream stops the RAOP service here; Hearth keeps the
+            // socket and just stops writing, which cannot make the sender tear the session down).
+            if (outputSuspended) return
 
             // Step 2: Decrypt if encrypted (cipher is null for unencrypted streams → pass-through)
             val decryptedPayload = decrypt(encryptedPayload)

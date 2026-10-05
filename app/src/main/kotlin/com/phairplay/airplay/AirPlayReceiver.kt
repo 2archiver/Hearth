@@ -51,7 +51,7 @@ import java.net.Socket
  *   receiver.start()
  *   receiver.stop()
  */
-class AirPlayReceiver(
+internal class AirPlayReceiver(
     private val context: Context,
     /**
      * User-configured display name from Settings — the spoofed identity. Blank or otherwise
@@ -110,7 +110,7 @@ class AirPlayReceiver(
     private val onAdvertiseNotice: (String?) -> Unit = {},
     /** Direct URL-video state; errors are sanitized and never include the media URL. */
     private val onUrlPlaybackStateChanged: (AirPlayPlaybackState, String?) -> Unit = { _, _ -> },
-) {
+) : SenderMediatedHlsHost {
 
     /** Set by [stop] — cancels retries and any start still queued on the main thread. */
     @Volatile private var stopped = false
@@ -147,6 +147,23 @@ class AirPlayReceiver(
     @Volatile private var urlVideoPlayer: AirPlayVideoPlayer? = null
     /** Invalidates completion/error callbacks from a URL player replaced by a newer /play. */
     private var urlVideoGeneration = 0L
+
+    /**
+     * Reverse (PTTH) channels offered by `POST /reverse`, keyed by the connection that carried the
+     * upgrade. The channel object is built when a `/play` needs it, because the AirPlay session id
+     * it must echo is carried by `/play` (the reverse upgrade itself may omit it).
+     */
+    private val reverseChannels =
+        java.util.concurrent.ConcurrentHashMap<String, PendingReverseChannel>()
+
+    /** The sender-mediated HLS bridge of the active session, if one is being served. */
+    @Volatile private var senderBridge: SenderMediatedHlsBridge? = null
+
+    /** Connection whose reverse channel feeds [senderBridge]; used to tell a stale EOF from the live one. */
+    @Volatile private var senderBridgeConnectionId: String? = null
+
+    /** Audio-ownership policy: who is allowed to own the soundtrack, per video generation. */
+    private val videoAudioHandover = VideoAudioHandover()
 
     // Reverse remote control (TV → sender). Created lazily once a sender advertises DACP-ID.
     private val dacpClient = DacpClient(context)
@@ -407,6 +424,10 @@ class AirPlayReceiver(
                 onVideoPlaybackState = { owner, token, state, failure ->
                     onPlaybackState(owner, token, state, failure)
                 },
+                // The receiver hosts the sender-mediated (FCUP) HLS transport: the reverse channel,
+                // the /play that needs it, and the /action replies that answer it. Without this the
+                // handler refuses a sender-mediated /play with a stated reason (as 1.8.3 does).
+                hlsHost = this@AirPlayReceiver,
             ).also { handler ->
                 // Interleaved RTP feeds the current decoder only while this generation still owns it.
                 handler.onVideoNalUnitWithSession = { nalUnit, ptsUs, token, _ ->
@@ -936,7 +957,7 @@ class AirPlayReceiver(
         Logger.i("Mirror video stream stopped (audio playback continues)")
     }
 
-    /** Direct URL video is tied to its connection generation; callbacks never include the URL. */
+    /** URL video (direct or sender-mediated) is tied to its generation; callbacks never include the URL. */
     @Synchronized
     private fun startUrlVideo(
         connectionId: String,
@@ -944,11 +965,20 @@ class AirPlayReceiver(
         startPosition: Double,
         seconds: Boolean,
         token: SessionToken?,
+        mode: AirPlaySessionMode = AirPlaySessionMode.URL_VIDEO,
+        sessionSource: UrlVideoSessionSource? = null,
     ) {
         if (!sessionOwnership.isCurrent(token)) return
         sessionOwnership.setMediaRole(token!!, AirPlayMediaRole.URL_VIDEO, true)
+        sessionOwnership.updateMode(token, mode)
         val generation = urlVideoGeneration + 1
+        urlVideoGeneration = generation
         val previous = urlVideoPlayer
+        // A new item resets the soundtrack question: this video may have no audio of its own, so the
+        // AirPlay audio output is restored until the player proves otherwise.
+        if (videoAudioHandover.onVideoLoading(generation)) {
+            resumeSessionAudioForVideo(connectionId, generation, "a new video item started")
+        }
         val player = AirPlayVideoPlayer(
             surfaceProvider = videoSurfaceProvider,
             onEnded = { finishUrlVideo(connectionId, token, generation) },
@@ -959,8 +989,25 @@ class AirPlayReceiver(
                     }
                 }
             },
+            onFirstFrameRendered = {
+                synchronized(this@AirPlayReceiver) {
+                    if (generation == urlVideoGeneration && sessionOwnership.isCurrent(token) &&
+                        videoAudioHandover.onFirstFrame(generation)
+                    ) {
+                        AirPlayTrace.record(
+                            "URL video: video timeline is live for this generation",
+                            sessionId = token.sessionId,
+                            connectionId = connectionId,
+                            kind = AirPlayTrace.Kind.LIFECYCLE,
+                        )
+                    }
+                }
+            },
+            onMediaAudioOwnership = { mediaOwnsAudio ->
+                onMediaAudioOwnership(connectionId, token, generation, mediaOwnsAudio)
+            },
+            sessionSource = sessionSource,
         )
-        urlVideoGeneration = generation
         urlVideoPlayer = player
         videoPlaying = true
         emitNowPlaying()
@@ -968,7 +1015,9 @@ class AirPlayReceiver(
         emitSessionState(token, ProtocolState.CONNECTED)
         previous?.release()
         AirPlayTrace.record(
-            "URL video player requested (${if (seconds) "seconds" else "fraction"} offset)",
+            "URL video player requested (mode=${mode.name.lowercase()}, " +
+                "${if (seconds) "seconds" else "fraction"} offset)"
+                + (sessionSource?.let { ", media fetched through the sender" } ?: ""),
             sessionId = token.sessionId,
             connectionId = connectionId,
             role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
@@ -977,16 +1026,104 @@ class AirPlayReceiver(
         player.play(url, startPosition, seconds)
     }
 
+    /**
+     * The player reported who owns the soundtrack for [generation].
+     *
+     * Everything here is generation-checked: a late callback from a replaced player can neither
+     * silence the AirPlay audio of a newer session nor be mistaken for the current one's decision.
+     */
+    @Synchronized
+    private fun onMediaAudioOwnership(
+        connectionId: String,
+        token: SessionToken,
+        generation: Long,
+        mediaOwnsAudio: Boolean,
+    ) {
+        if (generation != urlVideoGeneration || !sessionOwnership.isCurrent(token)) return
+        when (sessionOwnership.snapshot()?.mode) {
+            AirPlaySessionMode.URL_VIDEO, AirPlaySessionMode.SENDER_MEDIATED_HLS -> Unit
+            else -> return
+        }
+        if (!mediaOwnsAudio) return
+        if (!videoAudioHandover.onMediaAudioOwns(generation, true)) return
+        suspendSessionAudioForVideo(connectionId, generation)
+    }
+
+    /**
+     * Silences the AirPlay audio *output* while keeping its stream open.
+     *
+     * WHY "output" AND NOT "stream": upstream stops the RAOP service outright at this point, and a
+     * sender that sees its audio stream die can tear the whole session down — including the video
+     * this handover exists to protect. Hearth therefore keeps reading (and decoding) the incoming
+     * packets and simply stops writing them to the output, which removes the duplicate audio without
+     * giving the sender a reason to end the session. It is applied **only** to a generation that is
+     * current, and only after the player reported that the media carries its own audio.
+     */
+    @Synchronized
+    private fun suspendSessionAudioForVideo(connectionId: String, generation: Long): Boolean {
+        if (generation != urlVideoGeneration) return false
+        val server = audioServer
+        val legacy = audioPlayer
+        val mirrored = server != null || legacy != null
+        server?.setVolume(SILENT_VOLUME_DB)
+        legacy?.suspendOutput(true)
+        AirPlayTrace.record(
+            if (mirrored) {
+                "Media audio owns the session: AirPlay audio output silenced (stream kept open)"
+            } else {
+                "Media audio owns the session: no AirPlay audio stream was running"
+            },
+            sessionId = sessionOwnership.snapshot()?.token?.sessionId,
+            connectionId = connectionId,
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        return mirrored
+    }
+
+    /** Restores the AirPlay audio output for a new video item (or when a takeover is reverted). */
+    @Synchronized
+    private fun resumeSessionAudioForVideo(connectionId: String, generation: Long, reason: String): Boolean {
+        if (generation != urlVideoGeneration) return false
+        val server = audioServer
+        val legacy = audioPlayer
+        if (server == null && legacy == null) return false
+        server?.setVolume(currentVolumeDb)
+        legacy?.suspendOutput(false)
+        AirPlayTrace.record(
+            "AirPlay audio output restored ($reason)",
+            sessionId = sessionOwnership.snapshot()?.token?.sessionId,
+            connectionId = connectionId,
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        return true
+    }
+
     /** POST /stop releases the native player; the RTSP handler owns the terminal session callback. */
     @Synchronized
     private fun stopUrlPlayerOnly(token: SessionToken?) {
         if (!sessionOwnership.isCurrent(token)) return
         val player = urlVideoPlayer ?: return
+        val generation = urlVideoGeneration
         urlVideoPlayer = null
         urlVideoGeneration++
         videoPlaying = false
         player.release()
         emitNowPlaying()
+        // A user stop must not be followed by a retry of any kind: the bridge is closed (failing any
+        // in-flight playlist fetch with a reason) and the reverse channel is dropped.
+        closeSenderBridge("the sender stopped playback")
+        val suspended = videoAudioHandover.onVideoEnded(generation)
+        AirPlayTrace.record(
+            if (suspended) {
+                "Playback stopped by the sender; the AirPlay audio output stays suspended (its stream is stale)"
+            } else {
+                "Playback stopped by the sender before any audio takeover"
+            },
+            sessionId = token?.sessionId,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
     }
 
     /** Completion and decoder/network failure end only the generation that created this player. */
@@ -999,10 +1136,15 @@ class AirPlayReceiver(
         urlVideoGeneration++
         videoPlaying = false
         player.release()
+        closeSenderBridge(if (failed) "video playback failed" else "video playback completed")
+        videoAudioHandover.onVideoEnded(generation)
         if (!failed) onUrlPlaybackStateChanged(AirPlayPlaybackState.DISCONNECTED, null)
         sessionOwnership.end(token)
         AirPlayTrace.record(
-            if (failed) "URL video session ended after playback failure" else "URL video session completed",
+            (if (failed) "URL video session ended after playback failure" else "URL video session completed") +
+                (if (videoAudioHandover.isAudioSuspended) {
+                    "; the AirPlay audio output remains suspended rather than resuming a stale timeline"
+                } else ""),
             sessionId = token.sessionId,
             connectionId = connectionId,
             role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
@@ -1010,6 +1152,198 @@ class AirPlayReceiver(
         )
         finishSessionResources(token, if (failed) "URL video playback failed" else "URL video completed")
     }
+
+    // ─── Sender-mediated (FCUP) HLS: the receiver side of the reverse channel ──────────────────
+
+    /**
+     * `POST /reverse`: the sender offers a socket the receiver may write FCUP requests to.
+     *
+     * The channel is deliberately **not** built here. Upstream carries the AirPlay session id on
+     * `/play` (the reverse upgrade itself may omit it), and every FCUP request must echo that same
+     * id, so the writer and the id are stored and the channel is constructed by
+     * [startSenderMediatedPlay] — the first moment both are known.
+     */
+    override fun registerReverseChannel(
+        connectionId: String,
+        senderSessionId: String?,
+        writer: (ByteArray) -> Boolean,
+    ): Boolean {
+        if (stopped) return false
+        reverseChannels[connectionId] = PendingReverseChannel(connectionId, senderSessionId, writer)
+        AirPlayTrace.record(
+            "Reverse channel registered (senderSessionIdPresent=${senderSessionId != null}, " +
+                "openChannels=${reverseChannels.size})",
+            connectionId = connectionId,
+            role = AirPlayConnectionRole.REVERSE_EVENT.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        return true
+    }
+
+    /**
+     * The connection that carried `POST /reverse` is gone.
+     *
+     * Only the channel the **active** bridge writes to ends the session: a sender that opens a new
+     * reverse channel and drops the old one must not have its newer player killed by the old EOF —
+     * the stale-control-connection rule, applied to the reverse transport.
+     */
+    override fun releaseReverseChannel(connectionId: String) {
+        if (reverseChannels.remove(connectionId) == null) return
+        if (senderBridgeConnectionId == connectionId && closeSenderBridge("the reverse channel closed")) {
+            AirPlayTrace.record(
+                "Sender-mediated session ended: its reverse channel closed",
+                connectionId = connectionId,
+                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                kind = AirPlayTrace.Kind.FAILURE,
+            )
+        } else {
+            AirPlayTrace.record(
+                "Reverse channel released (not the active session's transport)",
+                connectionId = connectionId,
+                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+            )
+        }
+    }
+
+    /**
+     * `POST /play` whose location only the sender can resolve (`mlhls://…/master.m3u8`).
+     *
+     * The master playlist is fetched **before** the player is created: if the sender cannot serve it,
+     * the answer is a refusal with the reason and nothing else changes — the AirPlay audio stream the
+     * user is already hearing keeps playing, which is the pre-takeover-failure rule.
+     */
+    override fun startSenderMediatedPlay(request: SenderMediatedPlayRequest): SenderMediatedPlayResult {
+        if (stopped) return SenderMediatedPlayResult.reject("receiver is stopping")
+        val token = request.token ?: return SenderMediatedPlayResult.reject("no claimed session")
+        if (!sessionOwnership.isCurrent(token)) return SenderMediatedPlayResult.reject("stale session")
+        if (!SenderMediatedHlsBridge.isMasterPlaylistLocation(request.location)) {
+            return SenderMediatedPlayResult.reject("not a sender-mediated master playlist location")
+        }
+        val pending = chooseReverseChannel(request)
+            ?: return SenderMediatedPlayResult.reject("no reverse channel is registered")
+        val senderSessionId = request.senderSessionId ?: pending.senderSessionId
+        AirPlayTrace.record(
+            "Sender-mediated /play: reverseChannel=registered " +
+                "senderSessionIdPresent=${senderSessionId != null} " +
+                "airplayAudioRunning=${audioServer != null || audioPlayer != null}",
+            sessionId = token.sessionId,
+            connectionId = request.connectionId,
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        val channel = ReverseHttpChannel(
+            connectionId = pending.connectionId,
+            senderSessionId = senderSessionId.orEmpty(),
+            writeFrame = pending.writer,
+        )
+        val bridge = SenderMediatedHlsBridge(
+            sessionToken = token,
+            contentLocation = request.location,
+            channel = channel,
+        )
+        if (!bridge.start()) {
+            val reason = bridge.failureReason() ?: "the sender did not answer"
+            bridge.close()
+            AirPlayTrace.record(
+                "Sender-mediated /play refused: $reason (the AirPlay audio stream is untouched)",
+                sessionId = token.sessionId,
+                connectionId = request.connectionId,
+                kind = AirPlayTrace.Kind.FAILURE,
+            )
+            return SenderMediatedPlayResult.reject(reason)
+        }
+        // The session claim already released an earlier bridge; this covers a second /play arriving
+        // on the same generation without a new claim.
+        closeSenderBridge("replaced by a newer sender-mediated /play")
+        senderBridge = bridge
+        senderBridgeConnectionId = pending.connectionId
+        AirPlayTrace.record(
+            "Sender-mediated HLS serving (${bridge.describe()})",
+            sessionId = token.sessionId,
+            connectionId = request.connectionId,
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        startUrlVideo(
+            connectionId = request.connectionId,
+            url = bridge.playerUri,
+            startPosition = request.startSeconds,
+            seconds = request.seconds,
+            token = token,
+            mode = AirPlaySessionMode.SENDER_MEDIATED_HLS,
+            sessionSource = bridge,
+        )
+        return SenderMediatedPlayResult.ACCEPTED
+    }
+
+    /**
+     * `POST /action`: the sender's answer to one FCUP request.
+     *
+     * The `X-Apple-Session-ID` is matched against the channel's stored id *before* the body is
+     * looked at, exactly as upstream does (`http_handler_action` refuses a changed session id): an
+     * answer belonging to another playback session is refused rather than applied to this one.
+     */
+    override fun deliverAction(senderSessionId: String?, body: ByteArray): SenderMediatedActionResult {
+        val bridge = senderBridge
+            ?: return SenderMediatedActionResult(400, "no sender-mediated session is active")
+        val expected = bridge.channelSessionId
+        if (expected.isNotEmpty() && senderSessionId != expected) {
+            return SenderMediatedActionResult(
+                400,
+                if (senderSessionId == null) "action without X-Apple-Session-ID" else "action session mismatch",
+            )
+        }
+        val delivery = bridge.deliver(body)
+        return SenderMediatedActionResult(delivery.httpStatus, delivery.summary)
+    }
+
+    /**
+     * The reverse channel a `/play` should use: the one on its own connection when the sender
+     * upgraded the same socket, else the channel carrying the same AirPlay session id, else the
+     * newest registered one. Upstream keeps a single channel for the whole receiver; Hearth keeps
+     * the choice explicit and traces its evidence, so a mismatch is visible instead of silent.
+     */
+    private fun chooseReverseChannel(request: SenderMediatedPlayRequest): PendingReverseChannel? {
+        reverseChannels[request.connectionId]?.let { return it }
+        val bySessionId = reverseChannels.values.lastOrNull {
+            request.senderSessionId != null && it.senderSessionId == request.senderSessionId
+        }
+        val chosen = bySessionId ?: reverseChannels.values.lastOrNull()
+        chosen?.let {
+            AirPlayTrace.record(
+                "Reverse channel selected for /play by " +
+                    (if (bySessionId != null) "AirPlay session id" else "recency"),
+                connectionId = it.connectionId,
+                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                associationEvidence = if (bySessionId != null) "PROTOCOL_ID" else null,
+            )
+        }
+        return chosen
+    }
+
+    /** Drops the active bridge: fails its waiters, refuses further media reads. Idempotent. */
+    @Synchronized
+    private fun closeSenderBridge(reason: String): Boolean {
+        val bridge = senderBridge ?: return false
+        senderBridge = null
+        senderBridgeConnectionId = null
+        runCatching { bridge.close() }
+            .onFailure { Logger.w("Sender-mediated bridge close failed (${it.javaClass.simpleName})") }
+        AirPlayTrace.record(
+            "Sender-mediated HLS released ($reason)",
+            sessionId = bridge.sessionId,
+            role = SenderMediatedHlsBridge.ROLE,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        return true
+    }
+
+    /** One `POST /reverse` offer: its writer, its connection label, and whatever session id it had. */
+    private class PendingReverseChannel(
+        val connectionId: String,
+        val senderSessionId: String?,
+        val writer: (ByteArray) -> Boolean,
+    )
 
     /** Starts the AirPlay 2 buffered audio-only stream (type 103, Apple Music → TV); returns its TCP port. */
     @Synchronized
@@ -1049,6 +1383,9 @@ class AirPlayReceiver(
         urlVideoGeneration++
         urlVideoPlayer?.release()
         urlVideoPlayer = null
+        closeSenderBridge("media components released")
+        reverseChannels.clear()
+        videoAudioHandover.onSessionReplaced()
         ntpClient?.stop()
         ntpClient = null
         try { eventClientSocket?.close() } catch (e: Exception) { /* non-fatal */ }
@@ -1112,6 +1449,14 @@ class AirPlayReceiver(
     companion object {
         // Hint dimensions for MediaCodec configuration.
         // Real resolution is encoded in the H.264 SPS NAL unit.
+        /**
+         * AirPlay volume that means "muted" (the sender's own convention: see [AudioStreamServer]).
+         * Used to silence the *output* of a running AirPlay audio stream while its packets keep
+         * arriving, so a video session's audio can own the timeline without the sender noticing a
+         * dead stream and tearing the session down.
+         */
+        private const val SILENT_VOLUME_DB = -144f
+
         private const val DEFAULT_VIDEO_WIDTH  = 1920
         private const val DEFAULT_VIDEO_HEIGHT = 1080
 

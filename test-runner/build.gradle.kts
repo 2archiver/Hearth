@@ -52,6 +52,12 @@ sourceSets {
                 // NetworkUtilsTest mocks ContentResolver which triggers android.os.Build
                 // via ContentResolver.<clinit> → SystemProperties.native_get (JNI).
                 "**/NetworkUtilsTest.kt",
+                // ExoUrlVideoBackend imports androidx.media3.* (ExoPlayer), which this offline
+                // compilation unit deliberately does not resolve from any repository. The file that
+                // only *installs* it (PhairPlayApp.kt) is excluded too, and AirPlayVideoPlayer asks
+                // UrlVideoBackends for a factory instead of naming ExoPlayer, so nothing here needs
+                // Media3 on the classpath.
+                "**/airplay/ExoUrlVideoBackend.kt",
                 // VideoDecoder is shadowed by src/stubs/VideoDecoder.kt which has no
                 // MediaCodec/Surface dependencies but exposes the companion-object
                 // members (parseSpsResolution, SpsBitReader) needed by VideoDecoderSpsTest.

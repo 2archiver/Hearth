@@ -3,7 +3,19 @@ package com.phairplay.airplay
 import com.phairplay.airplay.handshake.PlistCodec
 import java.net.URI
 
-/** Direct HTTP(S) URL video; internal sender-mediated schemes are not accepted as playable URLs. */
+/** Schemes that mean "the sender must fetch this; the receiver cannot". */
+internal val SENDER_MEDIATED_SCHEMES = setOf("mlhls")
+
+/**
+ * One `POST /play` location and offset.
+ *
+ * Two families arrive here, and they are not the same request:
+ *  - **direct** (`http`/`https`) — a URL this receiver can fetch itself. Played as-is.
+ *  - **sender-mediated** (`mlhls`, the YouTube app's AirPlay video transport) — a location only the
+ *    *sender* can resolve, which needs the FCUP reverse-channel bridge. It is parsed here and
+ *    classified separately so the handler can decide whether a bridge is available; a sender-
+ *    mediated location is never handed to the player as if it were a URL.
+ */
 internal data class VideoPlayRequest(val url: String, val start: Double, val seconds: Boolean) {
     val scheme: String get() = runCatching { URI(url).scheme?.lowercase().orEmpty() }.getOrDefault("")
 
@@ -31,11 +43,15 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
                 ?: return FieldParse.Invalid("Content-Location is not a valid URI")
             val scheme = uri.scheme?.lowercase()
                 ?: return FieldParse.Invalid("Content-Location has no scheme")
-            if (scheme !in DIRECT_SCHEMES) {
+            val senderMediated = scheme in SENDER_MEDIATED_SCHEMES
+            if (scheme !in DIRECT_SCHEMES && !senderMediated) {
                 return FieldParse.UnsupportedScheme(scheme)
             }
             if (uri.host.isNullOrBlank() || uri.rawUserInfo != null) {
-                return FieldParse.Invalid("HTTP(S) media URL requires a host and may not embed credentials")
+                return FieldParse.Invalid(
+                    if (senderMediated) "sender-mediated location requires a host and may not embed credentials"
+                    else "HTTP(S) media URL requires a host and may not embed credentials"
+                )
             }
 
             // Explicit seconds always take precedence. The older Start-Position field is fractional.
@@ -51,7 +67,8 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
             if (!start.isFinite() || start < 0.0 || (!seconds && start > 1.0)) {
                 return FieldParse.Invalid("offset is outside the supported range")
             }
-            return FieldParse.Success(VideoPlayRequest(rawUrl, start, seconds))
+            val request = VideoPlayRequest(rawUrl, start, seconds)
+            return if (senderMediated) FieldParse.SenderMediated(request, scheme) else FieldParse.Success(request)
         }
 
         /** Decodes only known AirPlay /play body encodings; never logs plist values. */
@@ -79,6 +96,12 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
             val parsed = parseDetailed(fields)
             return when (parsed) {
                 is FieldParse.Success -> BodyParse.Success(parsed.request, encoding, fields.keys.map { it.take(80) })
+                is FieldParse.SenderMediated -> BodyParse.SenderMediated(
+                    parsed.request,
+                    parsed.scheme,
+                    encoding,
+                    fields.keys.map { it.take(80) },
+                )
                 is FieldParse.UnsupportedScheme -> BodyParse.UnsupportedScheme(
                     parsed.scheme,
                     encoding,
@@ -113,6 +136,10 @@ internal enum class BodyEncoding { EMPTY, TEXT, BINARY_PLIST, XML_PLIST }
 
 internal sealed interface FieldParse {
     data class Success(val request: VideoPlayRequest) : FieldParse
+
+    /** A location with a sender-mediated scheme (`mlhls`): valid, but only the sender can fetch it. */
+    data class SenderMediated(val request: VideoPlayRequest, val scheme: String) : FieldParse
+
     data class UnsupportedScheme(val scheme: String) : FieldParse
     data class Invalid(val reason: String) : FieldParse
 }
@@ -120,6 +147,14 @@ internal sealed interface FieldParse {
 internal sealed interface BodyParse {
     data class Success(
         val request: VideoPlayRequest,
+        val encoding: BodyEncoding,
+        val fieldNames: List<String>,
+    ) : BodyParse
+
+    /** `/play` for a sender-mediated (`mlhls`) HLS session; needs the FCUP reverse-channel bridge. */
+    data class SenderMediated(
+        val request: VideoPlayRequest,
+        val scheme: String,
         val encoding: BodyEncoding,
         val fieldNames: List<String>,
     ) : BodyParse

@@ -619,12 +619,244 @@ class RtspHandlerTest {
 
         val JPEG_BYTES = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
     }
+
+    // ─── Sender-mediated (FCUP) HLS routing ─────────────────────────────────
+
+    @Test
+    fun `POST reverse registers the channel and answers 101`() {
+        val host = FakeHlsHost()
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            hlsHost = host,
+        )
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/reverse",
+            headers = mapOf(
+                "X-Apple-Session-ID" to "SESSION-1",
+                "X-Apple-Purpose" to "event",
+                "Upgrade" to "PTTH/1.0",
+                "Connection" to "Upgrade",
+            ),
+            body = "",
+            protocol = "HTTP/1.1",
+        )
+
+        val response = handler.routeRequest(request)
+
+        assertEquals(101, response.statusCode)
+        assertEquals("PTTH/1.0", response.headers["Upgrade"])
+        assertEquals("SESSION-1", host.registeredSessionId)
+        assertNotNull("the reverse channel must be registered for this connection", host.registeredConnectionId)
+        assertNotNull(host.registeredWriter)
+    }
+
+    @Test
+    fun `POST reverse without a host is still the protocol acknowledgement`() {
+        val handler = TestableRtspHandler(onStreamingStarted = {}, onStreamingStopped = {})
+
+        val response = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/reverse",
+                headers = emptyMap(),
+                body = "",
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(101, response.statusCode)
+    }
+
+    @Test
+    fun `POST action is handed to the session bridge and its answer is returned`() {
+        val host = FakeHlsHost().apply { actionStatus = 200 }
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            hlsHost = host,
+        )
+        val body = PlistCodec.encode(
+            mapOf(
+                "type" to "unhandledURLResponse",
+                "params" to mapOf(
+                    "FCUP_Response_RequestID" to 3L,
+                    "FCUP_Response_URL" to "https://cdn.example/a.m3u8",
+                    "FCUP_Response_Data" to "#EXTM3U\n".toByteArray(),
+                ),
+            )
+        )
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/action",
+            headers = mapOf("X-Apple-Session-ID" to "SESSION-1"),
+            body = "",
+            bodyBytes = body,
+            protocol = "HTTP/1.1",
+        )
+
+        val response = handler.routeRequest(request)
+
+        assertEquals(200, response.statusCode)
+        assertEquals("SESSION-1", host.actionSessionId)
+        assertTrue(host.actionBody.contentEquals(body))
+    }
+
+    @Test
+    fun `POST action is refused when the bridge rejects it`() {
+        val host = FakeHlsHost().apply { actionStatus = 400 }
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            hlsHost = host,
+        )
+
+        val response = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/action",
+                headers = mapOf("X-Apple-Session-ID" to "another-session"),
+                body = "",
+                bodyBytes = PlistCodec.encode(mapOf("type" to "unhandledURLResponse")),
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(400, response.statusCode)
+    }
+
+    @Test
+    fun `POST action without a bridge host is never acknowledged as success`() {
+        val handler = TestableRtspHandler(onStreamingStarted = {}, onStreamingStopped = {})
+
+        val response = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/action",
+                headers = mapOf("X-Apple-Session-ID" to "S"),
+                body = "",
+                bodyBytes = PlistCodec.encode(
+                    mapOf("type" to "unhandledURLResponse", "params" to mapOf("a" to 1L))
+                ),
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(501, response.statusCode)
+    }
+
+    @Test
+    fun `POST play of a sender-mediated location goes to the bridge host`() {
+        val host = FakeHlsHost()
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onVideoPlay = { _, _ -> throw AssertionError("a sender-mediated location is not a URL") },
+            onVideoPlaySeconds = { _, _ -> throw AssertionError("a sender-mediated location is not a URL") },
+            hlsHost = host,
+        )
+        val request = RtspRequest(
+            method = "POST",
+            uri = "/play",
+            headers = mapOf(
+                "Content-Type" to "application/x-apple-binary-plist",
+                "X-Apple-Session-ID" to "SESSION-1",
+            ),
+            body = "",
+            bodyBytes = PlistCodec.encode(
+                mapOf(
+                    "Content-Location" to "mlhls://localhost/abcd/master.m3u8",
+                    "Start-Position-Seconds" to 1.5,
+                )
+            ),
+            protocol = "HTTP/1.1",
+        )
+
+        val response = handler.routeRequest(request)
+
+        assertEquals(200, response.statusCode)
+        val played = host.playRequest
+        assertNotNull("the bridge must be asked to host the session", played)
+        assertEquals("mlhls://localhost/abcd/master.m3u8", played!!.location)
+        assertEquals(1.5, played.startSeconds, 0.0)
+        assertTrue(played.seconds)
+        assertEquals("SESSION-1", played.senderSessionId)
+    }
+
+    @Test
+    fun `POST play of a sender-mediated location fails when the bridge refuses it`() {
+        val host = FakeHlsHost().apply { playResult = SenderMediatedPlayResult.reject("no reverse channel") }
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            hlsHost = host,
+        )
+
+        val response = handler.routeRequest(
+            RtspRequest(
+                method = "POST",
+                uri = "/play",
+                headers = mapOf(
+                    "Content-Type" to "application/x-apple-binary-plist",
+                    "X-Apple-Session-ID" to "SESSION-1",
+                ),
+                body = "",
+                bodyBytes = PlistCodec.encode(
+                    mapOf("Content-Location" to "mlhls://localhost/abcd/master.m3u8")
+                ),
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(400, response.statusCode)
+    }
+}
+
+/** A host that records what the handler asked it to do; results are set per test. */
+private class FakeHlsHost : SenderMediatedHlsHost {
+    var registeredConnectionId: String? = null
+    var registeredSessionId: String? = null
+    var registeredWriter: ((ByteArray) -> Boolean)? = null
+    var releasedConnectionId: String? = null
+    var playRequest: SenderMediatedPlayRequest? = null
+    var playResult: SenderMediatedPlayResult = SenderMediatedPlayResult.ACCEPTED
+    var actionSessionId: String? = null
+    var actionBody: ByteArray = ByteArray(0)
+    var actionStatus: Int = 200
+
+    override fun registerReverseChannel(
+        connectionId: String,
+        senderSessionId: String?,
+        writer: (ByteArray) -> Boolean,
+    ): Boolean {
+        registeredConnectionId = connectionId
+        registeredSessionId = senderSessionId
+        registeredWriter = writer
+        return true
+    }
+
+    override fun releaseReverseChannel(connectionId: String) {
+        releasedConnectionId = connectionId
+    }
+
+    override fun startSenderMediatedPlay(request: SenderMediatedPlayRequest): SenderMediatedPlayResult {
+        playRequest = request
+        return playResult
+    }
+
+    override fun deliverAction(senderSessionId: String?, body: ByteArray): SenderMediatedActionResult {
+        actionSessionId = senderSessionId
+        actionBody = body
+        return SenderMediatedActionResult(actionStatus, "test")
+    }
 }
 
 /**
  * TestableRtspHandler — Subclass of [RtspHandler] that exposes internal methods for unit testing
  * without requiring a real network socket.
  */
+
 class TestableRtspHandler(
     onStreamingStarted: (SessionDescription) -> Unit,
     onStreamingStopped: () -> Unit,
@@ -637,6 +869,7 @@ class TestableRtspHandler(
     onVideoPlaySeconds: (String, Double) -> Unit = onVideoPlay,
     onAudioFlush: (Int) -> Unit = {},
     initialVolume: Float = 0f,
+    hlsHost: SenderMediatedHlsHost? = null,
 ) : RtspHandler(
     context = io.mockk.mockk(relaxed = true),
     videoSurfaceProvider = { null },
@@ -651,6 +884,7 @@ class TestableRtspHandler(
     onVideoPlaySeconds = onVideoPlaySeconds,
     onAudioFlush = onAudioFlush,
     initialVolume = initialVolume,
+    hlsHost = hlsHost,
 ) {
     /** Test seam: mark mirror streams active without driving the full FairPlay SETUP handshake. */
     fun seedActiveStreams(vararg types: Int) { activeStreamTypes.addAll(types.toList()) }

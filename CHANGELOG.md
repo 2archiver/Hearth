@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.0] — video, not just a connection
+
+Direct successor to 1.8.3: same signing key, same package id, same updater repository. The base
+version moved to 1.9.0 for the release train, and the clock-based versionCode is forced above the
+published one by `release.yml`, so it installs over an installed 1.8.3 in place.
+
+**The headline: AirPlay video now has a player.** Until this release a video `/play` could be
+accepted, reported as "connected" and produce nothing but the RAOP audio stream — the sender was
+right that it had handed over a video session, and the TV showed no picture. The causes were that
+Hearth had no video backend at all (no `MediaPlayer`/ExoPlayer was ever attached to the URL-video
+path) and that the YouTube app's video transport (sender-mediated, FCUP) was not implemented — the
+`/reverse` upgrade was acknowledged with a `PTTH bridge unavailable` trace line and `POST /action`
+was answered 501.
+
+### Added — video playback
+- **A real player for URL video: Media3 (ExoPlayer) 1.4.1**, with `media3-exoplayer` and
+  `media3-exoplayer-hls`, installed once at process start
+  (`PhairPlayApp` → `UrlVideoBackends`). Media3 was chosen over `android.media.MediaPlayer`
+  because sender-mediated HLS cannot be a plain URL (it needs a custom `DataSource`) and because a
+  master playlist's alternate audio, init maps, byte ranges and live window must live in *one*
+  player timeline.
+- **"Playing video" now requires a rendered frame.** The state machine reports `Playing video` only
+  after the player's first-frame callback; prepared-and-started-without-a-frame stays `Loading
+  video` and becomes a stated failure (`video did not start`) after 30 s. Media with no video track
+  reports `Audio only — the sender is not sending video`, and a failed preparation is shown as a
+  failure with a short reason instead of being reset to Ready.
+- **Video reaches the TV surface.** The player gets the same `SurfaceView` the mirroring path uses,
+  sized from the decoded video size (`StreamStats`), re-attached after a surface recreate, and
+  released on stop/replacement. Decoding and network I/O stay off the UI thread; the player runs on
+  the main Looper.
+- **Sender-mediated (FCUP) HLS transport** — the YouTube app's AirPlay video path, implemented from
+  the wire contract UxPlay documents (`POST /reverse` PTTH channel; a reverse `POST /event` XML
+  plist carrying `FCUP_Response_RequestID`/`FCUP_Response_URL`; the sender's `POST /action` binary
+  plist reply; UxPlay commit `3dbf7ce`, no code copied):
+  - session-scoped bridge with request ids, URL-matched replies, per-URL de-duplication, 15 s
+    bounded waits, cancellation on stop/replacement, and bounded playlists (8 MiB) and items
+    (32 MiB, 8 MiB cache);
+  - master and media playlists, alternate audio renditions, init maps, keys and byte ranges are
+    fetched through the sender; relative references resolve against the *sender's* playlist URL and
+    stay on the sender's transport (their base may be a host only the sender can reach:
+    `mlhls://`, `localhost:<port>`, a session-bound CDN), while a URL the sender wrote out in full is
+    handed to the player byte-for-byte (no parent-query propagation); loopback hosts
+    (`localhost`, `127.0.0.0/8`, `0.0.0.0`, `::1`) are never treated as player-fetchable;
+  - live playlists are re-read on every refresh; a reference this receiver cannot serve fails the
+    playlist instead of silently dropping it (a master is never downgraded to audio-only), and a
+    SAMPLE-AES playlist is refused with that reason rather than played as silence;
+  - YouTube's `#YT-EXT-CONDENSED-URL` tag is expanded, including the empty-`PARAMS=""` form real
+    playlists carry;
+  - segments referenced by sender-internal or relative URIs are fetched through FCUP too — an
+    extension beyond the reference implementations, which fetch only playlists and leave segments to
+    the player. It is labelled as such in the code and in the connection log.
+- **`X-Apple-Session-ID` is matched before an action is applied** (upstream does the same), and
+  `/action` without an active bridge is answered 501 with the field names (never values) traced,
+  rather than acknowledged as success.
+- **A request arriving on an upgraded PTTH socket** is now refused with a stated reason instead of
+  being answered — writing a response there would interleave with the bridge's frames.
+
+### Added — audio ownership and sync
+- **One soundtrack owner.** The player starts muted; the AirPlay audio stream is suspended **only**
+  after the player reports that the media carries its own audio track, and the suspension is
+  restored for a new video item that has not proven anything yet. A prepared player, a connected
+  transport or a first frame are not evidence of audio.
+- **Suspension silences the output, not the stream.** The AirPlay audio path keeps receiving (and
+  decoding) its packets and stops writing to the output, so the sender does not see a dead stream
+  and tear the video session down with it (upstream stops the RAOP service here, which a sender can
+  react to).
+- **A failed video never restarts stale audio**, and a video that had taken over is not handed back
+  to the AirPlay stream on failure — the session is ended instead. Everything is generation-checked,
+  so a late callback from a replaced player cannot silence a newer session.
+- Pause/resume/seek still map to one player; a seek on sender-mediated HLS refreshes the media
+  playlist and can land on a segment the sender has re-signed.
+
+### Changed
+- `#YT-EXT-CONDENSED-URL` with an empty `PREFIX` now expands (the whole segment line is the
+  fragment). Earlier code refused it, which is the form real YouTube playlists use.
+- The offline JVM test runner excludes `ExoUrlVideoBackend.kt` (Media3 is not on its classpath);
+  `AirPlayVideoPlayer` asks `UrlVideoBackends` for a factory instead of naming ExoPlayer, and
+  reports "no URL-video backend is installed in this process" if the install is missing.
+- Removed the unused first draft of the playlist codec and the loopback HTTP server it needed;
+  the bridge serves the player through a private `hearth-hls://` data source instead.
+
+### Validation
+- New JVM tests: FcupCodec (10), HlsPlaylistCodec (15), SenderMediatedHlsBridge (16, against a fake
+  sender over the real reverse-channel framing), VideoAudioHandover (8), UrlVideoPlaybackController
+  (10 new: first frame, audio-only, mute/handover, stale first frame, bridge failure reason),
+  RtspHandler (7 new: `/reverse`, `/action`, sender-mediated `/play`).
+- CI on this branch: `:test-runner:test` **404 tests, 0 failures**; `:app:lintGoogletvDebug` pass;
+  `:app:assembleGoogletvDebug` + `HearthUiTest` pass. The debug APK that run attaches uses the
+  repository's published key (`app/signing/phairplay.p12`, the same key debug and release use) and a
+  clock-derived `versionCode` higher than any earlier build, so it installs as an update over the
+  installed 1.8.3; the signed release comes from `release.yml` on `main` with this
+  `gradle.properties` version.
+- A failing CI run now also prints the failing tests' own messages from the JUnit XML — Gradle's
+  console output did not always carry them, and the runner log host is not reachable here.
+- **No real hardware was used for this change** — no capture, no device playback. The device matrix
+  (YouTube app, Rumble app, Safari YouTube, Safari Rumble, pause/seek/stop, 10-minute stability,
+  mirroring, idle leak check) is still **NOT RUN**; see the pull request for the checklist.
+
 ## [1.8.3] — hardening the 1.8.2 session model (build fix + successor release)
 
 Direct successor to 1.8.2: same signing key, same package id, same updater repository, and a

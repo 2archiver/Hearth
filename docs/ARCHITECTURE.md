@@ -95,7 +95,15 @@ When you stop screen sharing, the Mac sends a "goodbye" message (RTSP TEARDOWN) 
 | `MirrorStreamServer` | `airplay/handshake/MirrorStreamServer.kt` | Interleaved RTP reassembly from RTSP TCP (`$` framing) |
 | `MirrorCrypto` | `airplay/handshake/MirrorCrypto.kt` | AES-128-CTR decryption (keystream always advanced) |
 | `VideoDecoder` | `airplay/VideoDecoder.kt` | MediaCodec H.264: SPS-driven reinit, self-heal, keyframe resync |
-| `AirPlayVideoPlayer` | `airplay/AirPlayVideoPlayer.kt` | URL video mode (`/play` content) + transport controls |
+| `AirPlayVideoPlayer` | `airplay/AirPlayVideoPlayer.kt` | URL video mode (`/play` content): Android wrapper (surface, main-Looper scheduler) over the controller |
+| `UrlVideoPlaybackController` | `airplay/UrlVideoPlaybackController.kt` | Playback state machine: loading → *first frame* → playing, bounded failure deadlines, audio-ownership decisions, generation checks |
+| `ExoUrlVideoBackend` | `airplay/ExoUrlVideoBackend.kt` | Media3/ExoPlayer backend (progressive + HLS) and the `hearth-hls://` data source for bridge media |
+| `UrlVideoBackends` | `airplay/UrlVideoBackends.kt` | Process-wide backend factory install (Media3 stays out of the offline JVM build) |
+| `SenderMediatedHlsBridge` | `airplay/SenderMediatedHlsBridge.kt` | Sender-mediated (FCUP) HLS: playlists/items fetched *through the sender*, rewritten to player-facing URIs (relative references stay on the sender's transport; loopback hosts are never player-fetchable) |
+| `ReverseHttpChannel` | `airplay/ReverseHttpChannel.kt` | PTTH reverse channel: request ids, per-URL de-duplication, bounded waits, matched replies |
+| `FcupCodec` | `airplay/handshake/FcupCodec.kt` | FCUP wire contract (`POST /event` request, `POST /action` reply) |
+| `HlsPlaylistCodec` | `airplay/handshake/HlsPlaylistCodec.kt` | HLS parsing/rewriting: variants, alternate audio, init maps, keys, byte ranges, condensed YouTube segments |
+| `VideoAudioHandover` | `airplay/VideoAudioHandover.kt` | Who owns the soundtrack, per video generation (media audio vs the AirPlay stream) |
 
 ### Audio
 
