@@ -191,22 +191,30 @@ class SenderMediatedHlsBridgeTest {
         sender.autoAnswer = false
         val firstBytes = arrayOfNulls<ByteArray>(1)
         val secondBytes = arrayOfNulls<ByteArray>(1)
+        val threadFailures = CopyOnWriteArrayList<Throwable>()
         val done = CountDownLatch(2)
         val alreadyAsked = sender.requests.size
 
         Thread {
             runCatching { firstBytes[0] = bridge.open("hearth-hls://${session.sessionId}/item/0.ts") }
+                .onFailure { threadFailures += it }
             done.countDown()
         }.start()
         Thread {
             runCatching { secondBytes[0] = bridge.open("hearth-hls://${session.sessionId}/item/1.ts") }
+                .onFailure { threadFailures += it }
             done.countDown()
         }.start()
         waitFor { sender.requests.size >= alreadyAsked + 2 }
-        val pending = sender.requests.drop(alreadyAsked).take(2)
-        sender.channel!!.deliver(pending[1].id, pending[1].url, 0, "NINE".toByteArray(), session.sessionId)
-        sender.channel!!.deliver(pending[0].id, pending[0].url, 0, "ONE".toByteArray(), session.sessionId)
+        // The two requests race into the channel, so they are matched by the URL they asked for —
+        // never by the order they happened to land in.
+        val first = sender.requests.first { it.url == SEGMENT_ONE_URI }
+        val second = sender.requests.first { it.url == SEGMENT_TWO_URI }
+        sender.channel!!.deliver(second.id, second.url, 0, "NINE".toByteArray(), session.sessionId)
+        sender.channel!!.deliver(first.id, first.url, 0, "ONE".toByteArray(), session.sessionId)
         assertTrue(done.await(2, TimeUnit.SECONDS))
+        // A read that failed inside its thread must say so here, not show up as a null result.
+        assertTrue("item reads failed: $threadFailures", threadFailures.isEmpty())
 
         assertEquals("ONE", firstBytes[0]?.toString(Charsets.UTF_8))
         assertEquals("NINE", secondBytes[0]?.toString(Charsets.UTF_8))

@@ -83,6 +83,16 @@ jobs:
             # app/build.gradle.kts), and "at com.phairplay" names the line of ours behind it.
             grep -E "^e: |error:|Error: |AssertionError|ComparisonFailure|expected:<|at com\.phairplay|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
             echo '```'
+            # Gradle's console output does not always carry a failing test's own message (a failure
+            # raised on a test's own thread is reported without one). The JUnit XML always does, so
+            # the report stays diagnosable without the log blob host.
+            if compgen -G "test-runner/build/test-results/test/TEST-*.xml" > /dev/null; then
+              echo ""
+              echo "Failing test messages (from the JUnit XML):"
+              echo '```'
+              python3 -c 'import glob, xml.etree.ElementTree as E; print("\n".join("  " + str(c.get("classname")) + "." + str(c.get("name")) + ": " + (f.get("message") or f.get("type") or "").replace("\n", " ")[:400] for path in sorted(glob.glob("test-runner/build/test-results/test/TEST-*.xml")) for c in E.parse(path).getroot().iter("testcase") for f in list(c.findall("failure")) + list(c.findall("error"))))' 2>/dev/null | head -40 || true
+              echo '```'
+            fi
             echo ""
             echo "<details><summary>Gradle failure block and last 40 lines</summary>"
             echo ""
