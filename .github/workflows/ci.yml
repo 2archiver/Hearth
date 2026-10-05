@@ -15,8 +15,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# contents: write (not read) is required for the failure reporter below: on a push to main it
+# writes a commit comment, and a read-only token makes that call fail — which is how a red build
+# on main produced a job summary nobody could reach and no readable cause on GitHub.
 permissions:
-  contents: read
+  contents: write
   actions: write
   pull-requests: write
 

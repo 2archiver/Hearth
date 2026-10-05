@@ -12,8 +12,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# contents: write (not read) is required for the failure reporter below: on a push to main it
+# writes a commit comment, and a read-only token makes that call fail — leaving a lint failure
+# with no readable cause anywhere except the job summary.
 permissions:
-  contents: read
+  contents: write
   actions: write
   pull-requests: write
 

@@ -742,7 +742,11 @@ open class RtspHandler(
                 "URL video /play rejected: scheme=$scheme requires unsupported sender-mediated transport",
                 kind = AirPlayTrace.Kind.FAILURE,
             )
-            RtspResponse(501, "Not Implemented", protocol = request.responseProtocol())
+            // 400 Bad Request, not 501: this is the answer 1.8.1/1.8.2 senders already get for a
+            // location this receiver cannot play, and the regression suite pins it. The trace line
+            // above is what distinguishes "internal HLS transport we do not implement" from a
+            // malformed body.
+            RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
         is BodyParse.Invalid -> {
             trace(

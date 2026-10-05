@@ -3,6 +3,8 @@ package com.phairplay.airplay
 import org.junit.Assert.*
 import org.junit.Test
 
+import com.phairplay.airplay.handshake.PlistCodec
+
 class VideoPlayRequestTest {
     private val url = "https://cdn.example.test/video.m3u8?token=a%2Bb&quality=1080"
 
@@ -38,5 +40,66 @@ class VideoPlayRequestTest {
         for (location in listOf("", "file:///etc/passwd", "mlhls://localhost/master.m3u8", "https://", "https://bad host/a")) {
             assertNull(VideoPlayRequest.parse(mapOf("Content-Location" to location)))
         }
+    }
+
+    // ─── /play body decoding (binary plist, XML plist, legacy text) ───────────
+
+    @Test fun `binary plist bodies decode to a direct URL request`() {
+        val body = PlistCodec.encode(mapOf("Content-Location" to url, "Start-Position-Seconds" to 12.5))
+
+        val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
+
+        assertTrue("expected success, got $parsed", parsed is BodyParse.Success)
+        val success = parsed as BodyParse.Success
+        assertEquals(url, success.request.url)
+        assertEquals(12.5, success.request.start, 0.0)
+        assertTrue(success.request.seconds)
+        assertEquals(BodyEncoding.BINARY_PLIST, success.encoding)
+        assertTrue("field names may be reported", success.fieldNames.contains("Content-Location"))
+    }
+
+    @Test fun `XML plist bodies decode as well`() {
+        val body = PlistCodec.encodeXml(mapOf("Content-Location" to url, "Start-Position-Seconds" to 7.25))
+
+        val parsed = VideoPlayRequest.decodeBody(body, "text/x-apple-plist+xml")
+
+        assertTrue("expected success, got $parsed", parsed is BodyParse.Success)
+        val success = parsed as BodyParse.Success
+        assertEquals(BodyEncoding.XML_PLIST, success.encoding)
+        assertEquals(7.25, success.request.start, 0.0)
+    }
+
+    @Test fun `legacy text bodies keep fractional semantics`() {
+        val body = "Content-Location: $url\r\nStart-Position: 0.5\r\n".toByteArray(Charsets.UTF_8)
+
+        val parsed = VideoPlayRequest.decodeBody(body, "text/parameters")
+
+        assertTrue("expected success, got $parsed", parsed is BodyParse.Success)
+        val success = parsed as BodyParse.Success
+        assertEquals(BodyEncoding.TEXT, success.encoding)
+        assertFalse(success.request.seconds)
+        assertEquals(0.5, success.request.start, 0.0)
+    }
+
+    @Test fun `internal HLS locations are reported as an unsupported scheme`() {
+        val body = PlistCodec.encode(mapOf("Content-Location" to "mlhls://localhost/master.m3u8"))
+
+        val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
+
+        assertTrue("expected unsupported scheme, got $parsed", parsed is BodyParse.UnsupportedScheme)
+        val unsupported = parsed as BodyParse.UnsupportedScheme
+        assertEquals("mlhls", unsupported.scheme)
+    }
+
+    @Test fun `oversized and empty bodies are rejected without parsing`() {
+        val oversized = VideoPlayRequest.decodeBody(ByteArray(VideoPlayRequest.MAX_BODY_BYTES + 1), null)
+        assertTrue("expected invalid, got $oversized", oversized is BodyParse.Invalid)
+        val tooBig = oversized as BodyParse.Invalid
+        assertTrue(tooBig.reason.contains("exceeds"))
+
+        val empty = VideoPlayRequest.decodeBody(ByteArray(0), null)
+        assertTrue("expected invalid, got $empty", empty is BodyParse.Invalid)
+        val missing = empty as BodyParse.Invalid
+        assertEquals(BodyEncoding.EMPTY, missing.encoding)
     }
 }
