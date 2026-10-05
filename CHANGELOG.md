@@ -94,9 +94,11 @@ was answered 501.
   (10 new: first frame, audio-only, mute/handover, stale first frame, bridge failure reason),
   RtspHandler (7 new: `/reverse`, `/action`, sender-mediated `/play`).
 - CI on this branch: `:test-runner:test` **404 tests, 0 failures**; `:app:lintGoogletvDebug` pass;
-  `:app:assembleGoogletvDebug` + `HearthUiTest` pass (runs 37280621800 / 37280621742). The debug APK
-  in that run is debug-signed (a fresh sideload, not an upgrade over the release-signed 1.8.3); the
-  signed release is produced by `release.yml` from `main` with this `gradle.properties` version.
+  `:app:assembleGoogletvDebug` + `HearthUiTest` pass. The debug APK that run attaches uses the
+  repository's published key (`app/signing/phairplay.p12`, the same key debug and release use) and a
+  clock-derived `versionCode` higher than any earlier build, so it installs as an update over the
+  installed 1.8.3; the signed release comes from `release.yml` on `main` with this
+  `gradle.properties` version.
 - A failing CI run now also prints the failing tests' own messages from the JUnit XML — Gradle's
   console output did not always carry them, and the runner log host is not reachable here.
 - **No real hardware was used for this change** — no capture, no device playback. The device matrix
