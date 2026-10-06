@@ -76,8 +76,10 @@ class PhairPlayService : Service() {
     private val _airPlayPlaybackState = MutableStateFlow<com.phairplay.airplay.AirPlayPlaybackState?>(null)
     val airPlayPlaybackState: StateFlow<com.phairplay.airplay.AirPlayPlaybackState?> =
         _airPlayPlaybackState.asStateFlow()
-    private val _airPlayPlaybackFailure = MutableStateFlow<String?>(null)
-    val airPlayPlaybackFailure: StateFlow<String?> = _airPlayPlaybackFailure.asStateFlow()
+    private val _airPlayPlaybackFailure =
+        MutableStateFlow<com.phairplay.airplay.AirPlayPlaybackFailure?>(null)
+    val airPlayPlaybackFailure: StateFlow<com.phairplay.airplay.AirPlayPlaybackFailure?> =
+        _airPlayPlaybackFailure.asStateFlow()
 
     /**
      * The **Apple Casting** card: screen mirroring from an iPhone/iPad/Mac.

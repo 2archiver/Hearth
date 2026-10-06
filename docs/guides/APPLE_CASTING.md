@@ -20,6 +20,14 @@ through the TV"*, not a failure.
 
 ---
 
+## In-app AirPlay video is a different path
+
+The instructions below describe **Control Centre screen mirroring**. Choosing Hearth from the
+YouTube app's own AirPlay picker is app-level video streaming, not screen mirroring and not Google
+Cast. That path uses sender-mediated HLS/FCUP and has a separate compatibility status. See
+[the 1.9.1 sender-mediated video note](../CASTING-1.9.1.md); its Apple-device-to-Google-TV first-frame
+validation is explicitly marked **NOT RUN**.
+
 ## Connecting (30 seconds)
 
 1. Make sure the iPhone/iPad/Mac is on the **same network** as the TV. On a wired Google TV that

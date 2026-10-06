@@ -1,5 +1,6 @@
 package com.phairplay.airplay
 
+import com.phairplay.airplay.handshake.FcupCodec
 import com.phairplay.util.Logger
 import java.io.InputStream
 
@@ -51,7 +52,10 @@ internal class RtspRequestReader(
                     method = method,
                     uri = uri,
                     headers = headers,
-                    body = String(bodyBytes, Charsets.UTF_8),
+                    // Binary photo uploads and FCUP action plists are consumed from bodyBytes by
+                    // their handlers. Decoding them to a String would duplicate large binary
+                    // payloads and can allocate substantially more than the bounded wire body.
+                    body = if (isBinaryBody(method, uri)) "" else String(bodyBytes, Charsets.UTF_8),
                     bodyBytes = bodyBytes,
                     protocol = protocol,
                 )
@@ -97,9 +101,15 @@ internal class RtspRequestReader(
             rawLength.toInt() < 0 -> return ValueResult.failure("negative Content-Length")
             else -> rawLength.toInt()
         }
-        val isPhoto = method.equals("PUT", ignoreCase = true) &&
-            uri.substringBefore('?') == PhotoHandler.PHOTO_PATH
-        val bodyLimit = if (isPhoto) maxPhotoBytes else maxMessageBytes
+        val path = endpointPath(uri)
+        val isPhoto = method.equals("PUT", ignoreCase = true) && path == PhotoHandler.PHOTO_PATH
+        val isAction = method.equals("POST", ignoreCase = true) &&
+            path.equals(FcupCodec.ACTION_PATH, ignoreCase = true)
+        val bodyLimit = when {
+            isPhoto -> maxPhotoBytes
+            isAction -> FcupCodec.MAX_ACTION_BODY_BYTES
+            else -> maxMessageBytes
+        }
         if (contentLength > bodyLimit) {
             Logger.w("Request body exceeds the configured limit ($contentLength bytes) — rejecting")
             return ValueResult.failure("request body exceeds limit")
@@ -120,6 +130,17 @@ internal class RtspRequestReader(
         }
         return ValueResult.success(buffer)
     }
+
+    private fun isBinaryBody(method: String, uri: String): Boolean {
+        val path = endpointPath(uri)
+        return (method.equals("PUT", ignoreCase = true) && path == PhotoHandler.PHOTO_PATH) ||
+            (method.equals("POST", ignoreCase = true) && path.equals(FcupCodec.ACTION_PATH, ignoreCase = true))
+    }
+
+    private fun endpointPath(uri: String): String = runCatching {
+        val parsed = java.net.URI(uri)
+        if (parsed.isAbsolute) parsed.rawPath.orEmpty() else uri.substringBefore('?').substringBefore('#')
+    }.getOrElse { uri.substringBefore('?').substringBefore('#') }
 
     private fun readLine(inputStream: InputStream, lineLimit: Int): LineResult {
         val sb = StringBuilder()

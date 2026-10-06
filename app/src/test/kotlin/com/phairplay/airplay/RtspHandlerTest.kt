@@ -829,6 +829,7 @@ private class FakeHlsHost : SenderMediatedHlsHost {
         connectionId: String,
         senderSessionId: String?,
         writer: (ByteArray) -> Boolean,
+        revoke: (String) -> Unit,
     ): Boolean {
         registeredConnectionId = connectionId
         registeredSessionId = senderSessionId

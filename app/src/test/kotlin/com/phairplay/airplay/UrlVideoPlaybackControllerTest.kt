@@ -120,7 +120,7 @@ class UrlVideoPlaybackControllerTest {
         assertTrue(oldBackend.released)
 
         stalePrepared()
-        staleError(1, 2)
+        staleError(UrlVideoBackendFailure(AirPlayPlaybackFailureStage.PLAYBACK, "stale"))
         staleCompletion()
         fixture.scheduler.runCurrent()
 
@@ -261,7 +261,10 @@ class UrlVideoPlaybackControllerTest {
         fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TIMEOUT_MS)
         assertEquals(1, fixture.endedCount)
         assertFalse(backend.playing)
-        assertEquals(listOf("video did not start"), fixture.failures)
+        assertEquals(
+            listOf("first-frame:player was prepared, but no video frame reached the display"),
+            fixture.failures,
+        )
         assertTrue(fixture.states.contains(AirPlayPlaybackState.FAILED))
     }
 
@@ -478,12 +481,12 @@ class UrlVideoPlaybackControllerTest {
     private class FakeBackend : UrlVideoBackend {
         private var preparedListener: (() -> Unit)? = null
         private var completionListener: (() -> Unit)? = null
-        private var errorListener: ((Int, Int) -> Boolean)? = null
+        private var errorListener: ((UrlVideoBackendFailure) -> Boolean)? = null
         var savedPreparedListener: (() -> Unit)? = null
             private set
         var savedCompletionListener: (() -> Unit)? = null
             private set
-        var savedErrorListener: ((Int, Int) -> Boolean)? = null
+        var savedErrorListener: ((UrlVideoBackendFailure) -> Boolean)? = null
             private set
         var preparedListenerWasCalled = false
             private set
@@ -520,7 +523,7 @@ class UrlVideoPlaybackControllerTest {
             if (listener != null) savedCompletionListener = listener
         }
 
-        override fun setOnErrorListener(listener: ((what: Int, extra: Int) -> Boolean)?) {
+        override fun setOnErrorListener(listener: ((failure: UrlVideoBackendFailure) -> Boolean)?) {
             errorListener = listener
             if (listener != null) savedErrorListener = listener
         }
@@ -573,7 +576,12 @@ class UrlVideoPlaybackControllerTest {
         }
 
         fun fireError(what: Int, extra: Int): Boolean =
-            (errorListener ?: savedErrorListener)?.invoke(what, extra) ?: false
+            (errorListener ?: savedErrorListener)?.invoke(
+                UrlVideoBackendFailure(
+                    AirPlayPlaybackFailureStage.PLAYBACK,
+                    "test backend error $what/$extra",
+                )
+            ) ?: false
 
         fun fireCompletion() {
             (completionListener ?: savedCompletionListener)?.invoke()

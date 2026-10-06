@@ -48,7 +48,15 @@ are **not run** and no Google TV release APK is **built**.
 No Rumble/iPhone/TV packet capture or crash log was available. These are concrete URL-mode fixes,
 not a verified diagnosis of Rumble's crash or a guarantee of Rumble compatibility.
 
-## Remaining UxPlay HLS work
+## Follow-up status (1.9.1)
+
+This document records what the 1.8.1 direct-video patch did not implement; its statements below are
+historical, not the current code state. 1.9.0 later added sender-mediated HLS, and 1.9.1 fixes the
+PTTH response-frame handling identified in that path. The 1.9.1 protocol adaptation, compatibility
+matrix and explicit NOT RUN hardware status are in [CASTING-1.9.1.md](CASTING-1.9.1.md). Do not
+infer verified YouTube, Safari, Rumble or live-stream playback from the code diff alone.
+
+## Remaining UxPlay HLS work (as of 1.8.1)
 
 Current UxPlay separates direct HTTP(S) locations from internal HLS locations ending in
 `/master.m3u8`. The internal locations require PTTH reverse events, FCUP request IDs,

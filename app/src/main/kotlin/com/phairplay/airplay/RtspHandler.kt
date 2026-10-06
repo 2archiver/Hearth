@@ -9,6 +9,8 @@ import com.phairplay.util.Logger
 import java.io.OutputStream
 import java.net.Socket
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * RtspHandler — the RTSP conversation with **one** AirPlay sender connection.
@@ -179,6 +181,11 @@ open class RtspHandler(
     /** True once `POST /reverse` upgraded this connection to the PTTH reverse-HTTP channel. */
     @Volatile
     private var reverseUpgraded = false
+
+    /** Writer barrier: FCUP frames cannot race ahead of the 101 response on the same socket. */
+    private val reverseUpgradeReady = CountDownLatch(1)
+    private val ptthResponseReader = PtthResponseReader()
+
     private val stopReported = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Why this connection is closing — reported with the session stop (diagnostics). */
@@ -258,10 +265,7 @@ open class RtspHandler(
     private fun protocolFingerprint(request: RtspRequest): String? {
         // RTSP `Session` is receiver-controlled here (Hearth returns a fixed compatibility value),
         // so it is not safe identity evidence. Only fingerprint an explicit sender session ID.
-        val token = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(token.toByteArray(Charsets.UTF_8))
-        return digest.take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return AirPlaySessionFingerprint.of(request.header("X-Apple-Session-ID"))
     }
 
     /**
@@ -389,6 +393,39 @@ open class RtspHandler(
 
         try {
             while (!closed && !socket.isClosed) {
+                if (reverseUpgraded) {
+                    // The sender's PTTH acknowledgements are responses on this socket, not new RTSP
+                    // requests. Consume their bounded framing and keep the reverse channel alive.
+                    when (val response = ptthResponseReader.read(inputStream)) {
+                        is PtthResponseReader.ReadOutcome.Response -> {
+                            trace(
+                                "PTTH response consumed (${response.protocol} " +
+                                    "status=${response.statusCode ?: "unknown"}, body=${response.bodyBytes} B)",
+                                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                            )
+                            if (response.closeRequested) {
+                                closeReason = "sender closed the upgraded PTTH channel"
+                                break
+                            }
+                            continue
+                        }
+                        is PtthResponseReader.ReadOutcome.End -> {
+                            closeReason = if (response.cleanEof) {
+                                "sender EOF on the upgraded PTTH channel"
+                            } else {
+                                "PTTH response framing failed: ${response.reason}"
+                            }
+                            trace(
+                                "Connection $traceConnectionId ended on PTTH channel " +
+                                    if (response.cleanEof) "(EOF)" else "(${response.reason})",
+                                role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                                kind = if (response.cleanEof) AirPlayTrace.Kind.INFO else AirPlayTrace.Kind.FAILURE,
+                            )
+                            break
+                        }
+                    }
+                }
+
                 val outcome = requestReader.readDetailed(inputStream)
                 if (outcome is RtspRequestReader.ReadOutcome.End) {
                     closeReason = when {
@@ -427,11 +464,18 @@ open class RtspHandler(
                 currentCSeq = request.header("CSeq")?.takeIf { it.isNotBlank() }
                 val response = routeRequest(request)
                 sendResponse(outputStream, response)
+                if (reverseUpgraded) {
+                    // Publish the reverse writer only after the peer has received the complete 101.
+                    // A parallel /play may already be waiting to send FCUP on this socket. Keep a
+                    // long idle timeout so a dead PTTH peer cannot occupy one of the bounded slots
+                    // forever; each incoming framed response restarts the socket's read timeout.
+                    runCatching { socket.soTimeout = PTTH_IDLE_TIMEOUT_MS }
+                    reverseUpgradeReady.countDown()
+                }
 
-                // Once a session exists the control channel may legitimately go quiet for
-                // minutes (video flows over its own data channel, audio over UDP), so stop
-                // timing the connection out.
-                if (isSessionActive() || reverseUpgraded) socket.soTimeout = 0
+                // Once a normal session exists its control channel may legitimately go quiet for
+                // minutes (video flows over its own data channel, audio over UDP), so stop timing it.
+                if (isSessionActive() && !reverseUpgraded) socket.soTimeout = 0
 
                 if (response.headers.entries.any { it.key.equals("Connection", true) && it.value.equals("close", true) }) {
                     closeReason = if (explicitTeardown) "sender closed the RTSP connection after TEARDOWN" else "peer requested connection close"
@@ -465,8 +509,16 @@ open class RtspHandler(
                 )
             }
         } catch (e: java.net.SocketTimeoutException) {
-            closeReason = if (!sawRequest) "silent connection idle timeout" else "control handshake idle timeout"
-            trace("Connection $traceConnectionId timed out: $closeReason", kind = AirPlayTrace.Kind.FAILURE)
+            closeReason = when {
+                reverseUpgraded -> "upgraded PTTH channel idle timeout"
+                !sawRequest -> "silent connection idle timeout"
+                else -> "control handshake idle timeout"
+            }
+            trace(
+                "Connection $traceConnectionId timed out: $closeReason",
+                role = if (reverseUpgraded) AirPlayConnectionRole.REVERSE_EVENT.name else currentRole.name,
+                kind = AirPlayTrace.Kind.FAILURE,
+            )
             Logger.i("RTSP $traceConnectionId timed out ($closeReason)")
         } catch (e: java.net.SocketException) {
             if (!closed) {
@@ -484,6 +536,14 @@ open class RtspHandler(
             Logger.i("RTSP connection $traceConnectionId closed")
             closeQuietly()
         }
+    }
+
+    /** The session coordinator can revoke an obsolete PTTH offer without waiting for sender EOF. */
+    private fun closeForReason(reason: String) {
+        if (closed) return
+        closeReason = reason.take(MAX_CLOSE_REASON_CHARS)
+        closed = true
+        closeQuietly()
     }
 
     /** Closes this connection. Called by [RtspServer.stop] and by [AirPlayReceiver.stop]. */
@@ -664,15 +724,25 @@ open class RtspHandler(
             else -> "other"
         }
         val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
-        // The writer hands one whole frame to this connection's socket. It never logs bytes.
-        val writer: (ByteArray) -> Boolean = { frame -> writeRaw(frame) }
-        val accepted = hlsHost?.registerReverseChannel(traceConnectionId, senderSessionId, writer) == true
+        // An offer may be published before the 101 is written, but its writer is gated until then:
+        // a concurrent /play cannot put a POST /event ahead of the protocol upgrade response.
+        val writer: (ByteArray) -> Boolean = { frame ->
+            val ready = try {
+                reverseUpgradeReady.await(PTTH_UPGRADE_WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+            ready && writeRaw(frame)
+        }
+        reverseUpgraded = true
+        val accepted = hlsHost?.registerReverseChannel(
+            connectionId = traceConnectionId,
+            senderSessionId = senderSessionId,
+            writer = writer,
+            revoke = ::closeForReason,
+        ) == true
         if (accepted) {
-            reverseUpgraded = true
-            // From here the sender writes nothing on this socket: it exists so the receiver can
-            // send FCUP requests. Without clearing the idle timeout the channel would be torn down
-            // mid-session by the read loop's silence timeout.
-            runCatching { client?.soTimeout = 0 }
             trace(
                 "Reverse PTTH channel registered (purpose=$purpose, senderSessionIdPresent=${senderSessionId != null})",
                 role = AirPlayConnectionRole.REVERSE_EVENT.name,
@@ -843,15 +913,20 @@ open class RtspHandler(
      */
     private fun handleSenderMediatedPlay(request: RtspRequest, parsed: BodyParse.SenderMediated): RtspResponse {
         val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
+        claimSession(AirPlaySessionMode.SENDER_MEDIATED_HLS, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
+        trace(
+            "Sender-mediated /play received (${parsed.encoding.name.lowercase(Locale.US)})",
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
         val host = hlsHost
         if (host == null) {
             trace(
                 "Sender-mediated /play (${parsed.scheme}) rejected: no FCUP bridge host in this build",
                 kind = AirPlayTrace.Kind.FAILURE,
             )
+            reportPlaybackState(AirPlayPlaybackState.FAILED, "play-negotiation:no FCUP bridge host")
             return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
-        claimSession(AirPlaySessionMode.SENDER_MEDIATED_HLS, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
         val result = host.startSenderMediatedPlay(
             SenderMediatedPlayRequest(
                 connectionId = traceConnectionId,
@@ -871,8 +946,22 @@ open class RtspHandler(
             RtspResponse(200, "OK", protocol = request.responseProtocol())
         } else {
             val reason = result.reason?.take(96) ?: "unsupported"
-            trace("Sender-mediated /play rejected: $reason", kind = AirPlayTrace.Kind.FAILURE)
-            reportPlaybackState(AirPlayPlaybackState.FAILED, "video transport unavailable: $reason")
+            val stage = when (result.failureStage) {
+                AirPlayPlaybackFailureStage.MANIFEST -> "manifest"
+                AirPlayPlaybackFailureStage.PLAYER_SETUP -> "player-setup"
+                AirPlayPlaybackFailureStage.PLAYER_PREPARATION -> "player-preparation"
+                AirPlayPlaybackFailureStage.FIRST_FRAME -> "first-frame"
+                AirPlayPlaybackFailureStage.SEEK -> "seek"
+                AirPlayPlaybackFailureStage.NETWORK -> "network"
+                AirPlayPlaybackFailureStage.DECODER -> "decoder"
+                AirPlayPlaybackFailureStage.DRM -> "drm"
+                AirPlayPlaybackFailureStage.PLAYBACK -> "playback"
+                AirPlayPlaybackFailureStage.AUDIO_SETUP -> "audio-setup"
+                AirPlayPlaybackFailureStage.PLAY_NEGOTIATION, null -> "play-negotiation"
+                AirPlayPlaybackFailureStage.UNKNOWN -> "playback"
+            }
+            trace("Sender-mediated /play rejected at $stage: $reason", kind = AirPlayTrace.Kind.FAILURE)
+            reportPlaybackState(AirPlayPlaybackState.FAILED, "$stage:$reason")
             RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
     }
@@ -1712,6 +1801,9 @@ open class RtspHandler(
          * the whole session rather than a handshake.
          */
         private const val NO_REQUEST_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+        private const val PTTH_UPGRADE_WRITE_TIMEOUT_MS = 5_000L
+        private const val PTTH_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+        private const val MAX_CLOSE_REASON_CHARS = 128
 
         private const val MAX_MESSAGE_BYTES = 65536
         private const val OCTET_STREAM = "application/octet-stream"

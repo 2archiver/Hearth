@@ -52,6 +52,20 @@
     <string name="protocol_detail_video_playing">Video: playing</string>
     <string name="protocol_detail_video_paused">Video: paused</string>
     <string name="protocol_detail_video_failed">Video playback failed — open the connection log</string>
+    <!-- %1$s = observed pipeline stage; %2$s = URL-free failure detail -->
+    <string name="protocol_detail_video_failed_at">Playback failed at %1$s — %2$s</string>
+    <string name="protocol_stage_audio_setup">audio setup</string>
+    <string name="protocol_stage_play_request">sender /play request</string>
+    <string name="protocol_stage_manifest">master playlist</string>
+    <string name="protocol_stage_player_setup">player setup</string>
+    <string name="protocol_stage_player_preparation">player preparation</string>
+    <string name="protocol_stage_first_frame">first video frame</string>
+    <string name="protocol_stage_seek">seek</string>
+    <string name="protocol_stage_network">media network</string>
+    <string name="protocol_stage_decoder">media decoder</string>
+    <string name="protocol_stage_drm">media protection</string>
+    <string name="protocol_stage_playback">playback</string>
+    <string name="protocol_stage_unknown">unknown stage</string>
     <string name="protocol_detail_video_audio_only">Audio only — the sender is not sending video</string>
     <!-- Per-protocol ERROR details — each card states the real reason instead of a
          generic (and often fake) "Check Wi-Fi settings" hint. -->

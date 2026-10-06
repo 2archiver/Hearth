@@ -65,24 +65,33 @@ internal class ExoUrlVideoBackend(
 
     private val player: ExoPlayer = ExoPlayer.Builder(context)
         .build()
-        .apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                /* handleAudioFocus = */ true,
-            )
-            setHandleAudioBecomingNoisy(true)
+        .also { exo ->
+            try {
+                exo.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    /* handleAudioFocus = */ true,
+                )
+            } catch (error: Exception) {
+                runCatching { exo.release() }
+                throw UrlVideoBackendSetupException(
+                    AirPlayPlaybackFailureStage.AUDIO_SETUP,
+                    "media audio output could not be configured",
+                    error,
+                )
+            }
+            exo.setHandleAudioBecomingNoisy(true)
             // Letterbox/pillarbox inside the surface instead of cropping: the surface is sized to the
             // video's aspect ratio by StreamingScreen, so this only affects the frames rendered
             // between a size change and the next layout pass.
-            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+            exo.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
         }
 
     private var preparedListener: (() -> Unit)? = null
     private var completionListener: (() -> Unit)? = null
-    private var errorListener: ((what: Int, extra: Int) -> Boolean)? = null
+    private var errorListener: ((failure: UrlVideoBackendFailure) -> Boolean)? = null
     private var firstFrameListener: (() -> Unit)? = null
 
     /** `prepare` is reported once per data source; ExoPlayer may become READY again after rebuffering. */
@@ -130,9 +139,11 @@ internal class ExoUrlVideoBackend(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            // PlaybackException messages can embed the URI, so only its numeric code and name pass on.
+            // PlaybackException messages/causes can embed the URI, so classify only its stable code
+            // name and send a URL-free failure stage to the controller.
             Logger.w("URL video: ExoPlayer error code=${error.errorCode} name=${error.errorCodeName}")
-            val handled = errorListener?.invoke(error.errorCode, 0) ?: false
+            val failure = classifyPlaybackError(error.errorCodeName)
+            val handled = errorListener?.invoke(failure) ?: false
             if (!handled) Logger.d("URL video: player error was not handled by the session")
         }
 
@@ -150,6 +161,32 @@ internal class ExoUrlVideoBackend(
         }
     }
 
+    private fun classifyPlaybackError(codeName: String): UrlVideoBackendFailure {
+        val normalized = codeName.uppercase()
+        return when {
+            "DRM" in normalized -> UrlVideoBackendFailure(
+                AirPlayPlaybackFailureStage.DRM,
+                "protected media is not supported",
+            )
+            "PARSING_MANIFEST" in normalized || "MANIFEST" in normalized -> UrlVideoBackendFailure(
+                AirPlayPlaybackFailureStage.MANIFEST,
+                "media manifest could not be parsed",
+            )
+            normalized.startsWith("ERROR_CODE_IO") || "NETWORK" in normalized -> UrlVideoBackendFailure(
+                AirPlayPlaybackFailureStage.NETWORK,
+                "media network request failed",
+            )
+            "DECODING" in normalized -> UrlVideoBackendFailure(
+                AirPlayPlaybackFailureStage.DECODER,
+                "media decoder could not render the stream",
+            )
+            else -> UrlVideoBackendFailure(
+                AirPlayPlaybackFailureStage.PLAYBACK,
+                "media playback failed",
+            )
+        }
+    }
+
     init {
         player.addListener(listener)
     }
@@ -162,7 +199,7 @@ internal class ExoUrlVideoBackend(
         completionListener = listener
     }
 
-    override fun setOnErrorListener(listener: ((what: Int, extra: Int) -> Boolean)?) {
+    override fun setOnErrorListener(listener: ((failure: UrlVideoBackendFailure) -> Boolean)?) {
         errorListener = listener
     }
 
