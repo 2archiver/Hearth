@@ -1,5 +1,6 @@
 package com.phairplay.airplay
 
+import com.phairplay.airplay.handshake.FcupCodec
 import com.phairplay.airplay.handshake.PlistCodec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
