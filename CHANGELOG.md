@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.1] — PTTH response framing and truthful video status
+
+Fix the sender-mediated video exchange path introduced in 1.9.0. On an upgraded `/reverse` socket,
+the sender's `HTTP/1.1` / `EVENT/1.0` reply frames belong to PTTH, not RTSP. Hearth now consumes
+those bounded response frames and keeps the upgraded connection available for later FCUP requests;
+it also prevents an FCUP write from racing ahead of the complete `101 Switching Protocols` reply.
+This is a protocol-path correction, not a claim of verified Apple YouTube app playback on Google TV.
+
+### Fixed
+- Read fixed-length and chunked PTTH response bodies without retaining them or routing the response
+  status line through the RTSP dispatcher. Reject malformed, ambiguous, oversized or truncated
+  frames; close/release an idle or explicitly closed channel with a stated reason.
+- Publish a warming sender-mediated bridge before requesting its master playlist, so an immediate
+  `POST /action` can be matched while `/play` is waiting. Keep the previous active bridge until the
+  replacement master is loaded, use process-wide FCUP request IDs, coalesce same-URL fetches, and
+  revoke stale reverse sockets when ownership changes.
+- Treat FCUP fetched-resource 2xx statuses (including 200) as success; reject non-2xx results.
+- Keep player preparation distinct from actual video: only a rendered first frame reports
+  `PLAYING`. The Home card now collects URL-free failure stages for `/play`, manifest, audio/player
+  setup, preparation, network/decoder/protection errors, seek and first frame.
+
+### Validation and compatibility
+- Added PTTH framing/socket-loop, coordinator lifecycle, FCUP status/ID/deduplication, binary request
+  body and failure-classification tests. These tests and the Gradle build were **NOT RUN** in this
+  environment because no Java runtime or `JAVA_HOME` is available.
+- Apple YouTube app → AirPlay picker → Hearth on Google TV first-frame and audio/control validation
+  are **NOT RUN** (no `adb` or test device). Therefore 1.9.1 must not be described as an end-to-end
+  verified YouTube fix. Safari, Rumble and live-stream compatibility are not inferred from this path.
+- Versioning remains on the established `phairplay.versionName` / clock-derived `versionCode`
+  convention. The application ID, updater repository and signing identity are unchanged.
+
 ## [1.9.0] — video, not just a connection
 
 Direct successor to 1.8.3: same signing key, same package id, same updater repository. The base

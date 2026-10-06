@@ -1,6 +1,8 @@
 package com.phairplay.airplay
 
+import com.phairplay.airplay.handshake.FcupCodec
 import com.phairplay.airplay.handshake.PlistCodec
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -26,6 +28,37 @@ class RtspRobustnessTest {
         val second = reader().read(input)
         assertEquals("OPTIONS", second!!.method)
         assertEquals("4", second.header("cseq"))
+    }
+
+    @Test
+    fun `photo and action payloads stay binary and do not consume the next request`() {
+        val photo = byteArrayOf(0x00, 0x80.toByte(), 0xFF.toByte())
+        val action = byteArrayOf(0xFF.toByte(), 0x00, 0xC3.toByte())
+        val prefix = "PUT /photo HTTP/1.1\r\nContent-Length: ${photo.size}\r\n\r\n"
+        val middle = "POST http://sender.local/action HTTP/1.1\r\nContent-Length: ${action.size}\r\n\r\n"
+        val suffix = "OPTIONS * RTSP/1.0\r\nCSeq: 9\r\n\r\n"
+        val wire = prefix.toByteArray() + photo + middle.toByteArray() + action + suffix.toByteArray()
+        val input = ByteArrayInputStream(wire)
+
+        val first = reader().read(input)!!
+        val second = reader().read(input)!!
+        val third = reader().read(input)!!
+
+        assertEquals("", first.body)
+        assertArrayEquals(photo, first.bodyBytes)
+        assertEquals("", second.body)
+        assertArrayEquals(action, second.bodyBytes)
+        assertEquals("OPTIONS", third.method)
+    }
+
+    @Test
+    fun `action payload length is rejected before allocating or reading its body`() {
+        val length = FcupCodec.MAX_ACTION_BODY_BYTES + 1
+        val wire = "POST /action HTTP/1.1\r\nContent-Length: $length\r\n\r\n"
+        val outcome = reader().readDetailed(ByteArrayInputStream(wire.toByteArray()))
+
+        assertTrue(outcome is RtspRequestReader.ReadOutcome.End)
+        assertTrue((outcome as RtspRequestReader.ReadOutcome.End).reason.contains("exceeds limit"))
     }
 
     @Test

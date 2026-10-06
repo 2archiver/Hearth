@@ -67,6 +67,8 @@ internal object FcupCodec {
     const val MAX_URL_CHARS = 8 * 1024
     const val MAX_SESSION_ID_CHARS = 128
     const val MAX_DATA_BYTES = 8 * 1024 * 1024
+    /** Plist framing, URL and field overhead above the bounded response payload. */
+    const val MAX_ACTION_BODY_BYTES = MAX_DATA_BYTES + MAX_URL_CHARS + 64 * 1024
 
     /**
      * Builds the XML plist body of an FCUP request: "fetch [mediaUrl] with request id [requestId]
@@ -78,8 +80,17 @@ internal object FcupCodec {
      *   segment the playlist named by a reference only the sender can resolve).
      * @param requestId receiver-assigned correlation id; the sender echoes it in its reply.
      */
-    fun buildEventRequest(sessionId: String, mediaUrl: String, requestId: Long): ByteArray =
-        PlistCodec.encodeXml(
+    fun buildEventRequest(sessionId: String, mediaUrl: String, requestId: Long): ByteArray {
+        require(sessionId.isNotBlank() && sessionId.length <= MAX_SESSION_ID_CHARS) {
+            "sender session id is missing or exceeds the limit"
+        }
+        require(sessionId.all { it.code in 0x20..0x7E }) { "sender session id contains a control character" }
+        require(mediaUrl.isNotBlank() && mediaUrl.length <= MAX_URL_CHARS) {
+            "media URL is missing or exceeds the limit"
+        }
+        // UxPlay stores the wire value in a C int. Keep the correlation value positive and in range.
+        require(requestId in 1L..Int.MAX_VALUE.toLong()) { "request id is outside the supported range" }
+        return PlistCodec.encodeXml(
             mapOf(
                 "sessionID" to SESSION_ID_VALUE,
                 "type" to REQUEST_TYPE,
@@ -96,6 +107,7 @@ internal object FcupCodec {
                 ),
             )
         )
+    }
 
     /** What a decoded `POST /action` body turned out to be. */
     internal sealed interface ActionParse {
@@ -136,7 +148,7 @@ internal object FcupCodec {
      */
     fun parseAction(body: ByteArray): ActionParse {
         if (body.isEmpty()) return ActionParse.Invalid("empty body")
-        if (body.size > MAX_DATA_BYTES + MAX_URL_CHARS) return ActionParse.Invalid("body exceeds limit")
+        if (body.size > MAX_ACTION_BODY_BYTES) return ActionParse.Invalid("body exceeds limit")
         val fields = runCatching { PlistCodec.decode(body) }.getOrElse {
             return ActionParse.Invalid("plist decode failed (${it.javaClass.simpleName})")
         }

@@ -69,6 +69,7 @@ class HomeFragment : Fragment() {
     private var appleCastingState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
     private var airPlayPlaybackState: com.phairplay.airplay.AirPlayPlaybackState? = null
+    private var airPlayPlaybackFailure: com.phairplay.airplay.AirPlayPlaybackFailure? = null
     /** The name mDNS actually registered (differs from the requested one on a collision). */
     private var registeredName: String? = null
     /** The name the user asked for; kept so a late mDNS registration can be compared to it. */
@@ -146,13 +147,36 @@ class HomeFragment : Fragment() {
     }
 
     private fun airPlayPlaybackDetail(): String? = when (airPlayPlaybackState) {
-        com.phairplay.airplay.AirPlayPlaybackState.FAILED -> getString(R.string.protocol_detail_video_failed)
+        com.phairplay.airplay.AirPlayPlaybackState.FAILED -> {
+            val failure = airPlayPlaybackFailure
+            if (failure == null) getString(R.string.protocol_detail_video_failed)
+            else getString(
+                R.string.protocol_detail_video_failed_at,
+                getString(playbackFailureStageLabel(failure.stage)),
+                failure.detail,
+            )
+        }
         com.phairplay.airplay.AirPlayPlaybackState.LOADING -> getString(R.string.protocol_detail_video_loading)
         com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> getString(R.string.protocol_detail_video_playing)
         com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> getString(R.string.protocol_detail_video_paused)
         com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY ->
             getString(R.string.protocol_detail_video_audio_only)
         else -> null
+    }
+
+    private fun playbackFailureStageLabel(stage: com.phairplay.airplay.AirPlayPlaybackFailureStage): Int = when (stage) {
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.AUDIO_SETUP -> R.string.protocol_stage_audio_setup
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.PLAY_NEGOTIATION -> R.string.protocol_stage_play_request
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.MANIFEST -> R.string.protocol_stage_manifest
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.PLAYER_SETUP -> R.string.protocol_stage_player_setup
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.PLAYER_PREPARATION -> R.string.protocol_stage_player_preparation
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.FIRST_FRAME -> R.string.protocol_stage_first_frame
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.SEEK -> R.string.protocol_stage_seek
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.NETWORK -> R.string.protocol_stage_network
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.DECODER -> R.string.protocol_stage_decoder
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.DRM -> R.string.protocol_stage_drm
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.PLAYBACK -> R.string.protocol_stage_playback
+        com.phairplay.airplay.AirPlayPlaybackFailureStage.UNKNOWN -> R.string.protocol_stage_unknown
     }
 
     private fun airPlayConnectedFormat(): Int = when (airPlayPlaybackState) {
@@ -292,6 +316,12 @@ class HomeFragment : Fragment() {
             launch {
                 svc.airPlayPlaybackState.collectLatest { state ->
                     airPlayPlaybackState = state
+                    refreshProtocolCardDetails()
+                }
+            }
+            launch {
+                svc.airPlayPlaybackFailure.collectLatest { failure ->
+                    airPlayPlaybackFailure = failure
                     refreshProtocolCardDetails()
                 }
             }

@@ -8,9 +8,9 @@ package com.phairplay.airplay
  * request on another, and the sender's answers arrive as `POST /action` on a third. The receiver has
  * to own that state for the session, while [RtspHandler] stays a per-connection protocol adapter.
  *
- * [AirPlayReceiver] implements this. When no host is supplied, a sender-mediated `/play` is refused
- * with 400 and an explicit trace line — the honest answer, and exactly what Hearth did before the
- * bridge existed.
+ * [AirPlayReceiver] owns a [SenderMediatedHlsCoordinator] and supplies it to every handler. When no
+ * host is supplied, a sender-mediated `/play` is refused with 400 and an explicit trace line — the
+ * honest answer, and exactly what Hearth did before the bridge existed.
  */
 interface SenderMediatedHlsHost {
 
@@ -21,12 +21,14 @@ interface SenderMediatedHlsHost {
      *   (the reverse upgrade does not require it; the `/play` request always carries it)
      * @param writer writes one complete request frame to that connection; returns false when the
      *   socket is gone
+     * @param revoke closes this upgraded socket when its offer is revoked; the reason is URL-free
      * @return true when the receiver accepted the channel
      */
     fun registerReverseChannel(
         connectionId: String,
         senderSessionId: String?,
         writer: (ByteArray) -> Boolean,
+        revoke: (reason: String) -> Unit = {},
     ): Boolean
 
     /** The reverse channel of [connectionId] is gone (connection closed); drop it if it is held. */
@@ -59,10 +61,17 @@ data class SenderMediatedPlayRequest(
 )
 
 /** Whether the sender-mediated session is serving, or a short URL-free reason it is not. */
-data class SenderMediatedPlayResult(val accepted: Boolean, val reason: String? = null) {
+data class SenderMediatedPlayResult(
+    val accepted: Boolean,
+    val reason: String? = null,
+    val failureStage: AirPlayPlaybackFailureStage? = null,
+) {
     companion object {
         val ACCEPTED = SenderMediatedPlayResult(true)
-        fun reject(reason: String) = SenderMediatedPlayResult(false, reason)
+        fun reject(
+            reason: String,
+            stage: AirPlayPlaybackFailureStage = AirPlayPlaybackFailureStage.PLAY_NEGOTIATION,
+        ) = SenderMediatedPlayResult(false, reason, stage)
     }
 }
 

@@ -25,6 +25,28 @@ enum class AirPlayPlaybackState {
     DISCONNECTED,
 }
 
+/** Which observed stage failed; prepared/ready never implies that a video frame was rendered. */
+enum class AirPlayPlaybackFailureStage {
+    AUDIO_SETUP,
+    PLAY_NEGOTIATION,
+    MANIFEST,
+    PLAYER_SETUP,
+    PLAYER_PREPARATION,
+    FIRST_FRAME,
+    SEEK,
+    NETWORK,
+    DECODER,
+    DRM,
+    PLAYBACK,
+    UNKNOWN,
+}
+
+/** URL-free playback failure published to the service/UI and kept distinct from protocol state. */
+data class AirPlayPlaybackFailure(
+    val stage: AirPlayPlaybackFailureStage,
+    val detail: String,
+)
+
 enum class AirPlayConnectionRole {
     CONTROL,
     REVERSE_EVENT,
@@ -41,6 +63,16 @@ enum class AirPlayMediaRole {
 }
 
 data class SessionToken(val sessionId: String, val generation: Long)
+
+/** One-way association key for an actual sender protocol id; raw ids never enter diagnostics. */
+internal object AirPlaySessionFingerprint {
+    fun of(protocolSessionId: String?): String? {
+        val value = protocolSessionId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+        return digest.take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+}
 
 data class SessionClaim(
     val token: SessionToken,

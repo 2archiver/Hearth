@@ -11,6 +11,20 @@ internal interface UrlVideoSurface {
     val platformSurface: android.view.Surface? get() = null
 }
 
+/** A typed, sanitized player failure; backend messages may contain signed media URLs. */
+internal data class UrlVideoBackendFailure(
+    val stage: AirPlayPlaybackFailureStage,
+    val detail: String,
+)
+
+internal class UrlVideoBackendSetupException(
+    val stage: AirPlayPlaybackFailureStage,
+    val safeDetail: String,
+    cause: Throwable,
+) : RuntimeException(safeDetail, cause)
+
+private fun AirPlayPlaybackFailureStage.wireName(): String = name.lowercase().replace('_', '-')
+
 /**
  * Narrow media-player boundary, so session lifecycle can be tested without a native player.
  *
@@ -22,7 +36,7 @@ internal interface UrlVideoSurface {
 internal interface UrlVideoBackend {
     fun setOnPreparedListener(listener: (() -> Unit)?)
     fun setOnCompletionListener(listener: (() -> Unit)?)
-    fun setOnErrorListener(listener: ((what: Int, extra: Int) -> Boolean)?)
+    fun setOnErrorListener(listener: ((failure: UrlVideoBackendFailure) -> Boolean)?)
     fun setDataSource(url: String)
     fun prepareAsync()
     fun setSurface(surface: UrlVideoSurface?)
@@ -222,9 +236,9 @@ internal class UrlVideoPlaybackController(
                     if (backend === player) finish()
                 }
             }
-            player.setOnErrorListener { what, extra ->
+            player.setOnErrorListener { failure ->
                 onMain {
-                    if (backend === player) fail(player, "decoder/network error $what/$extra")
+                    if (backend === player) fail(player, failure)
                 }
                 true
             }
@@ -246,9 +260,13 @@ internal class UrlVideoPlaybackController(
         } catch (error: Throwable) {
             val current = backend
             if (current == null) {
-                logFailure("setup", error)
-                AirPlayTrace.record("URL video failed: setup")
-                reportState(AirPlayPlaybackState.FAILED, "player setup failed")
+                val setupFailure = error as? UrlVideoBackendSetupException
+                val stage = setupFailure?.stage ?: AirPlayPlaybackFailureStage.PLAYER_SETUP
+                val detail = setupFailure?.safeDetail ?: "video player could not be started"
+                val wireReason = "${stage.wireName()}:${detail.take(120)}"
+                logFailure(stage.wireName(), error)
+                AirPlayTrace.record("URL video failed at ${stage.wireName()}")
+                reportState(AirPlayPlaybackState.FAILED, wireReason)
                 finish(failed = true)
             } else {
                 fail(current, "setup", error)
@@ -294,6 +312,12 @@ internal class UrlVideoPlaybackController(
     private fun onPrepared(player: UrlVideoBackend) {
         prepared = true
         preparedAtMillis = clockMillis()
+        AirPlayTrace.record(
+            "URL video: player prepared; waiting for a valid surface and first rendered frame",
+            role = if (sessionSource != null) SenderMediatedHlsBridge.ROLE
+            else AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
         reportState(AirPlayPlaybackState.LOADING)
         runCatching {
             val initialMs = if (startInSeconds) {
@@ -358,6 +382,23 @@ internal class UrlVideoPlaybackController(
             .onFailure { Logger.e("URL video audio-ownership callback failed (${it.javaClass.simpleName})") }
     }
 
+    private fun fail(player: UrlVideoBackend, failure: UrlVideoBackendFailure) {
+        if (backend !== player) return
+        val stage = failure.stage.wireName()
+        logFailure(stage)
+        val sourceReason = runCatching { sessionSource?.failureReason() }.getOrNull()
+        AirPlayTrace.record(
+            "URL video failed at $stage: ${failure.detail}" + (sourceReason?.let { " ($it)" } ?: "")
+        )
+        val wireReason = if (failure.stage == AirPlayPlaybackFailureStage.PLAYBACK) {
+            "media playback error"
+        } else {
+            "$stage:${failure.detail}"
+        }
+        reportState(AirPlayPlaybackState.FAILED, wireReason)
+        finish(failed = true)
+    }
+
     private fun fail(player: UrlVideoBackend, reason: String, error: Throwable? = null) {
         if (backend !== player) return
         logFailure(reason, error)
@@ -373,12 +414,14 @@ internal class UrlVideoPlaybackController(
     }
 
     private fun safeFailure(reason: String): String = when (reason) {
-        "prepare/surface timeout" -> "prepare/surface timeout"
-        "first frame timeout" -> "video did not start"
-        "setup" -> "player setup failed"
-        "playback state" -> "player state error"
-        "seek", "initial seek" -> "seek failed"
-        else -> "media playback error"
+        "prepare/surface timeout" ->
+            "player-preparation:player did not become ready or acquire a valid surface"
+        "first frame timeout" ->
+            "first-frame:player was prepared, but no video frame reached the display"
+        "setup" -> "player-setup:video player could not be started"
+        "playback state" -> "playback:media playback failed"
+        "seek", "initial seek" -> "seek:seek failed"
+        else -> "playback:media playback failed"
     }
 
     private fun reportState(state: AirPlayPlaybackState, failureReason: String? = null) {

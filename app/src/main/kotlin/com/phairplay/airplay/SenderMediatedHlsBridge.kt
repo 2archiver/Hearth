@@ -69,6 +69,11 @@ internal class SenderMediatedHlsBridge(
     @Volatile
     private var closed = false
 
+    val isWritable: Boolean get() = !closed && channel.isWritable
+
+    /** Used by the coordinator to route `/action` while a replacement bridge is warming up. */
+    fun hasPendingRequest(requestId: Long?): Boolean = channel.hasPending(requestId)
+
     @Volatile
     private var masterBytes: ByteArray? = null
 
@@ -136,9 +141,13 @@ internal class SenderMediatedHlsBridge(
      * without a real YT-EXT-GAP/`#EXT-X-DISCONTINUITY` contract would corrupt the window, and the
      * playlists the sender already gave us are what the player is playing.
      */
-    fun deliver(actionBody: ByteArray): ReverseHttpChannel.Delivery {
+    fun deliver(actionBody: ByteArray): ReverseHttpChannel.Delivery =
+        deliverParsed(FcupCodec.parseAction(actionBody))
+
+    /** Coordinator entry point: one plist decode, then route to the bridge that owns the request id. */
+    internal fun deliverParsed(parsed: FcupCodec.ActionParse): ReverseHttpChannel.Delivery {
         if (closed) return ReverseHttpChannel.Delivery(false, 409, "session is closed")
-        return when (val parsed = FcupCodec.parseAction(actionBody)) {
+        return when (parsed) {
             is FcupCodec.ActionParse.Response -> {
                 val response = parsed.response
                 val status = response.statusCode
@@ -183,7 +192,7 @@ internal class SenderMediatedHlsBridge(
     override fun open(uri: String): ByteArray {
         if (closed) {
             failure = failure ?: "session is closed"
-            throw HlsBridgeException(failure!!)
+            throw HlsBridgeException("session is closed")
         }
         val parsed = runCatching { URI(uri) }.getOrNull() ?: throw HlsBridgeException("unparsable URI")
         if (!parsed.scheme.equals(SCHEME, true)) throw HlsBridgeException("not a sender-mediated URI")
@@ -305,14 +314,15 @@ internal class SenderMediatedHlsBridge(
     }
 
     /** Releases the session: refusing new reads and answering every waiting one with a reason. */
-    fun close() {
+    fun close(reason: String = "session ended") {
         synchronized(lock) {
             if (closed) return
             closed = true
+            failure = failure ?: reason
             masterBytes = null
             cache.clear()
         }
-        channel.close("session ended")
+        channel.close(reason)
     }
 
     /** Resolves references to stable player-facing URIs, bounded in count. */
@@ -397,7 +407,8 @@ internal class SenderMediatedHlsBridge(
         const val ROLE = "SENDER_HLS"
 
         const val DEFAULT_MAX_PLAYLIST_BYTES = 8 * 1024 * 1024
-        const val DEFAULT_MAX_SEGMENT_BYTES = 32 * 1024 * 1024
+        // A response is carried in one bounded FCUP /action plist; keep item and codec limits aligned.
+        const val DEFAULT_MAX_SEGMENT_BYTES = FcupCodec.MAX_DATA_BYTES
         const val DEFAULT_CACHE_BYTES = 8 * 1024 * 1024
 
         /** A master playlist never legitimately names this many variants/renditions. */

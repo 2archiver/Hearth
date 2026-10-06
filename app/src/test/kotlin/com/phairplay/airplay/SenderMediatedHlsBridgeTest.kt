@@ -10,6 +10,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The sender-mediated transport end to end, with a fake sender on the other side of the reverse
@@ -255,6 +256,101 @@ class SenderMediatedHlsBridgeTest {
         sender.answers[MASTER_URI] = "#EXTM3U\n"
         sender.autoAnswer = true
         assertTrue(bridge.open(bridge.playerUri).isNotEmpty())
+    }
+
+    @Test
+    fun `an HTTP 200 FCUP status is a successful playlist response`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = "#EXTM3U\n"
+        sender.statusOverride = 200
+        val bridge = bridge(sender)
+
+        val result = bridge.open(bridge.playerUri).toString(Charsets.UTF_8)
+
+        assertTrue(result.startsWith("#EXTM3U"))
+    }
+
+    @Test
+    fun `simultaneous fetches of one url share one reverse request`() {
+        val sender = FakeSender(session.sessionId)
+        sender.autoAnswer = false
+        val channel = sender.install(requestTimeoutMs = 2_000)
+        val results = CopyOnWriteArrayList<ByteArray>()
+        val failures = CopyOnWriteArrayList<Throwable>()
+        val done = CountDownLatch(2)
+        val url = "https://cdn.example/shared.m3u8"
+
+        repeat(2) { index ->
+            val fetchThread = Thread {
+                runCatching { results += channel.fetch(url, "media playlist") }
+                    .onFailure { failures += it }
+                done.countDown()
+            }
+            fetchThread.start()
+            waitFor { sender.requests.isNotEmpty() }
+            if (index == 1) waitFor {
+                fetchThread.state in setOf(Thread.State.WAITING, Thread.State.TIMED_WAITING)
+            }
+        }
+
+        assertEquals("same-URL callers must not issue duplicate FCUP requests", 1, sender.requests.size)
+        val request = sender.requests.single()
+        channel.deliver(request.id, request.url, 200, "#EXTM3U\n".toByteArray(), session.sessionId)
+
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+        assertTrue(failures.toString(), failures.isEmpty())
+        assertEquals(2, results.size)
+        assertTrue(results.all { it.contentEquals("#EXTM3U\n".toByteArray()) })
+        channel.close("test complete")
+    }
+
+    @Test
+    fun `request ids do not collide across channel instances or accept a stale reply`() {
+        val oldSender = FakeSender(session.sessionId).apply { autoAnswer = false }
+        val oldChannel = oldSender.install(requestTimeoutMs = 2_000)
+        val oldResult = AtomicReference<ByteArray?>()
+        val oldFailure = AtomicReference<Throwable?>()
+        val oldDone = CountDownLatch(1)
+        Thread {
+            runCatching { oldResult.set(oldChannel.fetch(MASTER_URI, "master playlist")) }
+                .onFailure(oldFailure::set)
+            oldDone.countDown()
+        }.start()
+        waitFor { oldSender.requests.isNotEmpty() }
+        val staleRequest = oldSender.requests.single()
+        oldChannel.close("old session replaced")
+        assertTrue(oldDone.await(2, TimeUnit.SECONDS))
+        assertTrue(oldFailure.get() is HlsBridgeException)
+
+        val newSender = FakeSender(session.sessionId).apply { autoAnswer = false }
+        val newChannel = newSender.install(requestTimeoutMs = 2_000)
+        val newResult = AtomicReference<ByteArray?>()
+        val newFailure = AtomicReference<Throwable?>()
+        val newDone = CountDownLatch(1)
+        Thread {
+            runCatching { newResult.set(newChannel.fetch(MASTER_URI, "master playlist")) }
+                .onFailure(newFailure::set)
+            newDone.countDown()
+        }.start()
+        waitFor { newSender.requests.isNotEmpty() }
+        val currentRequest = newSender.requests.single()
+
+        assertFalse("a new channel must not restart at a colliding id", staleRequest.id == currentRequest.id)
+        val staleDelivery = newChannel.deliver(
+            staleRequest.id, staleRequest.url, 200, "STALE".toByteArray(), session.sessionId,
+        )
+        assertFalse(staleDelivery.accepted)
+        assertTrue(staleDelivery.summary.contains("ignored"))
+        assertTrue("a stale reply must not complete the new wait", newDone.count == 1L)
+
+        newChannel.deliver(
+            currentRequest.id, currentRequest.url, 200, "FRESH".toByteArray(), session.sessionId,
+        )
+        assertTrue(newDone.await(2, TimeUnit.SECONDS))
+        assertEquals(null, newFailure.get())
+        assertEquals("FRESH", newResult.get()?.toString(Charsets.UTF_8))
+        oldChannel.close("test complete")
+        newChannel.close("test complete")
     }
 
     @Test
