@@ -192,7 +192,7 @@ internal class SenderMediatedHlsBridge(
     override fun open(uri: String): ByteArray {
         if (closed) {
             failure = failure ?: "session is closed"
-            throw HlsBridgeException(failure!!)
+            throw HlsBridgeException("session is closed")
         }
         val parsed = runCatching { URI(uri) }.getOrNull() ?: throw HlsBridgeException("unparsable URI")
         if (!parsed.scheme.equals(SCHEME, true)) throw HlsBridgeException("not a sender-mediated URI")

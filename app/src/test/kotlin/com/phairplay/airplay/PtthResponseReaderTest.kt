@@ -1,6 +1,8 @@
 package com.phairplay.airplay
 
 import android.content.Context
+import android.content.SharedPreferences
+import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -106,8 +108,12 @@ class PtthResponseReaderTest {
             override fun startSenderMediatedPlay(request: SenderMediatedPlayRequest) = SenderMediatedPlayResult.ACCEPTED
             override fun deliverAction(senderSessionId: String?, body: ByteArray) = SenderMediatedActionResult(200, "test")
         }
+        val preferences = mockk<SharedPreferences>()
+        every { preferences.getString("pairing_ed25519_seed", null) } returns "00".repeat(32)
+        val context = mockk<Context>()
+        every { context.getSharedPreferences("phairplay_prefs", Context.MODE_PRIVATE) } returns preferences
         val handler = RtspHandler(
-            context = mockk<Context>(relaxed = true),
+            context = context,
             videoSurfaceProvider = { null },
             onStreamingStarted = {},
             onStreamingStopped = {},

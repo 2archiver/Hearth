@@ -288,7 +288,9 @@ class SenderMediatedHlsBridgeTest {
             }
             fetchThread.start()
             waitFor { sender.requests.isNotEmpty() }
-            if (index == 1) waitFor { fetchThread.state == Thread.State.WAITING }
+            if (index == 1) waitFor {
+                fetchThread.state in setOf(Thread.State.WAITING, Thread.State.TIMED_WAITING)
+            }
         }
 
         assertEquals("same-URL callers must not issue duplicate FCUP requests", 1, sender.requests.size)

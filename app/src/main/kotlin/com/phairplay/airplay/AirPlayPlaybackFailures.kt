@@ -26,7 +26,8 @@ internal object AirPlayPlaybackFailures {
                 AirPlayPlaybackFailureStage.PLAYER_SETUP -> "video player could not be started"
                 AirPlayPlaybackFailureStage.AUDIO_SETUP -> "AirPlay audio setup failed"
                 AirPlayPlaybackFailureStage.PLAYER_PREPARATION -> "player did not become ready"
-                AirPlayPlaybackFailureStage.FIRST_FRAME -> "no video frame reached the display"
+                AirPlayPlaybackFailureStage.FIRST_FRAME ->
+                    "player was prepared, but no video frame reached the display"
                 AirPlayPlaybackFailureStage.SEEK -> "seek failed"
                 AirPlayPlaybackFailureStage.NETWORK -> "media network request failed"
                 AirPlayPlaybackFailureStage.DECODER -> "media decoder could not render the stream"

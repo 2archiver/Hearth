@@ -371,27 +371,28 @@ open class RtspHandler(
      */
     override fun serve() {
         val socket = client ?: return
-        val inputStream = socket.getInputStream()
-        val outputStream = socket.getOutputStream()
-
-        // The first read is the one that has to be patient.
-        //
-        // WHY: an Apple sender's *event channel* is a second TCP connection that sends **nothing**
-        // — the receiver writes to it. If the port is not "connected" for the sender, the session
-        // fails, so an idle connection here is normal and must not be dropped; it only has to be
-        // released when the session truly ends. Ten minutes of complete silence on a socket that
-        // has never sent a request is a dead peer.
-        socket.soTimeout = NO_REQUEST_IDLE_TIMEOUT_MS
-
-        currentRemoteAddress = socket.inetAddress
-        // Fresh pairing and FairPlay state per connection. Apple opens several connections to
-        // this port, so none of this may be shared: a pair-verify on the control connection and
-        // a probe on another must not see each other's handshake half-finished.
-        pairingSession = PairingSession(PairingKeys.get(context))
-        fairPlay = FairPlay()
         var sawRequest = false
 
         try {
+            val inputStream = socket.getInputStream()
+            val outputStream = socket.getOutputStream()
+
+            // The first read is the one that has to be patient.
+            //
+            // WHY: an Apple sender's *event channel* is a second TCP connection that sends **nothing**
+            // — the receiver writes to it. If the port is not "connected" for the sender, the session
+            // fails, so an idle connection here is normal and must not be dropped; it only has to be
+            // released when the session truly ends. Ten minutes of complete silence on a socket that
+            // has never sent a request is a dead peer.
+            socket.soTimeout = NO_REQUEST_IDLE_TIMEOUT_MS
+
+            currentRemoteAddress = socket.inetAddress
+            // Fresh pairing and FairPlay state per connection. Apple opens several connections to
+            // this port, so none of this may be shared: a pair-verify on the control connection and
+            // a probe on another must not see each other's handshake half-finished.
+            pairingSession = PairingSession(PairingKeys.get(context))
+            fairPlay = FairPlay()
+
             while (!closed && !socket.isClosed) {
                 if (reverseUpgraded) {
                     // The sender's PTTH acknowledgements are responses on this socket, not new RTSP
