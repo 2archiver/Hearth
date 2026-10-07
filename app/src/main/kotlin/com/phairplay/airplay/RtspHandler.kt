@@ -8,6 +8,7 @@ import com.phairplay.airplay.handshake.PlistCodec
 import com.phairplay.util.Logger
 import java.io.OutputStream
 import java.net.Socket
+import java.net.URI
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -215,12 +216,21 @@ open class RtspHandler(
         } else {
             AirPlayPlaybackState.NEGOTIATING
         }
-        sessionToken = onSessionClaim?.invoke(
+        val claimed = onSessionClaim?.invoke(
             traceConnectionId,
             protocolSessionFingerprint,
             role,
             mode,
         ) ?: sessionToken
+        sessionToken = claimed
+        if (closed) {
+            // Stop may close this socket while its claim callback waits for the receiver lock. If
+            // the claim then completes, immediately retire that just-created generation too.
+            explicitTeardown = true
+            closeReason = "connection closed while an AirPlay session claim was completing"
+            stopSession(closeReason, explicit = true)
+            return
+        }
         reportPlaybackState(initialState)
     }
 
@@ -277,7 +287,7 @@ open class RtspHandler(
             currentRole == AirPlayConnectionRole.DIRECT_VIDEO_CONTROL &&
                 (currentMode == AirPlaySessionMode.URL_VIDEO ||
                     currentMode == AirPlaySessionMode.SENDER_MEDIATED_HLS) &&
-                playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.DISCONNECTED)
+playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPED, AirPlayPlaybackState.DISCONNECTED)
             ))
 
     /** Last volume the sender set (AirPlay dB); returned to GET_PARAMETER and GET /info queries. */
@@ -361,7 +371,7 @@ open class RtspHandler(
     private fun isSessionActive(): Boolean =
         isMirrorSession || setupCount > 0 || activeStreamTypes.isNotEmpty() || currentSession != null ||
             (currentMode in URL_VIDEO_MODES &&
-                playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.DISCONNECTED))
+                playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPED, AirPlayPlaybackState.DISCONNECTED))
 
     /**
      * Serves one accepted connection until the peer goes away.
@@ -554,6 +564,15 @@ open class RtspHandler(
         closeQuietly()
     }
 
+    override fun closeSession(token: SessionToken): Boolean {
+        if (sessionToken != token || closed) return false
+        explicitTeardown = true
+        closeReason = "local Stop playback ended the active AirPlay session"
+        closed = true
+        closeQuietly()
+        return true
+    }
+
     private fun closeQuietly() {
         if (!closeProcessed.compareAndSet(false, true)) return
         if (reverseUpgraded) {
@@ -640,6 +659,17 @@ open class RtspHandler(
 
     private fun safeCSeq(value: String): String? =
         value.takeIf { it.length <= 32 && it.all(Char::isDigit) }
+
+    private fun safeMediaScheme(url: String): String =
+        runCatching { URI(url).scheme?.lowercase(Locale.US) }
+            .getOrNull()
+            ?.takeIf { it == "http" || it == "https" }
+            ?: "other"
+
+    private fun safeMediaFormat(url: String): String {
+        val path = runCatching { URI(url).rawPath?.lowercase(Locale.US) }.getOrNull().orEmpty()
+        return if (path.endsWith(".m3u8")) "HLS" else "progressive"
+    }
 
     private fun safeMethod(value: String): String =
         value.uppercase(Locale.US).takeIf { it in KNOWN_METHODS } ?: "OTHER"
@@ -862,7 +892,9 @@ open class RtspHandler(
         is BodyParse.Success -> {
             claimSession(AirPlaySessionMode.URL_VIDEO, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
             trace(
-                "URL video /play accepted (${parsed.encoding.name.lowercase(Locale.US)}, " +
+                "URL video /play accepted (encoding=${parsed.encoding.name.lowercase(Locale.US)}, " +
+                    "scheme=${safeMediaScheme(parsed.request.url)}, " +
+                    "source=${safeMediaFormat(parsed.request.url)}, " +
                     "${if (parsed.request.seconds) "seconds" else "fraction"} offset)",
                 kind = AirPlayTrace.Kind.LIFECYCLE,
             )

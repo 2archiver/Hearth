@@ -21,7 +21,7 @@ class UpdateInfoTest {
           "id": 1,
           "tag_name": "latest",
           "name": "PhairPlay latest (Google TV)",
-          "body": "| Version | 1.4.0-main.131 · versionCode 20432100 |\n| Commit | abc1234 |",
+          "body": "| Version | 1.4.0-main.131 · versionCode 20432100 |\n| Commit | abc1234 |\n| SHA-256 | ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 |",
           "assets": [
             { "name": "PhairPlay-googletv.apk",
               "browser_download_url": "https://github.com/x/y/releases/download/latest/PhairPlay-googletv.apk",
@@ -98,19 +98,20 @@ class UpdateInfoTest {
     @Test
     fun `reads the APK checksum out of SHA256SUMS when there is no descriptor`() {
         val release = requireNotNull(ReleaseParser.parseRelease(releaseJson))
-        val sums = ReleaseParser.parseSha256Sums(
-            "deadbeef  PhairPlay-v1.3.0-googletv.apk\n" +
-                "cafebabe1234  Hearth-googletv.apk\n"
+        val releaseWithoutDigest = release.copy(
+            body = release.body?.substringBefore("\n| SHA-256")
         )
-        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, null, sums))
-        // "cafebabe1234" is not 64 hex chars, so it is rejected as a hash.
-        assertNull(info.sha256)
+        val badSums = ReleaseParser.parseSha256Sums(
+            "cafebabe  PhairPlay-googletv.apk\n"
+        )
+        // A malformed checksum for the actual APK is a hard refusal, not an unverified download.
+        assertNull(ReleaseParser.buildUpdateInfo(releaseWithoutDigest, null, badSums))
 
         val goodSums = ReleaseParser.parseSha256Sums(
-            "0123456789012345678901234567890123456789012345678901234567890123 *Hearth-googletv.apk"
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 *PhairPlay-googletv.apk"
         )
-        val goodInfo = requireNotNull(ReleaseParser.buildUpdateInfo(release, null, goodSums))
-        assertEquals("0123456789012345678901234567890123456789012345678901234567890123", goodInfo.sha256)
+        val goodInfo = requireNotNull(ReleaseParser.buildUpdateInfo(releaseWithoutDigest, null, goodSums))
+        assertEquals("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", goodInfo.sha256)
     }
 
     @Test
@@ -120,6 +121,13 @@ class UpdateInfoTest {
         assertNull(ReleaseParser.parseDescriptor("<html>502 Bad Gateway</html>"))
         assertNull(ReleaseParser.scrapeVersionCode(null))
         assertNull(ReleaseParser.scrapeVersionCode("no version here"))
+    }
+
+    @Test
+    fun `a release without a full checksum cannot produce a downloadable update`() {
+        val release = requireNotNull(ReleaseParser.parseRelease(releaseJson))
+        val withoutDigest = release.copy(body = release.body?.substringBefore("\n| SHA-256"))
+        assertNull(ReleaseParser.buildUpdateInfo(withoutDigest, descriptor = null))
     }
 
     @Test
@@ -199,7 +207,7 @@ class UpdateInfoTest {
           "tag_name": "latest",
           "name": "PhairPlay latest (Google TV)",
           "html_url": "",
-          "body": "**Version:** `1.4.0` · `versionCode 20000000`",
+          "body": "**Version:** `1.4.0` · `versionCode 20000000`\n**SHA-256:** `abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789`",
           "assets": [
             { "name": "PhairPlay-googletv.apk",
               "browser_download_url": "https://github.com/x/y/releases/download/latest/PhairPlay-googletv.apk",

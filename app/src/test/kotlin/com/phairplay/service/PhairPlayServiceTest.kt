@@ -44,6 +44,11 @@ class PhairPlayServiceTest {
     }
 
     @Test
+    fun `ACTION_STOP_PLAYBACK has package-qualified value`() {
+        assertEquals("com.phairplay.action.STOP_PLAYBACK", PhairPlayService.ACTION_STOP_PLAYBACK)
+    }
+
+    @Test
     fun `ACTION_RESTART has package-qualified value`() {
         assertEquals("com.phairplay.action.RESTART", PhairPlayService.ACTION_RESTART)
     }
@@ -62,13 +67,14 @@ class PhairPlayServiceTest {
     }
 
     @Test
-    fun `all three ACTION constants are distinct`() {
+    fun `all lifecycle and playback ACTION constants are distinct`() {
         val actions = setOf(
             PhairPlayService.ACTION_START,
             PhairPlayService.ACTION_STOP,
+            PhairPlayService.ACTION_STOP_PLAYBACK,
             PhairPlayService.ACTION_RESTART
         )
-        assertEquals("All ACTION constants must be unique", 3, actions.size)
+        assertEquals("All ACTION constants must be unique", 4, actions.size)
     }
 
     // ─── ProtocolState → ActiveConnection mapping ─────────────────────────────

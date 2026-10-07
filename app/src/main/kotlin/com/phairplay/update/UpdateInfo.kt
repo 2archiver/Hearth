@@ -11,10 +11,10 @@ import org.json.JSONObject
  * *string* — `1.10.0` sorts before `1.9.0` as text) and "which asset is the APK?" (the
  * release also carries `SHA256SUMS.txt` and `version.json`).
  *
- * HOW: `versionCode` comes from the `version.json` asset the release workflow writes next
- * to the APK. When a release predates that file (or was published by hand) we fall back to
- * scraping "versionCode N" out of the release notes, and finally to comparing version
- * strings — see [ReleaseParser].
+ * HOW: `versionCode`, exact APK size and full SHA-256 are taken from validated release metadata.
+ * New releases put them in the release body; older releases may provide the checksum and size in
+ * `version.json` / `SHA256SUMS.txt`. Missing or conflicting integrity metadata means no update is
+ * offered — see [ReleaseParser].
  */
 data class UpdateInfo(
     /** Human-readable version, e.g. `1.4.0` or `1.4.0-main.123`. */
@@ -31,7 +31,7 @@ data class UpdateInfo(
     val apkUrl: String,
     /** APK size in bytes as reported by GitHub (0 when unknown). */
     val apkSizeBytes: Long,
-    /** Lowercase hex SHA-256 of the APK when the release publishes one (may be null). */
+    /** Lowercase hex SHA-256 of a validated release APK; null only on display-only staged records. */
     val sha256: String?,
     /** Release notes / body, trimmed, null when empty. */
     val notes: String?
@@ -84,17 +84,19 @@ data class Release(
     fun asset(name: String): ReleaseAsset? = assets.firstOrNull { it.name == name }
 
     /**
-     * The release's payload: one APK, named after its version
-     * (`Hearth-1.6.1-main.44-googletv.apk`).
+     * Select the actual Google TV APK returned by GitHub, never simply the first `.apk` asset.
      *
-     * The legacy fixed name is matched first only so old releases keep working; new ones have a
-     * version in the file name. Matching on the `.apk` suffix rather than "the first asset" is the
-     * deliberate part — a stray non-APK file in a release must never be offered to a TV as an
-     * installable update.
+     * A release can contain APKs for more than one device/flavor. Matching the explicit
+     * `-googletv.apk` suffix (including the legacy fixed `PhairPlay-googletv.apk`) keeps the TV
+     * updater from selecting a mobile or otherwise incompatible package. Ambiguous duplicate
+     * Google TV assets are rejected instead of depending on API array order.
      */
-    fun apkAsset(): ReleaseAsset? =
-        asset(UpdateInfo.APK_ASSET)
-            ?: assets.firstOrNull { it.name.endsWith(UpdateInfo.APK_SUFFIX, ignoreCase = true) }
+    fun apkAsset(flavor: String = "googletv"): ReleaseAsset? {
+        if (!flavor.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return null
+        val suffix = "-$flavor.apk"
+        val compatible = assets.filter { it.name.endsWith(suffix, ignoreCase = true) }
+        return compatible.singleOrNull()
+    }
 }
 
 /**
@@ -157,7 +159,7 @@ object ReleaseParser {
      *
      * The release workflow writes `| Version | 1.4.0 · versionCode 20432100 |`, so this
      * looks for `versionCode <digits>` and ignores everything else. Returns null when the
-     * notes do not mention a code — the caller then falls back to comparing version names.
+     * notes do not mention a code; release parsing then refuses to offer an unverifiable update.
      */
     fun scrapeVersionCode(text: String?): Int? {
         if (text.isNullOrBlank()) return null
@@ -226,27 +228,45 @@ object ReleaseParser {
         release: Release,
         descriptor: UpdateDescriptor?,
         checksums: Map<String, String>? = null,
-        fallbackVersionName: String = release.tagName
+        fallbackVersionName: String = release.tagName,
+        compatibleFlavor: String = "googletv",
     ): UpdateInfo? {
-        val apk = release.apkAsset() ?: return null
+        val apk = release.apkAsset(compatibleFlavor) ?: return null
+        val descriptorName = descriptor?.apk?.takeIf { it.isNotBlank() }
+        if (descriptorName != null && descriptorName != apk.name) return null
 
-        val versionCode = descriptor?.versionCode
-            ?: scrapeVersionCode(release.body)
-            ?: 0
+        val notesVersionCode = scrapeVersionCode(release.body)
+        val descriptorVersionCode = descriptor?.versionCode?.takeIf { it > 0 }
+        if (descriptor?.versionCode != null && descriptorVersionCode == null) return null
+        if (descriptorVersionCode != null && notesVersionCode != null &&
+            descriptorVersionCode != notesVersionCode
+        ) return null
+        val versionCode = descriptorVersionCode ?: notesVersionCode ?: return null
 
-        val versionName = descriptor?.versionName
-            ?.takeIf { it.isNotBlank() }
-            ?: versionNameFromAssetName(apk.name)
+        val assetVersionName = versionNameFromAssetName(apk.name)
+        val descriptorVersionName = descriptor?.versionName?.takeIf { it.isNotBlank() }
+        if (assetVersionName != null && descriptorVersionName != null &&
+            normalizeFlavorSuffix(assetVersionName) != normalizeFlavorSuffix(descriptorVersionName)
+        ) return null
+
+        val publishedSize = apk.sizeBytes.takeIf { it > 0L }
+        val descriptorSize = descriptor?.sizeBytes?.takeIf { it > 0L }
+        if (publishedSize != null && descriptorSize != null && publishedSize != descriptorSize) return null
+        val sizeBytes = descriptorSize ?: publishedSize ?: return null
+
+        val checksumValues = listOfNotNull(
+            descriptor?.sha256,
+            checksums?.get(apk.name),
+            scrapeSha256(release.body),
+        ).map { it.trim().lowercase() }
+        if (checksumValues.isEmpty() || checksumValues.any { !SHA256_FULL_REGEX.matches(it) }) return null
+        if (checksumValues.distinct().size != 1) return null
+        val sha256 = checksumValues.first()
+
+        val versionName = descriptorVersionName
+            ?: assetVersionName
             ?: release.name.takeIf { it.isNotBlank() }
             ?: fallbackVersionName
-
-        // Descriptor (old releases) → SHA256SUMS.txt (old releases) → the digest written into the
-        // release body, which is all a one-asset release publishes. A null here does not block the
-        // update; it only means download() cannot prove the file is intact before installing it.
-        val sha256 = descriptor?.sha256
-            ?: checksums?.get(apk.name)
-            ?: checksums?.entries?.firstOrNull { it.key.endsWith(UpdateInfo.APK_SUFFIX, ignoreCase = true) }?.value
-            ?: scrapeSha256(release.body)
 
         return UpdateInfo(
             versionName = versionName,
@@ -255,11 +275,14 @@ object ReleaseParser {
             htmlUrl = release.htmlUrl,
             apkName = apk.name,
             apkUrl = apk.url,
-            apkSizeBytes = descriptor?.sizeBytes ?: apk.sizeBytes,
-            sha256 = sha256?.lowercase()?.takeIf { it.length == 64 },
+            apkSizeBytes = sizeBytes,
+            sha256 = sha256,
             notes = release.body
         )
     }
+
+    private fun normalizeFlavorSuffix(value: String): String =
+        value.removeSuffix("-googletv")
 
     // ─── Internal helpers ────────────────────────────────────────────────────
 
@@ -267,6 +290,7 @@ object ReleaseParser {
 
     /** `SHA-256: ` + up to eight separator characters + 64 hex digits. */
     private val SHA256_REGEX = Regex("""(?i)SHA-?256\W{0,8}([0-9a-f]{64})""")
+    private val SHA256_FULL_REGEX = Regex("(?i)^[0-9a-f]{64}$")
 
     private val ASSET_VERSION_REGEX =
         Regex("""^(?:Hearth|PhairPlay)-(.+?)(?:-googletv)?\.apk$""", RegexOption.IGNORE_CASE)

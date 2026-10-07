@@ -88,4 +88,4 @@ echo "  KEYSTORE_PATH=\$PWD/$OUT KEYSTORE_PASSWORD=… KEY_ALIAS=$ALIAS KEY_PASS
 echo "    ./gradlew :app:assembleGoogletvRelease"
 echo
 echo "Verify an APK was signed with it:"
-echo "  \$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs Hearth-googletv.apk"
+echo "  \$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/googletv/release/app-googletv-release.apk"

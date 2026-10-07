@@ -25,7 +25,7 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Network permissions — local LAN only, no internet required -->
+    <!-- Network permissions — AirPlay runs on the LAN; updater uses HTTPS to GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -66,9 +66,16 @@
     <uses-feature
         android:name="android.hardware.wifi"
         android:required="false" />
+    <!--
+        Cleartext is needed for some sender-hosted AirPlay media URLs. The playback DataSource
+        separately rejects HTTP hosts that do not resolve exclusively to private/link-local LAN
+        addresses; updater and all other external services use HTTPS. Android domain allowlists
+        cannot express an arbitrary phone's changing LAN IP.
+    -->
     <application
         android:name=".PhairPlayApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:banner="@drawable/app_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

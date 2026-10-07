@@ -21,6 +21,7 @@ enum class AirPlayPlaybackState {
      */
     AUDIO_ONLY,
     STOPPING,
+    STOPPED,
     FAILED,
     DISCONNECTED,
 }
@@ -194,7 +195,9 @@ class SessionOwnership {
     fun updatePlaybackState(token: SessionToken?, state: AirPlayPlaybackState): Boolean {
         val session = active?.takeIf { it.token == token } ?: return false
         session.playbackState = state
-        if (state == AirPlayPlaybackState.FAILED || state == AirPlayPlaybackState.DISCONNECTED) {
+        if (state == AirPlayPlaybackState.FAILED || state == AirPlayPlaybackState.STOPPED ||
+            state == AirPlayPlaybackState.DISCONNECTED
+        ) {
             session.mediaRoles.clear()
         }
         return true

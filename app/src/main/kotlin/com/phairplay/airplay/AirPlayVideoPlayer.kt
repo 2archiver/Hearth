@@ -34,6 +34,9 @@ class AirPlayVideoPlayer(
     onFirstFrameRendered: () -> Unit = {},
     onMediaAudioOwnership: (Boolean) -> Unit = {},
     sessionSource: UrlVideoSessionSource? = null,
+    traceSessionId: String? = null,
+    traceConnectionId: String? = null,
+    traceRole: String = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
 ) {
     private val controller = UrlVideoPlaybackController(
         surfaceProvider = { surfaceProvider()?.let(::AndroidUrlVideoSurface) },
@@ -45,6 +48,7 @@ class AirPlayVideoPlayer(
         onFirstFrame = onFirstFrameRendered,
         onAudioOwnership = onMediaAudioOwnership,
         sessionSource = sessionSource,
+        traceContext = UrlVideoTraceContext(traceSessionId, traceConnectionId, traceRole),
     )
 
     fun play(url: String, startPosition: Double, seconds: Boolean = false) =

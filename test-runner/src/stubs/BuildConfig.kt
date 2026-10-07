@@ -13,7 +13,7 @@ package com.phairplay
 object BuildConfig {
 
     /** GitHub repo the in-app updater polls ("owner/name"). */
-    const val UPDATE_REPO = "2archiver/phairplay-archiver-fork-"
+    const val UPDATE_REPO = "2archiver/Hearth"
 
     /** Installed version code — compared against the versionCode of published releases. */
     const val VERSION_CODE = 1

@@ -22,6 +22,12 @@ import java.io.File
  */
 class UpdateManager(private val context: Context) {
 
+    private data class DownloadedApkMetadata(
+        val applicationId: String,
+        val versionCode: Int,
+        val versionName: String?,
+    )
+
     private val checker = UpdateChecker()
     private val installer = UpdateInstaller(context.applicationContext)
     private val prefs = UpdatePreferences(context.applicationContext)
@@ -134,11 +140,43 @@ class UpdateManager(private val context: Context) {
                 UpdateFailureReason.DOWNLOAD_FAILED
             )
 
-        // The release notes are scraped text; the APK is the truth. Reading the versionCode out
-        // of the downloaded package catches the case the notes got wrong (or a release that was
-        // published from an older commit) *before* it becomes an install Android will reject.
-        val realVersionCode = apkVersionCode(downloaded)
-        if (realVersionCode != null && realVersionCode <= installed) {
+        // The release notes are scraped text; the signed APK manifest is the truth. Require the
+        // package identity and both version fields to agree before an APK can be staged.
+        val metadata = apkMetadata(downloaded)
+        if (metadata == null) {
+            downloaded.delete()
+            return@withContext StageResult.Failed(
+                "The download is not a readable Android APK. It was deleted; try again or report the release.",
+                UpdateFailureReason.INVALID_APK
+            )
+        }
+        if (metadata.applicationId != context.packageName || metadata.versionCode != info.versionCode) {
+            Logger.w(
+                "Downloaded APK metadata mismatch (package=${metadata.applicationId}, code=${metadata.versionCode}; " +
+                    "expected package=${context.packageName}, code=${info.versionCode})"
+            )
+            downloaded.delete()
+            return@withContext StageResult.Failed(
+                "The release metadata does not match the downloaded Hearth package/version. " +
+                    "The file was deleted; contact the app maintainer.",
+                UpdateFailureReason.METADATA_MISMATCH
+            )
+        }
+        val assetVersionName = ReleaseParser.versionNameFromAssetName(info.apkName)
+        val apkVersionName = metadata.versionName
+        val apkBaseVersionName = apkVersionName?.removeSuffix("-googletv")
+        if (apkVersionName.isNullOrBlank() ||
+            (assetVersionName != null && assetVersionName != apkBaseVersionName)
+        ) {
+            Logger.w("Downloaded APK versionName does not match its release asset name")
+            downloaded.delete()
+            return@withContext StageResult.Failed(
+                "The APK version name does not match the release asset. The file was deleted; contact the app maintainer.",
+                UpdateFailureReason.METADATA_MISMATCH
+            )
+        }
+        val realVersionCode = metadata.versionCode
+        if (realVersionCode <= installed) {
             Logger.w(
                 "Downloaded APK is build $realVersionCode, installed is $installed — " +
                     "that is a downgrade; deleting it rather than offering an install"
@@ -154,7 +192,12 @@ class UpdateManager(private val context: Context) {
 
         when (installer.verifySignature(downloaded)) {
             SignatureCheck.Match -> {
-                prefs.stage(info, downloaded.absolutePath, versionCode = realVersionCode ?: info.versionCode)
+                prefs.stage(
+                    info,
+                    downloaded.absolutePath,
+                    versionCode = realVersionCode,
+                    apkVersionName = apkVersionName!!,
+                )
                 prefs.installState = null
                 Logger.i("Update staged: ${downloaded.absolutePath}")
                 StageResult.Staged(StagedUpdate(info, downloaded))
@@ -236,8 +279,22 @@ class UpdateManager(private val context: Context) {
             Logger.w("installStaged() called with nothing staged")
             return@withContext InstallStart.NOTHING_STAGED
         }
-        val realCode = apkVersionCode(staged.file)
-        if (realCode != null && InstallPolicy.isStagedObsolete(realCode, installedVersionCode())) {
+        val metadata = apkMetadata(staged.file)
+        val expectedApkVersionName = prefs.stagedApkVersionName
+        if (metadata == null || metadata.applicationId != context.packageName ||
+            metadata.versionCode != staged.info.versionCode ||
+            metadata.versionName.isNullOrBlank() ||
+            (expectedApkVersionName != null && metadata.versionName != expectedApkVersionName)
+        ) {
+            clearDownload()
+            prefs.recordInstallState(
+                InstallState.FAILED,
+                "The staged APK no longer matches its verified package/version metadata; it was deleted."
+            )
+            return@withContext InstallStart.VERIFICATION_FAILED
+        }
+        val realCode = metadata.versionCode
+        if (InstallPolicy.isStagedObsolete(realCode, installedVersionCode())) {
             Logger.w("Staged APK is build $realCode, installed is ${installedVersionCode()} — discarding")
             clearDownload()
             return@withContext InstallStart.NOTHING_STAGED
@@ -310,12 +367,24 @@ class UpdateManager(private val context: Context) {
      * against to decide whether an install is a downgrade, so that is what the updater must
      * compare too.
      */
-    fun apkVersionCode(apk: File): Int? = runCatching {
-        @Suppress("DEPRECATION")
-        val info = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
-        info?.let { if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode.toInt() else it.versionCode }
-    }.onFailure { Logger.w("Could not read the downloaded APK's versionCode: ${it.message}") }
-        .getOrNull()
+    fun apkVersionCode(apk: File): Int? = apkMetadata(apk)?.versionCode
+
+    private fun apkMetadata(apk: File): DownloadedApkMetadata? {
+        return try {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0) ?: return null
+            @Suppress("DEPRECATION")
+            val code = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode.toInt() else info.versionCode
+            DownloadedApkMetadata(
+                applicationId = info.packageName,
+                versionCode = code,
+                versionName = info.versionName,
+            )
+        } catch (error: Exception) {
+            Logger.w("Could not read the downloaded APK's package/version metadata (${error.javaClass.simpleName})")
+            null
+        }
+    }
 
     /** Remembers that the user does not want to be nagged about [versionCode] again. */
     fun skipVersion(versionCode: Int) {

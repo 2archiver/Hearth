@@ -8,9 +8,9 @@
 <meta property="og:title" content="Hearth — AirPlay for Google TV">
 <meta property="og:description" content="Your Apple devices. Your Google TV. One cosy connection. Free, open-source and ad-free.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://2archiver.github.io/phairplay-archiver-fork-/">
+<meta property="og:url" content="https://2archiver.github.io/Hearth/">
 <meta name="theme-color" content="#71334b">
-<link rel="canonical" href="https://2archiver.github.io/phairplay-archiver-fork-/">
+<link rel="canonical" href="https://2archiver.github.io/Hearth/">
 <style>
   :root {
     color-scheme: dark;
@@ -90,8 +90,8 @@
 
   <section class="download" aria-labelledby="download-heading">
     <div>
-      <h2 id="download-heading">Download Hearth <span id="version">1.8</span></h2>
-      <a id="dl-btn" class="btn" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/latest">
+      <h2 id="download-heading">Download Hearth <span id="version">1.9.2</span></h2>
+      <a id="dl-btn" class="btn" href="https://github.com/2archiver/Hearth/releases/latest">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
         <span>Download APK</span>
       </a>
@@ -100,30 +100,29 @@
       <span class="file">Hearth-&lt;version&gt;-googletv.apk</span> file.</p>
     </div>
     <div class="meta">
-      <p><strong id="release-name">Hearth 1.8 for Google TV</strong></p>
+      <p><strong id="release-name">Hearth 1.9.2 for Google TV</strong></p>
       <p><span class="file" id="asset-name">Hearth-&lt;version&gt;-googletv.apk</span></p>
-      <p id="dl-meta" role="status" aria-live="polite">Version 1.8 · the newest build from main</p>
+      <p id="dl-meta" role="status" aria-live="polite">Version 1.9.2 · latest published build</p>
       <details class="sha" id="sha-block" hidden>
         <summary>SHA-256 checksum</summary>
         <code id="dl-sha"></code>
       </details>
       <p class="subtle">Google TV / Android TV OS 10+ · tested on a Google TV 4K on Ethernet (Android TV OS 14)</p>
-      <a id="release-page" class="release-link" href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Full release notes on GitHub →</a>
+      <a id="release-page" class="release-link" href="https://github.com/2archiver/Hearth/releases/tag/latest">Full release notes on GitHub →</a>
     </div>
   </section>
 
   <section aria-labelledby="update-heading">
-    <h2 id="update-heading">What's new in <span id="new-version">1.8</span></h2>
+    <h2 id="update-heading">What's new in <span id="new-version">1.9.2</span></h2>
     <div class="card">
-      <!-- The release notes on GitHub replace this list once they load; what is here is the 1.8
-           summary, so the page still says something true before (or without) the API call. -->
+      <!-- GitHub release notes replace this 1.9.2 fallback after the API responds. -->
       <ul id="update-highlights">
-        <li>Wine-red and cream design, clearer remote focus, a large receiver name and a three-step connection guide.</li>
-        <li>Landscape Now Playing layout with track metadata, bounded artwork and a remote-control hint.</li>
-        <li>Steadier connections: AirPlay timing replies are validated, NTP polling is cancellable, photo and artwork decoding is bounded.</li>
-        <li>Home keeps troubleshooting behind an Activity action, and resetting preferences asks for confirmation first.</li>
+        <li>Handle bounded PTTH replies on the sender-mediated reverse channel and avoid racing FCUP writes ahead of the upgrade response.</li>
+        <li>Report video as playing only after a rendered first frame; expose URL-free failure stages for setup, decoding, protection and first-frame failures.</li>
+        <li>Keep the TV UI and protocol diagnostics bounded and redact media URLs and credentials.</li>
+        <li>Apple YouTube-app AirPlay video has not been verified on a real TV; audio routing or screen mirroring is not proof of video playback.</li>
       </ul>
-      <p><a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Read the full release notes on GitHub</a></p>
+      <p><a href="https://github.com/2archiver/Hearth/releases/tag/latest">Read the full release notes on GitHub</a></p>
     </div>
   </section>
 
@@ -137,7 +136,7 @@
         <li>Install <strong>Downloader</strong> (by AFTVnews) from the Google Play Store on your TV.</li>
         <li>Allow Downloader to install apps: Settings → Apps → Security &amp; restrictions → <strong>Install unknown apps</strong>.</li>
         <li>Open Downloader, enter this address, then select <strong>Go</strong>:
-          <pre id="dl-url">https://github.com/2archiver/phairplay-archiver-fork-/releases/latest</pre>
+          <pre id="dl-url">https://github.com/2archiver/Hearth/releases/latest</pre>
           <p class="subtle" id="dl-url-note">That address opens the release page; Downloader lists its
           single APK — download that file.</p>
         </li>
@@ -158,7 +157,7 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
     <div class="card">
       <h3>Already installed? Just update</h3>
       <p>On the TV, choose <strong>Settings → Updates → Check for updates</strong>. Hearth checks the current GitHub release, verifies its checksum and signing certificate, then offers to install it.</p>
-      <p>Builds from this repository use the same signing key, so updates install straight over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/docs/UPDATES.md">Update help</a></p>
+      <p>Builds from this repository use the same signing key, so updates install straight over the existing app. A one-time reinstall is needed only when switching from a differently signed build. <a href="https://github.com/2archiver/Hearth/blob/main/docs/UPDATES.md">Update help</a></p>
     </div>
   </section>
 
@@ -172,9 +171,9 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
 
   <footer>
     <p><a href="https://ko-fi.com/2archiver">Support Hearth on Ko-fi</a> · Optional support for free, open-source software.</p>
-    <a href="https://github.com/2archiver/phairplay-archiver-fork-">Source on GitHub</a>
-    <a href="https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest">Release notes</a>
-    <a href="https://github.com/2archiver/phairplay-archiver-fork-/blob/main/CHANGELOG.md">Full changelog</a>
+    <a href="https://github.com/2archiver/Hearth">Source on GitHub</a>
+    <a href="https://github.com/2archiver/Hearth/releases/tag/latest">Release notes</a>
+    <a href="https://github.com/2archiver/Hearth/blob/main/CHANGELOG.md">Full changelog</a>
     <span>Apache-2.0 · No ads, no analytics.</span>
   </footer>
 </main>
@@ -182,7 +181,7 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
 <script>
 (function () {
   "use strict";
-  var REPO = "2archiver/phairplay-archiver-fork-";
+  var REPO = "2archiver/Hearth";
   var RELEASE_PAGE = "https://github.com/" + REPO + "/releases/tag/latest";
   // The release's one asset is named after its version, so there is no stable *file* URL to
   // hard-code. Everything without JavaScript points at the release page, which always resolves to
@@ -200,16 +199,31 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
     return match ? match[0] : (release.name || tag || "this build");
   }
 
-  // Today's releases publish exactly one APK, named after its version. Older releases predate that
-  // rule and carry several files, some of them without a version in the name — prefer the asset
-  // that names the version we are labelling, so the downloaded file identifies itself.
+  function isTrustedGoogleTvAsset(asset) {
+    if (!asset || !/-googletv\.apk$/i.test(asset.name || "") ||
+        typeof asset.size !== "number" || asset.size <= 0) return false;
+    var link = document.createElement("a");
+    link.href = asset.browser_download_url || "";
+    return link.protocol === "https:" && link.hostname.toLowerCase() === "github.com" &&
+      !link.username && !link.password && !link.search && !link.hash &&
+      link.pathname.indexOf("/" + REPO + "/releases/download/") === 0;
+  }
+
+  // Today's releases publish one version-named Google TV APK. Older releases may contain several
+  // flavors and unversioned assets; choose only a unique compatible asset actually returned by the
+  // canonical API, and leave the release unavailable rather than guessing when it is ambiguous.
   function pickAsset(release) {
-    var apks = (release.assets || []).filter(function (asset) { return /\.apk$/i.test(asset.name); });
+    var apks = (release.assets || []).filter(isTrustedGoogleTvAsset);
     if (!apks.length) return null;
-    var version = versionLabel(release);
-    return apks.filter(function (asset) { return asset.name.indexOf(version) !== -1; })[0] ||
-      apks.filter(function (asset) { return /\d/.test(asset.name); })[0] ||
-      apks[0];
+    var version = versionLabel(release).toLowerCase();
+    var exactVersion = apks.filter(function (asset) { return asset.name.toLowerCase().indexOf(version) !== -1; });
+    if (exactVersion.length === 1) return exactVersion[0];
+    if (exactVersion.length > 1) return null;
+    var versioned = apks.filter(function (asset) { return /\d/.test(asset.name); });
+    if (versioned.length === 1) return versioned[0];
+    // A fixed-name legacy APK is acceptable only when it is the sole compatible asset. Ambiguity
+    // means the page must not encourage a download of an unknown flavor.
+    return apks.length === 1 ? apks[0] : null;
   }
 
   function dateLabel(value) {

@@ -17,6 +17,13 @@ internal data class UrlVideoBackendFailure(
     val detail: String,
 )
 
+/** Opaque labels used to attach safe player/network diagnostics to the owning RTSP session. */
+internal data class UrlVideoTraceContext(
+    val sessionId: String?,
+    val connectionId: String?,
+    val role: String = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
+)
+
 internal class UrlVideoBackendSetupException(
     val stage: AirPlayPlaybackFailureStage,
     val safeDetail: String,
@@ -47,6 +54,9 @@ internal interface UrlVideoBackend {
     val durationMs: Int
     val positionMs: Int
     fun release()
+
+    /** Supplies redacted session labels before the backend opens any media request. */
+    fun setTraceContext(context: UrlVideoTraceContext?) {}
 
     /** Called when the first decoded frame is actually rendered; never called for audio-only media. */
     fun setOnFirstFrameListener(listener: (() -> Unit)?) {}
@@ -116,6 +126,7 @@ internal class UrlVideoPlaybackController(
      * player fetches the media itself.
      */
     private val sessionSource: UrlVideoSessionSource? = null,
+    private val traceContext: UrlVideoTraceContext? = null,
     private val timeoutMillis: Long = DEFAULT_TIMEOUT_MS,
     private val tickMillis: Long = DEFAULT_TICK_MS,
 ) {
@@ -139,6 +150,7 @@ internal class UrlVideoPlaybackController(
     private var startInSeconds = false
     private var attachedSurface: UrlVideoSurface? = null
     private var deadlineMillis = 0L
+    private var playbackStartMillis = 0L
     private var lastReportedState: AirPlayPlaybackState? = null
 
     @Volatile
@@ -157,7 +169,7 @@ internal class UrlVideoPlaybackController(
                 if (prepared) {
                     if (surface != null && desiredRate > 0f) {
                         if (!current.isPlaying) current.start()
-                        if (!started) AirPlayTrace.record("URL video: playback started")
+                        if (!started) trace("URL video: playback started at ${elapsedPlaybackMillis()}ms")
                         started = true
                     } else if (current.isPlaying) {
                         current.pause()
@@ -214,13 +226,17 @@ internal class UrlVideoPlaybackController(
         firstFrameAtMillis = null
         preparedAtMillis = null
         mediaOwnsAudio = null
-        deadlineMillis = clockMillis() + timeoutMillis
+        playbackStartMillis = clockMillis()
+        deadlineMillis = playbackStartMillis + timeoutMillis
         playbackSnapshot = PlaybackInfo(0.0, 0.0, 0.0, readyToPlay = false)
         reportState(AirPlayPlaybackState.LOADING)
 
         try {
             val player = backendFactory.create(sessionSource)
             backend = player
+            runCatching { player.setTraceContext(traceContext) }
+                .onFailure { Logger.w("URL video: backend rejected diagnostic context") }
+            trace("URL video: player backend created")
             // Start muted: the player can begin rendering audio before its first video frame, and
             // until the handover decision the AirPlay audio stream (the sound the user already has)
             // must not be doubled. See [decideAudioOwnership].
@@ -247,7 +263,7 @@ internal class UrlVideoPlaybackController(
                     if (backend === player && !firstFrameRendered) {
                         firstFrameRendered = true
                         firstFrameAtMillis = clockMillis()
-                        AirPlayTrace.record("URL video: first frame rendered")
+                        trace("URL video: first frame rendered after ${elapsedPlaybackMillis()}ms", AirPlayTrace.Kind.LIFECYCLE)
                         runCatching { onFirstFrame() }
                             .onFailure { Logger.e("URL video first-frame callback failed") }
                         reportState(AirPlayPlaybackState.PLAYING)
@@ -265,7 +281,7 @@ internal class UrlVideoPlaybackController(
                 val detail = setupFailure?.safeDetail ?: "video player could not be started"
                 val wireReason = "${stage.wireName()}:${detail.take(120)}"
                 logFailure(stage.wireName(), error)
-                AirPlayTrace.record("URL video failed at ${stage.wireName()}")
+                trace("URL video failed at ${stage.wireName()} (${elapsedPlaybackMillis()}ms)", AirPlayTrace.Kind.FAILURE)
                 reportState(AirPlayPlaybackState.FAILED, wireReason)
                 finish(failed = true)
             } else {
@@ -312,11 +328,9 @@ internal class UrlVideoPlaybackController(
     private fun onPrepared(player: UrlVideoBackend) {
         prepared = true
         preparedAtMillis = clockMillis()
-        AirPlayTrace.record(
-            "URL video: player prepared; waiting for a valid surface and first rendered frame",
-            role = if (sessionSource != null) SenderMediatedHlsBridge.ROLE
-            else AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
-            kind = AirPlayTrace.Kind.LIFECYCLE,
+        trace(
+            "URL video: player prepared after ${elapsedPlaybackMillis()}ms; waiting for a valid surface and first rendered frame",
+            AirPlayTrace.Kind.LIFECYCLE,
         )
         reportState(AirPlayPlaybackState.LOADING)
         runCatching {
@@ -351,13 +365,14 @@ internal class UrlVideoPlaybackController(
                 mediaOwnsAudio = true
                 runCatching { current.setMuted(false) }
                     .onFailure { Logger.w("URL video: could not unmute the player after takeover") }
-                AirPlayTrace.record("URL video: media carries audio — the player owns the soundtrack")
+                trace("URL video: media carries audio — the player owns the soundtrack", AirPlayTrace.Kind.LIFECYCLE)
                 notifyAudioOwnership(true)
             }
             false -> {
                 mediaOwnsAudio = false
-                AirPlayTrace.record(
-                    "URL video: media has no audio track — the AirPlay audio stream keeps the sound"
+                trace(
+                    "URL video: media has no audio track — the AirPlay audio stream keeps the sound",
+                    AirPlayTrace.Kind.LIFECYCLE,
                 )
                 notifyAudioOwnership(false)
             }
@@ -367,10 +382,11 @@ internal class UrlVideoPlaybackController(
                 val decidedFrom = firstFrameAtMillis ?: preparedAtMillis ?: return
                 if (clockMillis() - decidedFrom < AUDIO_DECISION_GRACE_MS) return
                 mediaOwnsAudio = false
-                AirPlayTrace.record(
+                trace(
                     "URL video: could not tell whether the media carries audio within " +
                         "${AUDIO_DECISION_GRACE_MS / 1000}s — keeping the AirPlay audio stream and " +
-                        "the player muted"
+                        "the player muted",
+                    AirPlayTrace.Kind.LIFECYCLE,
                 )
                 notifyAudioOwnership(false)
             }
@@ -387,8 +403,10 @@ internal class UrlVideoPlaybackController(
         val stage = failure.stage.wireName()
         logFailure(stage)
         val sourceReason = runCatching { sessionSource?.failureReason() }.getOrNull()
-        AirPlayTrace.record(
-            "URL video failed at $stage: ${failure.detail}" + (sourceReason?.let { " ($it)" } ?: "")
+        trace(
+            "URL video failed at $stage after ${elapsedPlaybackMillis()}ms: ${failure.detail}" +
+                (sourceReason?.let { " ($it)" } ?: ""),
+            AirPlayTrace.Kind.FAILURE,
         )
         val wireReason = if (failure.stage == AirPlayPlaybackFailureStage.PLAYBACK) {
             "media playback error"
@@ -406,8 +424,10 @@ internal class UrlVideoPlaybackController(
         // stream, a playlist the sender refused). That reason is URL-free and belongs in the trace:
         // otherwise a failed sender-mediated session and a dead network look identical.
         val sourceReason = runCatching { sessionSource?.failureReason() }.getOrNull()
-        AirPlayTrace.record(
-            "URL video failed: $reason" + (sourceReason?.let { " ($it)" } ?: "")
+        trace(
+            "URL video failed at $reason after ${elapsedPlaybackMillis()}ms" +
+                (sourceReason?.let { " ($it)" } ?: ""),
+            AirPlayTrace.Kind.FAILURE,
         )
         reportState(AirPlayPlaybackState.FAILED, safeFailure(reason))
         finish(failed = true)
@@ -471,6 +491,19 @@ internal class UrlVideoPlaybackController(
             runCatching { old.release() }
         }
     }
+
+    private fun elapsedPlaybackMillis(): Long = (clockMillis() - playbackStartMillis).coerceAtLeast(0L)
+
+    private fun trace(
+        message: String,
+        kind: AirPlayTrace.Kind = AirPlayTrace.Kind.INFO,
+    ) = AirPlayTrace.record(
+        message = message,
+        sessionId = traceContext?.sessionId,
+        connectionId = traceContext?.connectionId,
+        role = traceContext?.role,
+        kind = kind,
+    )
 
     private fun onMain(action: () -> Unit) = scheduler.dispatch(action)
 

@@ -53,7 +53,8 @@ settings — the applicationId and signing key did not change.
 
 ## For contributors
 
-* Release/APK names use `Hearth-…`; the repository name is unchanged (`phairplay-archiver-fork-`),
-  and so is `phairplay.updateRepo` by default.
+* Release/APK names use `Hearth-…`. The canonical repository is now `2archiver/Hearth` and
+  the 1.9.2 updater default follows it; the former repository slug is accepted only as a migration
+  alias in new builds.
 * Historical documents (`docs/archive/`, `docs/superpowers/`, `CHANGELOG.md`) keep the old name
   where they describe the app as it was at the time.

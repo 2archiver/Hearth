@@ -25,6 +25,7 @@
         </LinearLayout>
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:orientation="horizontal" android:gravity="center_vertical">
             <Button android:id="@+id/btn_start" style="@style/Hearth.Control" android:text="@string/action_start" />
+            <Button android:id="@+id/btn_stop_playback" style="@style/Hearth.Control" android:text="@string/action_stop_playback" />
             <Button android:id="@+id/btn_stop" style="@style/Hearth.Control" android:text="@string/action_stop" />
             <Button android:id="@+id/btn_restart" style="@style/Hearth.Control" android:text="@string/action_restart" />
             <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />

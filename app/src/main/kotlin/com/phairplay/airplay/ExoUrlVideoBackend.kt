@@ -10,16 +10,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.phairplay.util.Logger
-import java.io.IOException
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The Android player for AirPlay URL video: Media3/ExoPlayer.
@@ -55,13 +52,18 @@ internal class ExoUrlVideoBackend(
     private val sessionSource: UrlVideoSessionSource?,
 ) : UrlVideoBackend {
 
-    private val hlsFactory = HlsMediaSource.Factory(
-        HearthUrlVideoDataSourceFactory(context, sessionSource)
-    ).setAllowChunklessPreparation(true)
-
-    private val progressiveFactory = ProgressiveMediaSource.Factory(
-        HearthUrlVideoDataSourceFactory(context, sessionSource)
+    @Volatile private var traceContext: UrlVideoTraceContext? = null
+    private val requestSequence = AtomicLong(0L)
+    private val dataSourceFactory = HearthUrlVideoDataSourceFactory(
+        sessionSource = sessionSource,
+        traceContext = { traceContext },
+        requestSequence = requestSequence,
     )
+
+    private val hlsFactory = HlsMediaSource.Factory(dataSourceFactory)
+        .setAllowChunklessPreparation(true)
+
+    private val progressiveFactory = ProgressiveMediaSource.Factory(dataSourceFactory)
 
     private val player: ExoPlayer = ExoPlayer.Builder(context)
         .build()
@@ -102,6 +104,7 @@ internal class ExoUrlVideoBackend(
 
     /** Null until [Tracks] arrive — the controller must not guess who owns the soundtrack. */
     private var audioTrackPresent: Boolean? = null
+    private var unknownTracksLogged = false
 
     /** True once this backend published a video size to [StreamStats], so release can clear it. */
     private var publishedVideoSize = false
@@ -119,22 +122,50 @@ internal class ExoUrlVideoBackend(
             StreamStats.videoHeight = videoSize.height
             StreamStats.videoRes = "${videoSize.width}x${videoSize.height}"
             publishedVideoSize = true
-            AirPlayTrace.record(
-                "URL video: video size ${videoSize.width}x${videoSize.height}",
-                role = "URL_VIDEO",
+            trace(
+                "URL video: decoded video size ${videoSize.width}x${videoSize.height}",
+                AirPlayTrace.Kind.LIFECYCLE,
             )
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            videoTrackPresent = tracks.groups.any { group ->
-                group.type == C.TRACK_TYPE_VIDEO && group.length > 0
+            val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO && it.length > 0 }
+            val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO && it.length > 0 }
+            if (videoGroups.isEmpty() && audioGroups.isEmpty()) {
+                // Media3 can report an empty/metadata-only Tracks snapshot while preparation is
+                // still running. Preserve UNKNOWN rather than turning that transient into AUDIO_ONLY.
+                if (!unknownTracksLogged) {
+                    unknownTracksLogged = true
+                    trace(
+                        "Track discovery still unknown during preparation (groups=${tracks.groups.size})",
+                        AirPlayTrace.Kind.INFO,
+                    )
+                }
+                return
             }
-            audioTrackPresent = tracks.groups.any { group ->
-                group.type == C.TRACK_TYPE_AUDIO && group.length > 0
+
+            videoTrackPresent = videoGroups.isNotEmpty()
+            audioTrackPresent = audioGroups.isNotEmpty()
+            val trackDetail = (videoGroups + audioGroups).joinToString("; ") { group ->
+                val label = if (group.type == C.TRACK_TYPE_VIDEO) "video" else "audio"
+                val supported = (0 until group.length).count(group::isTrackSupported)
+                val selected = (0 until group.length).count(group::isTrackSelected)
+                val mimeTypes = (0 until group.length)
+                    .mapNotNull { index -> group.mediaTrackGroup.getFormat(index).sampleMimeType }
+                    .distinct()
+                    .map(::safeMimeType)
+                    .filter(String::isNotBlank)
+                    .joinToString(",")
+                    .ifBlank { "mime-unknown" }
+                "$label=$mimeTypes supported=$supported/${group.length} selected=$selected"
             }
             Logger.i(
-                "URL video: tracks ready (videoTrack=$videoTrackPresent, " +
-                    "audioTrack=$audioTrackPresent, groups=${tracks.groups.size})"
+                "URL video: tracks confirmed (video=$videoTrackPresent, audio=$audioTrackPresent; $trackDetail)"
+            )
+            trace(
+                "Track discovery confirmed (video=${if (videoTrackPresent) "present" else "absent"}, " +
+                    "audio=${if (audioTrackPresent == true) "present" else "absent"}; $trackDetail)",
+                AirPlayTrace.Kind.LIFECYCLE,
             )
         }
 
@@ -142,6 +173,10 @@ internal class ExoUrlVideoBackend(
             // PlaybackException messages/causes can embed the URI, so classify only its stable code
             // name and send a URL-free failure stage to the controller.
             Logger.w("URL video: ExoPlayer error code=${error.errorCode} name=${error.errorCodeName}")
+            trace(
+                "Media3 player error code=${error.errorCode} name=${error.errorCodeName}",
+                AirPlayTrace.Kind.FAILURE,
+            )
             val failure = classifyPlaybackError(error.errorCodeName)
             val handled = errorListener?.invoke(failure) ?: false
             if (!handled) Logger.d("URL video: player error was not handled by the session")
@@ -191,6 +226,10 @@ internal class ExoUrlVideoBackend(
         player.addListener(listener)
     }
 
+    override fun setTraceContext(context: UrlVideoTraceContext?) {
+        traceContext = context
+    }
+
     override fun setOnPreparedListener(listener: (() -> Unit)?) {
         preparedListener = listener
     }
@@ -211,7 +250,14 @@ internal class ExoUrlVideoBackend(
         prepareReported = false
         videoTrackPresent = true
         audioTrackPresent = null
+        unknownTracksLogged = false
         val uri = Uri.parse(url)
+        val hls = isHls(uri)
+        trace(
+            "Media source selected: ${if (hls) "HLS" else "progressive"}; route=" +
+                if (isBridgeUri(uri)) "sender reverse channel" else "receiver HTTP(S)",
+            AirPlayTrace.Kind.LIFECYCLE,
+        )
         player.setMediaSource(mediaSourceFor(uri, MediaItem.fromUri(uri)))
     }
 
@@ -272,79 +318,28 @@ internal class ExoUrlVideoBackend(
         else progressiveFactory.createMediaSource(mediaItem)
 
     private fun isHls(uri: Uri): Boolean =
-        uri.lastPathSegment?.lowercase()?.endsWith(".m3u8") == true
-}
+        uri.lastPathSegment?.lowercase(Locale.ROOT)?.endsWith(".m3u8") == true
 
-/**
- * Data source for AirPlay video: `http(s)`/file/content locations go to a plain [DefaultDataSource],
- * while `hearth-hls://` URIs are read from the session bridge.
- *
- * A bridge body is fetched whole (the reverse channel is a request/response protocol with no range
- * support) and the requested window is sliced locally, so a player that reads a byte range — a seek,
- * or `#EXT-X-BYTERANGE` segments — still gets exactly the bytes it asked for.
- */
-@UnstableApi
-internal class HearthUrlVideoDataSource(
-    context: Context,
-    private val sessionSource: UrlVideoSessionSource?,
-) : DataSource {
+    private fun isBridgeUri(uri: Uri): Boolean =
+        uri.scheme?.equals(SenderMediatedHlsBridge.SCHEME, ignoreCase = true) == true
 
-    private val delegate: DataSource = DefaultDataSource.Factory(context).createDataSource()
-    private var uri: Uri? = null
-    private var body: ByteArray? = null
-    private var readPosition = 0
-    private var readEnd = 0
+    private fun safeMimeType(value: String?): String =
+        value?.lowercase(Locale.ROOT)?.take(80)
+            ?.takeIf { MIME_TYPE_PATTERN.matches(it) }
+            ?: "mime-unknown"
 
-    override fun addTransferListener(transferListener: TransferListener) {
-        delegate.addTransferListener(transferListener)
+    private fun trace(message: String, kind: AirPlayTrace.Kind = AirPlayTrace.Kind.INFO) {
+        val context = traceContext
+        AirPlayTrace.record(
+            message = message,
+            sessionId = context?.sessionId,
+            connectionId = context?.connectionId,
+            role = context?.role,
+            kind = kind,
+        )
     }
 
-    override fun open(dataSpec: DataSpec): Long {
-        uri = dataSpec.uri
-        body = null
-        if (isBridgeUri(dataSpec.uri)) {
-            val source = sessionSource
-                ?: throw IOException("sender-mediated media was requested without a session bridge")
-            val bytes = source.open(dataSpec.uri.toString())
-            val from = dataSpec.position.coerceIn(0L, bytes.size.toLong()).toInt()
-            val requested = if (dataSpec.length == C.LENGTH_UNSET.toLong()) {
-                (bytes.size - from).toLong()
-            } else {
-                dataSpec.length
-            }
-            readPosition = from
-            readEnd = (from + requested).coerceAtMost(bytes.size.toLong()).toInt()
-            body = bytes
-            return (readEnd - from).toLong()
-        }
-        return delegate.open(dataSpec)
+    private companion object {
+        val MIME_TYPE_PATTERN = Regex("[a-z0-9.+_-]+/[a-z0-9.+_-]+")
     }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val bytes = body ?: return delegate.read(buffer, offset, length)
-        if (readPosition >= readEnd) return C.RESULT_END_OF_INPUT
-        val count = minOf(length, readEnd - readPosition)
-        System.arraycopy(bytes, readPosition, buffer, offset, count)
-        readPosition += count
-        return count
-    }
-
-    override fun getUri(): Uri? = uri
-
-    override fun close() {
-        body = null
-        runCatching { delegate.close() }
-    }
-
-    private fun isBridgeUri(value: Uri): Boolean =
-        value.scheme?.equals(SenderMediatedHlsBridge.SCHEME, ignoreCase = true) == true
-}
-
-/** Factory of [HearthUrlVideoDataSource]; one data source per open, as Media3 expects. */
-@UnstableApi
-internal class HearthUrlVideoDataSourceFactory(
-    private val context: Context,
-    private val sessionSource: UrlVideoSessionSource?,
-) : DataSource.Factory {
-    override fun createDataSource(): DataSource = HearthUrlVideoDataSource(context, sessionSource)
 }

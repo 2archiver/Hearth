@@ -3,14 +3,11 @@
 This guide covers every way to install Hearth on your Google TV (Android TV OS 10+, tested on
 Google TV 4K running Android TV OS 14).
 
-**The APK, always the newest build:**
+**The current release:** <https://github.com/2archiver/Hearth/releases/latest>
 
-```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk
-```
-
-It is rebuilt on every merge to `main` — no tag hunting. See [docs/RELEASING.md](../RELEASING.md)
-for every other place the APK can be found.
+Download the actual version-named `Hearth-<version>-googletv.apk` asset shown on that page. The
+release filename changes with each build; do not use a guessed fixed-name `/download/latest/` URL.
+See [docs/RELEASING.md](../RELEASING.md) for the release and updater contract.
 
 **Updating:** once installed on this repository's community signing key, future APKs install
 straight over the old one. Older 1.4 builds or APKs signed by another source may need a one-time
@@ -53,16 +50,13 @@ Confirm the connection prompt that appears on your TV.
 ### Step 4: Install
 
 ```bash
-adb install -r Hearth-googletv.apk
+adb install -r Hearth-<version>-googletv.apk
 ```
 
-If adb reports `INSTALL_FAILED_VERSION_DOWNGRADE` or a signature mismatch, the previous install was
-signed with a different key:
-
-```bash
-adb uninstall com.phairplay.googletv
-adb install Hearth-googletv.apk
-```
+If ADB reports `INSTALL_FAILED_VERSION_DOWNGRADE`, stop and check that you downloaded the newest
+release; do not uninstall to work around it. A signing-key mismatch means the source/key differs.
+Do not uninstall unless you have intentionally chosen to switch signing sources and have backed up
+anything important—Android may erase Hearth's settings when it is removed.
 
 ### Step 5: Launch
 
@@ -77,11 +71,10 @@ Use the **Downloader** app (free, from the Google Play Store) to fetch the APK s
 1. Install **Downloader** from the Google Play Store on your TV
 2. Settings → Apps → Security & restrictions → **Install unknown apps** → allow **Downloader**
 3. Open Downloader and enter:
-   `https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk`
-   (the [download page](https://2archiver.github.io/phairplay-archiver-fork-/) works too, if Pages is enabled)
+   `https://github.com/2archiver/Hearth/releases/latest`
 4. Choose **Install**, then **Open**
 
-Downloader keeps the file name `Hearth-googletv.apk`, so re-downloading a newer build and
+Downloader keeps the file name `Hearth-<version>-googletv.apk`, so re-downloading a newer build and
 choosing **Install** updates the app in place — provided both builds are signed with the same key.
 If the TV refuses, uninstall Hearth once (Settings → Apps → Hearth → Uninstall) and install
 again.
@@ -91,8 +84,8 @@ again.
 ## Method 3: Build from Source
 
 ```bash
-git clone https://github.com/2archiver/phairplay-archiver-fork-.git
-cd phairplay-archiver-fork-
+git clone https://github.com/2archiver/Hearth.git
+cd Hearth
 
 # Build for Google TV (release APK — what the release workflow publishes)
 ./gradlew :app:assembleGoogletvRelease

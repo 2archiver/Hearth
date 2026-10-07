@@ -63,8 +63,10 @@ class HomeFragment : Fragment() {
     private lateinit var cardAppleCasting: View
     private lateinit var textConnectionLog: TextView
     private lateinit var btnStart: Button
+    private lateinit var btnStopPlayback: Button
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
+    private var serviceIsRunning = false
     private var airPlayState = ProtocolState.DISABLED
     private var appleCastingState = ProtocolState.DISABLED
     private var activeConnection: ActiveConnection? = null
@@ -126,6 +128,7 @@ class HomeFragment : Fragment() {
         cardAppleCasting = view.findViewById(R.id.card_apple_casting)
         textConnectionLog = view.findViewById(R.id.text_connection_log)
         btnStart         = view.findViewById(R.id.btn_start)
+        btnStopPlayback  = view.findViewById(R.id.btn_stop_playback)
         btnStop          = view.findViewById(R.id.btn_stop)
         btnRestart       = view.findViewById(R.id.btn_restart)
     }
@@ -156,9 +159,11 @@ class HomeFragment : Fragment() {
                 failure.detail,
             )
         }
+        com.phairplay.airplay.AirPlayPlaybackState.NEGOTIATING -> getString(R.string.protocol_detail_video_negotiating)
         com.phairplay.airplay.AirPlayPlaybackState.LOADING -> getString(R.string.protocol_detail_video_loading)
         com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> getString(R.string.protocol_detail_video_playing)
         com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> getString(R.string.protocol_detail_video_paused)
+        com.phairplay.airplay.AirPlayPlaybackState.STOPPING -> getString(R.string.protocol_detail_video_stopping)
         com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY ->
             getString(R.string.protocol_detail_video_audio_only)
         else -> null
@@ -180,6 +185,7 @@ class HomeFragment : Fragment() {
     }
 
     private fun airPlayConnectedFormat(): Int = when (airPlayPlaybackState) {
+        com.phairplay.airplay.AirPlayPlaybackState.NEGOTIATING -> R.string.protocol_detail_video_negotiating
         com.phairplay.airplay.AirPlayPlaybackState.LOADING -> R.string.protocol_detail_video_loading
         com.phairplay.airplay.AirPlayPlaybackState.PLAYING -> R.string.protocol_detail_video_playing
         com.phairplay.airplay.AirPlayPlaybackState.PAUSED -> R.string.protocol_detail_video_paused
@@ -197,8 +203,25 @@ class HomeFragment : Fragment() {
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.home_log_dialog_title)
             .setMessage(text)
+            .setNeutralButton(R.string.home_log_share) { _, _ -> shareAirPlayDiagnostics() }
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    private fun shareAirPlayDiagnostics() {
+        val report = com.phairplay.airplay.AirPlayTrace.exportText(
+            mapOf(
+                "Hearth version" to com.phairplay.BuildConfig.VERSION_NAME,
+                "Android API" to android.os.Build.VERSION.SDK_INT.toString(),
+            )
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.home_log_share_subject))
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        runCatching { startActivity(Intent.createChooser(send, getString(R.string.home_log_share))) }
+            .onFailure { Logger.w("Could not open a share target for the AirPlay diagnostics") }
     }
 
     /** Shows the latest connection step; Activity opens the complete history. */
@@ -224,8 +247,12 @@ class HomeFragment : Fragment() {
             Logger.d("User tapped Start")
             ServiceController.start(requireContext())
         }
+        btnStopPlayback.setOnClickListener {
+            Logger.d("User tapped Stop playback")
+            service?.stopCurrentPlayback() ?: ServiceController.stopPlayback(requireContext())
+        }
         btnStop.setOnClickListener {
-            Logger.d("User tapped Stop")
+            Logger.d("User tapped Stop receiver")
             ServiceController.stop(requireContext())
         }
         btnRestart.setOnClickListener {
@@ -300,6 +327,7 @@ class HomeFragment : Fragment() {
                         detailOverride = airPlayPlaybackDetail() ?: airPlayDetail,
                         connectedFormat = airPlayConnectedFormat(),
                     )
+                    updatePlaybackStopButton()
                 }
             }
             launch {
@@ -317,6 +345,7 @@ class HomeFragment : Fragment() {
                 svc.airPlayPlaybackState.collectLatest { state ->
                     airPlayPlaybackState = state
                     refreshProtocolCardDetails()
+                    updatePlaybackStopButton()
                 }
             }
             launch {
@@ -334,6 +363,7 @@ class HomeFragment : Fragment() {
                         detailOverride = castingDetailFor(state),
                         connectedFormat = R.string.protocol_detail_mirroring
                     )
+                    updatePlaybackStopButton()
                 }
             }
             launch {
@@ -357,6 +387,7 @@ class HomeFragment : Fragment() {
                 svc.activeConnection.collectLatest { connection ->
                     activeConnection = connection
                     refreshProtocolCardDetails()
+                    updatePlaybackStopButton()
                 }
             }
         }
@@ -380,19 +411,42 @@ class HomeFragment : Fragment() {
     private fun updateServiceStateBadge(state: ServiceState) {
         val (textRes, colorRes) = when (state) {
             is ServiceState.Running    -> Pair(R.string.service_state_running,    R.color.status_running)
+            is ServiceState.Stopping   -> Pair(R.string.service_state_stopping,   R.color.status_transitioning)
             is ServiceState.Stopped    -> Pair(R.string.service_state_stopped,    R.color.status_stopped)
             is ServiceState.Restarting -> Pair(R.string.service_state_restarting, R.color.status_transitioning)
             is ServiceState.Error      -> Pair(R.string.service_state_error,      R.color.status_stopped)
         }
-        val focusedControl = listOf(btnStart, btnStop, btnRestart).firstOrNull { it.hasFocus() }
+        serviceIsRunning = state is ServiceState.Running
+        val controls = listOf(btnStart, btnStopPlayback, btnStop, btnRestart)
+        val focusedControl = controls.firstOrNull { it.hasFocus() }
         btnStart.isEnabled = state is ServiceState.Stopped || state is ServiceState.Error
         btnStop.isEnabled = state is ServiceState.Running
         btnRestart.isEnabled = state is ServiceState.Running || state is ServiceState.Error
-        listOf(btnStart, btnStop, btnRestart).forEach { it.alpha = if (it.isEnabled) 1f else 0.4f }
+        updatePlaybackStopButton()
+        controls.forEach { it.alpha = if (it.isEnabled) 1f else 0.4f }
         if (focusedControl != null && !focusedControl.isEnabled) cardAirPlay.requestFocus()
         textServiceState.setText(textRes)
         dotServiceState.background.mutate().setTint(requireContext().getColor(colorRes))
     }
+    private fun updatePlaybackStopButton() {
+        if (!::btnStopPlayback.isInitialized) return
+        val playbackActive = activeConnection != null ||
+            airPlayState == ProtocolState.CONNECTED ||
+            appleCastingState == ProtocolState.CONNECTED ||
+            airPlayPlaybackState in setOf(
+                com.phairplay.airplay.AirPlayPlaybackState.NEGOTIATING,
+                com.phairplay.airplay.AirPlayPlaybackState.LOADING,
+                com.phairplay.airplay.AirPlayPlaybackState.PLAYING,
+                com.phairplay.airplay.AirPlayPlaybackState.PAUSED,
+                com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY,
+                com.phairplay.airplay.AirPlayPlaybackState.STOPPING,
+                com.phairplay.airplay.AirPlayPlaybackState.FAILED,
+            )
+        btnStopPlayback.isEnabled = serviceIsRunning && playbackActive &&
+            airPlayPlaybackState != com.phairplay.airplay.AirPlayPlaybackState.STOPPING
+        btnStopPlayback.alpha = if (btnStopPlayback.isEnabled) 1f else 0.4f
+    }
+
     /** Updates a single protocol status card with the current [ProtocolState]. */
     private fun updateProtocolCard(
         card: View,

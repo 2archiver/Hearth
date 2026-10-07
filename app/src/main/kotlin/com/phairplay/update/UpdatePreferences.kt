@@ -43,6 +43,10 @@ internal class UpdatePreferences(context: Context) {
         get() = prefs.getString(KEY_STAGED_PATH, null)
         set(value) = prefs.edit().putString(KEY_STAGED_PATH, value).apply()
 
+    /** Exact APK versionName observed when a newly downloaded staged file was verified. */
+    val stagedApkVersionName: String?
+        get() = prefs.getString(KEY_STAGED_VERSION_NAME, null)
+
     /** versionName of the newest build the app has ever seen published (for the UI). */
     var latestSeenVersionName: String?
         get() = prefs.getString(KEY_LATEST_NAME, null)
@@ -92,10 +96,16 @@ internal class UpdatePreferences(context: Context) {
      * notes are only a hint, and a staged entry keyed on a wrong hint could never be recognised
      * as "already installed" afterwards.
      */
-    fun stage(info: UpdateInfo, path: String, versionCode: Int = info.versionCode) {
+    fun stage(
+        info: UpdateInfo,
+        path: String,
+        versionCode: Int = info.versionCode,
+        apkVersionName: String,
+    ) {
         prefs.edit()
             .putInt(KEY_STAGED_CODE, versionCode)
             .putString(KEY_STAGED_PATH, path)
+            .putString(KEY_STAGED_VERSION_NAME, apkVersionName)
             .putString(KEY_LATEST_NAME, info.versionName)
             .putInt(KEY_LATEST_CODE, info.versionCode)
             .apply()
@@ -116,6 +126,7 @@ internal class UpdatePreferences(context: Context) {
         prefs.edit()
             .remove(KEY_STAGED_CODE)
             .remove(KEY_STAGED_PATH)
+            .remove(KEY_STAGED_VERSION_NAME)
             .apply()
     }
 
@@ -125,6 +136,7 @@ internal class UpdatePreferences(context: Context) {
         private const val KEY_SKIPPED_CODE = "skipped_version_code"
         private const val KEY_STAGED_CODE = "staged_version_code"
         private const val KEY_STAGED_PATH = "staged_apk_path"
+        private const val KEY_STAGED_VERSION_NAME = "staged_apk_version_name"
         private const val KEY_LATEST_NAME = "latest_seen_version_name"
         private const val KEY_LATEST_CODE = "latest_seen_version_code"
         private const val KEY_REJECTED_CODE = "rejected_published_version_code"

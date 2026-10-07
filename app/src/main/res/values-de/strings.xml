@@ -37,6 +37,7 @@
 
     <!-- ── Service states ──────────────────────────────────────── -->
     <string name="service_state_running">Aktiv</string>
+    <string name="service_state_stopping">Wird beendet…</string>
     <string name="service_state_stopped">Gestoppt</string>
     <string name="service_state_restarting">Neustart…</string>
     <string name="service_state_error">Fehler</string>
@@ -47,7 +48,8 @@
 
     <!-- ── Control buttons ─────────────────────────────────────── -->
     <string name="action_start">Starten</string>
-    <string name="action_stop">Stoppen</string>
+    <string name="action_stop">Empfänger stoppen</string>
+    <string name="action_stop_playback">Wiedergabe stoppen</string>
     <string name="action_restart">Neustart</string>
 
     <!-- ── Notification ────────────────────────────────────────── -->

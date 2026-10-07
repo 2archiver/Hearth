@@ -6,116 +6,119 @@ Three ways, easiest first.
 
 **Settings → Updates → Check for updates.**
 
-Hearth asks GitHub what the newest published build is, compares **versionCode** (a number,
-not a version string — `1.10.0` sorts before `1.9.0` as text), and if something newer exists
-downloads it and offers to install.
+The updater requests `https://api.github.com/repos/2archiver/Hearth/releases/latest`, compares
+numeric Android `versionCode` values, and downloads only the actual compatible Google TV APK
+asset returned by that release. It does not construct a guessed fixed-name APK URL.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
-| **Check automatically** | on | Look for updates in the background, a few times a day, and post a notification when one is found |
+| **Check automatically** | on | Look for updates in the background and post a notification when one is found |
 | **Download automatically** | on | Fetch and verify the APK as soon as one is found, so installing is one tap |
-| **Install automatically** | off | Install a verified update without another prompt. Turn this on for zero-tap updates |
+| **Install automatically** | off | Ask Android to install a verified update without another Hearth prompt |
 
-The update card always shows **both builds** — what is installed and what is on offer — so
-"update" never means "something changed, I don't know what". While an update is on offer there are
-two dismissals, and they mean different things:
+The update card shows both the installed and offered builds. **Later** keeps the offer; **Skip this
+version** suppresses that build on this TV until a newer one appears. The preference survives
+receiver restarts and updates.
 
-- **Later** — ask me again; the card keeps the offer.
-- **Skip this version** — do not offer *this* build again. The next release is still offered
-  normally; skipping is remembered on the TV and survives restarts.
+### What must verify before an install is offered
 
-When the signing key matches, Android 12+ normally lets an app replace **itself** without a
-confirmation dialog, so with all three on the update is hands-off. On older Android, or if the
-TV's policy disagrees, the standard "Install?" confirmation is shown. A different signing key
-is never auto-installed; Hearth stops and explains the one-time transition instead.
+Hearth rejects the update instead of guessing when release metadata is missing, conflicting or
+ambiguous. Before it stages an APK, it checks:
 
-The first time, Android may need you to allow installs from Hearth:
-**Settings → Apps → Special access → Install unknown apps → Hearth → Allow**.
+1. The API response identifies one `-googletv.apk` asset and provides its actual GitHub download
+   URL, positive file size, a positive `versionCode`, and a full 64-hex SHA-256 digest. The APK
+   URL must belong to the canonical Hearth release path. The current workflow puts the version
+   code and SHA-256 in the release notes; GitHub's asset record supplies the actual file URL and
+   size.
+2. The streamed download has the reported exact size and SHA-256. Missing or malformed checksum
+   metadata is a **blocking error**; Hearth does not proceed on size-only verification.
+3. Android can read the downloaded package. Its `applicationId` must remain
+   `com.phairplay.googletv`; its embedded `versionCode` must match the release metadata and be
+   strictly newer than the installed build. For version-named releases, its `versionName` must
+   also agree with the APK filename.
+4. The APK signing certificate must match the installed Hearth signing identity. A mismatch or an
+   unreadable signature blocks installation and reports an actionable reason.
+5. Before the staged APK is handed to Android, package/version/signature checks are repeated. The
+   user sees **Installing** only while Android processes the request. A queued `PackageInstaller`
+   request is **not** described as installed; success is recorded only after Android confirms it.
+
+The release page is also available at
+<https://github.com/2archiver/Hearth/releases/latest>. It lists the actual version-named APK;
+choose the Google TV asset rather than relying on an old fixed filename.
 
 ## 2. Install the APK over the old one
 
-```
-https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/Hearth-googletv.apk
-```
-
-Paste it into **Downloader** on the TV, or `adb install -r Hearth-googletv.apk` from a
-computer. Once the TV is running a build signed with this repository's community key, Android
-treats later APKs as updates — no uninstall. Older or differently signed installs need the
-one-time transition described above.
-
-## 3. Let `adb` do it
+Open <https://github.com/2archiver/Hearth/releases/latest>, download the version-named
+`Hearth-<version>-googletv.apk`, then use Downloader on the TV or:
 
 ```bash
-adb install -r Hearth-googletv.apk
+adb install -r Hearth-<version>-googletv.apk
 ```
+
+`-r` asks Android to replace the existing package while preserving app data. This works only when
+the APK has the same package identity and compatible signing key. Do not uninstall as a first
+troubleshooting step: uninstalling can erase Hearth's settings.
+
+## 3. Update the repository used by older builds
+
+The canonical repository is now `2archiver/Hearth`. New builds use its GitHub API and release
+pages. The 1.9.2 updater also normalizes the former `2archiver/phairplay-archiver-fork-` setting
+before constructing the API request, with a unit test for that migration.
+
+That does **not** certify automatic migration for every already-installed older APK. Older
+binaries keep their old code and asset assumptions; do not assume a repository redirect or a
+changed release asset will be enough for them to update. If an older build cannot find or verify
+the release, use the canonical release page above and install the current APK manually with `-r`.
+The package name, preferences/data and signing practices remain unchanged in this patch; if Android
+reports a signing-key conflict, stop and read the section below rather than uninstalling blindly.
+
+Fork maintainers can configure `phairplay.updateRepo` in `gradle.properties`, or pass
+`-Pphairplay.updateRepo=you/your-fork`. Official release CI explicitly builds with
+`2archiver/Hearth`, regardless of stale runner environment values.
 
 ---
 
 ## A different signing key / one-time reinstall
 
-Android only allows an app to update an existing install when both APKs are signed with the
-same key. This is a platform security rule; Hearth cannot bypass it or silently remove
-itself. It is about the signing certificate, not the version number.
+Android only allows an APK to replace an existing install when both use a compatible signing
+identity. Hearth cannot bypass that platform rule. If a signed APK is not accepted, do not keep
+retrying and do not uninstall immediately: first confirm that the source is trusted and compare the
+signing source. Uninstalling may erase app data.
 
-The first public 1.4 rolling builds were published before the repository's long-lived community
-key was added. If your installed copy was signed with that earlier CI key, it cannot be replaced
-in place by a build signed with the new key. The updater now identifies this case before install
-and shows **One-time reinstall required** instead of a misleading "Update check failed" or an
-Android package-conflict error.
+Hearth's updater reads the APK certificate before staging and explains a mismatch instead of
+launching an install it knows Android will reject. Builds from this repository are expected to keep
+using the established `app/signing/phairplay.p12` community key unless release configuration is
+intentionally changed. Release CI verifies the configured certificate fingerprint; signing identity
+changes are not part of the 1.9.2 patch.
 
-To switch signing sources once:
-
-1. Open the release page from the updater and download the APK to the TV (or use Downloader).
-2. Note any Hearth settings you want to keep. Android may erase app data when you uninstall.
-3. Uninstall the old Hearth, then install the downloaded APK.
-4. Keep using builds from the same signing source. Future updates signed with that key install
-   over the app normally.
-
-After the migration, all builds from this repository use `app/signing/phairplay.p12`, the
-public "community build" key committed intentionally
-([the trade-off, stated plainly](RELEASING.md#signing-why-updates-install-in-place)). Every
-release is checked by CI, and the in-app updater verifies both the published SHA-256 and APK
-signing certificate before offering installation.
-
-The same one-time transition is needed when switching between a fork/private build and another
-source. If you are not switching sources and see this again, do not uninstall yet: confirm that
-the APK came from the same repository/key as the installed app, then report the two build sources
-in a [bug report](../.github/ISSUE_TEMPLATE/bug_report.md).
+If you intentionally switch to a differently signed build, back up anything important, then follow
+the release maintainer's one-time migration instructions. After switching, keep using builds from
+that same source/key.
 
 ---
 
 ## How the updater decides
 
-1. `GET https://api.github.com/repos/2archiver/phairplay-archiver-fork-/releases/latest` — one
-   request. A Hearth release is that JSON plus a single asset, so nothing else is fetched.
-2. Read the version: `versionCode` is scraped from the release body (`versionCode <n>`), the
-   version name from the asset's file name, `Hearth-1.6.0-main.43-googletv.apk`. A release that
-   still publishes a `version.json` descriptor (anything before 1.6) is read from that instead,
-   because a descriptor beats a scrape.
-3. Compare with the installed `BuildConfig.VERSION_CODE` — a strictly higher number is the *only*
-   thing that counts as an update:
-   | Published vs installed | What the card says |
+1. Make one HTTPS request to the canonical latest-release API endpoint. Read only the actual
+   compatible APK asset and its metadata from that response/release body; no guessed download path
+   or non-GitHub asset URL is trusted.
+2. Require a positive `versionCode`, exact published APK size, and full SHA-256. A missing or
+   conflicting value blocks the offer; no unverified, size-only APK is handed to Android.
+3. Offer only a release with a strictly higher code than the installed `BuildConfig.VERSION_CODE`:
+
+   | Published vs installed | Result |
    |---|---|
-   | published **newer** | **Update available** (with both build numbers) |
-   | equal | **Up to date** — the release matches this install |
-   | published **older** | **Up to date**, and says the published build is older than this install |
-   | version number missing from the notes | **Up to date (could not identify the published build)** — never a guess |
-   Nothing that is not strictly newer is ever offered, announced, or downloaded. This is what
-   stops the "update" that would actually have been a downgrade: installing an older code over a
-   newer one is rejected by Android (`INSTALL_FAILED_VERSION_DOWNGRADE`) even after the download.
-4. Download the APK, checking it against the SHA-256 in the release body as it streams. The digest
-   must be a full 64 hex characters to be trusted; a release whose notes carry none is installed
-   after a size check only, and says so.
-5. **Read the downloaded APK's own `versionCode`.** If it is not strictly newer than the installed
-   build — a mislabelled release, a stale asset on the `latest` tag — the download is discarded and
-   the card explains why. This is the last line of defence before Android's installer.
-6. Read the downloaded APK's signing certificate and compare it with Hearth's own.
-   **Mismatch → refuse**, because that is exactly the "package conflicts" case.
-7. Hand it to `PackageInstaller`.
+   | published **newer** | **Update available** |
+   | equal | **Up to date** |
+   | published **older** | **Up to date**; never offer a downgrade |
+   | release code missing or unreadable | **Update check failed**; never guess from a version string |
 
-Forks: set `phairplay.updateRepo` in `gradle.properties` (or pass
-`-Pphairplay.updateRepo=you/your-fork`) so the app checks *your* releases, not upstream's.
+4. Stream the actual GitHub asset and verify its exact byte count and SHA-256 before inspecting it as
+   an APK.
+5. Verify the package name, embedded version fields, and signing certificate; reject any mismatch.
+6. Ask `PackageInstaller` to proceed. Hearth says **Installing** while awaiting Android's result;
+   it does not call a launched or queued installer request “installed.”
 
-Nothing about this is hidden: no telemetry and no analytics. Manual checks make HTTPS requests
-to GitHub when you select **Check for updates**; automatic checks run about every six hours while
-the receiver service is running and the setting is on.
+The updater sends no telemetry or analytics. Manual checks make HTTPS requests to GitHub when
+selected; automatic checks run about every six hours while the receiver service is running and the
+setting is on.
