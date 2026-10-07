@@ -52,11 +52,13 @@ real-device acceptance: YouTube-app video and Photos still/video results are rec
   HLS masters, loopback media URLs, Photos cache actions/session isolation/eviction, and update
   cadence/retry/rate-limit policy. `./gradlew test`, `./gradlew :test-runner:test`, `./gradlew lint`,
   and `./gradlew assembleGoogletvRelease` were attempted but each stopped before Gradle because
-  `JAVA_HOME` is unset and no `java` command is installed. The prior OpenJDK install attempt was
-  blocked by unreachable Debian package repositories. Tests/lint/build are **NOT RUN**; no APK was
-  produced here. Offline `git diff --check`, parsing of 32 Android XML files and the version-catalog
-  TOML, workflow shell/YAML validation, and four release-notes helper tests passed; these do not
-  substitute for Android/Kotlin validation.
+  `JAVA_HOME` is unset and no `java` command is installed; the prior OpenJDK install attempt was
+  blocked by unreachable Debian package repositories. They could not run locally. Remote PR CI
+  passed the JVM protocol suite, Google TV Android lint, debug APK assembly and TV interface tests;
+  it uploaded a Google TV debug APK artifact. This does not imply that the release APK task ran:
+  `assembleGoogletvRelease` remains unbuilt. Offline `git diff --check`, parsing of 32 Android XML
+  files and the version-catalog TOML, workflow shell/YAML validation, and four release-notes helper
+  tests passed; these do not substitute for real-device acceptance.
 - YouTube-app AirPlay moving-video acceptance, native Photos still/slideshow acceptance, and native
   Photos video acceptance are each **NOT TESTED** on real Google TV hardware. An HTTP response, a
   parsed playlist, still-image rendering or audio playback does not promote those statuses.
