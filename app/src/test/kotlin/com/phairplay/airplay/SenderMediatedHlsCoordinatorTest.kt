@@ -66,7 +66,7 @@ class SenderMediatedHlsCoordinatorTest {
     }
 
     @Test
-    fun `/play waits for a reverse offer that registers just after the control request`() {
+    fun `play waits for a reverse offer that registers just after the control request`() {
         val ownership = SessionOwnership()
         val senderSessionId = "youtube-racing-session"
         val claim = ownership.claimSession(

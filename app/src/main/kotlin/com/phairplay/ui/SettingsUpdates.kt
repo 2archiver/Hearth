@@ -20,6 +20,7 @@ import com.phairplay.update.StageResult
 import com.phairplay.update.UpdateCheck
 import com.phairplay.update.UpdateFlow
 import com.phairplay.update.UpdateInfo
+import com.phairplay.update.UpdateWorkScheduler
 import com.phairplay.util.Logger
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first

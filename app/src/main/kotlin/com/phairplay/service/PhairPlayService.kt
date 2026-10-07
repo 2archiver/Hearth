@@ -227,10 +227,11 @@ class PhairPlayService : Service() {
                     settings.autoDownloadUpdates,
                     settings.autoInstallUpdates
                 )
-                if (previous == null || previous.first != current.first) {
+                val prior = previous
+                if (prior == null || prior.first != current.first) {
                     UpdateWorkScheduler.sync(applicationContext, settings.autoCheckForUpdates)
                 }
-                if (previous != null && previous != current) {
+                if (prior != null && prior != current) {
                     Logger.i("Update preferences changed — the next scheduled check will use the new policy")
                 }
                 previous = current

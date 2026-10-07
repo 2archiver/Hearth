@@ -369,7 +369,7 @@ internal class AirPlayReceiver(
     fun stopPlayback(): Boolean {
         if (stopped) return false
         val snapshot = sessionOwnership.snapshot()
-        if (snapshot == null && !hasLiveMediaComponents() && !hasPhotoState()) return false
+        if (snapshot == null && !hasLiveMediaComponents() && !photoStateActive) return false
         val token = snapshot?.token
         val startedNanos = System.nanoTime()
         AirPlayTrace.record(
