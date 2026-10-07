@@ -2,6 +2,8 @@ package com.phairplay.airplay
 
 import com.phairplay.airplay.handshake.FcupCodec
 import com.phairplay.util.Logger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Owns reverse-channel offers and active/warming sender-mediated HLS bridges for one receiver.
@@ -16,6 +18,7 @@ internal class SenderMediatedHlsCoordinator(
     private val isSessionCurrent: (SessionToken?) -> Boolean,
     private val onPlaybackReady: (SenderMediatedPlayRequest, SenderMediatedHlsBridge) -> Unit,
     private val requestTimeoutMs: Long = ReverseHttpChannel.DEFAULT_REQUEST_TIMEOUT_MS,
+    private val reverseOfferWaitMs: Long = DEFAULT_REVERSE_OFFER_WAIT_MS,
 ) : SenderMediatedHlsHost {
 
     private data class ReverseOffer(
@@ -38,6 +41,9 @@ internal class SenderMediatedHlsCoordinator(
     /** Serializes whole /play warmups so an in-flight replacement cannot start a player after being displaced. */
     private val playLock = Any()
     private val reverseOffers = LinkedHashMap<String, ReverseOffer>()
+
+    /** Rotating signal captured under [lock], so an offer arriving during /play cannot be missed. */
+    private var reverseOffersChanged = CountDownLatch(1)
 
     @Volatile
     private var bridges: List<BridgeEntry> = emptyList()
@@ -67,6 +73,7 @@ internal class SenderMediatedHlsCoordinator(
             writer = writer,
             revoke = revoke,
         )
+        signalReverseOfferChangeLocked()
         AirPlayTrace.record(
             "Reverse channel registered (senderSessionIdPresent=${senderSessionId?.isNotBlank() == true}, " +
                 "openChannels=${reverseOffers.size})",
@@ -81,7 +88,7 @@ internal class SenderMediatedHlsCoordinator(
         val removed: List<BridgeEntry>
         val wasActive: Boolean
         synchronized(lock) {
-            reverseOffers.remove(connectionId)
+            if (reverseOffers.remove(connectionId) != null) signalReverseOfferChangeLocked()
             removed = bridges.filter { it.reverseConnectionId == connectionId }
             wasActive = removed.any { it.phase == BridgePhase.ACTIVE }
             if (removed.isNotEmpty()) bridges = bridges.filterNot { it.reverseConnectionId == connectionId }
@@ -297,13 +304,11 @@ internal class SenderMediatedHlsCoordinator(
                 sameControlChannel || (protocolSessionFingerprint != null &&
                     offerFingerprint == protocolSessionFingerprint)
             }.mapTo(HashSet()) { it.connectionId }
-            // Older senders can omit the id on /reverse. Preserve an unambiguous id-less offer, but
-            // never retain an offer that carried a different protocol id.
-            if (keep.isEmpty() && offers.size == 1 && offers.single().senderSessionId == null) {
-                keep += offers.single().connectionId
-            }
+            // An id-less offer on a different connection is not enough evidence to carry it into
+            // the replacement session. Same-connection offers are preserved above.
             val revoked = offers.filterNot { it.connectionId in keep }
             reverseOffers.keys.retainAll(keep)
+            if (revoked.isNotEmpty()) signalReverseOfferChangeLocked()
             old to revoked
         }
         closeEntries(oldBridges, reason)
@@ -326,6 +331,7 @@ internal class SenderMediatedHlsCoordinator(
             bridges = emptyList()
             val offers = reverseOffers.values.toList()
             reverseOffers.clear()
+            if (offers.isNotEmpty()) signalReverseOfferChangeLocked()
             old to offers
         }
         closeEntries(oldBridges, reason)
@@ -353,33 +359,66 @@ internal class SenderMediatedHlsCoordinator(
         synchronized(lock) { bridges = bridges.filterNot { it.bridge === bridge } }
     }
 
+    /**
+     * Waits briefly for POST /reverse to register when it races the sender's POST /play.
+     *
+     * Selection and the latch snapshot happen under the same lock used by registration. Registration
+     * rotates and counts down that latch while holding the lock, so the signal cannot land between
+     * checking the offer table and beginning to wait. Session ids are the only cross-connection
+     * association evidence; peer addresses are deliberately not consulted.
+     */
     private fun chooseReverseChannel(request: SenderMediatedPlayRequest): ReverseOffer? {
-        val selected: Pair<ReverseOffer, String>? = synchronized(lock) {
-            reverseOffers[request.connectionId]?.let { return@synchronized it to "same control connection" }
-            val senderId = request.senderSessionId?.trim()?.takeIf { it.isNotEmpty() }
-            if (senderId != null) {
-                val matches = reverseOffers.values.filter { it.senderSessionId == senderId }
-                if (matches.size == 1) return@synchronized matches.single() to "AirPlay session id"
-                if (matches.size > 1) return@synchronized null
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(reverseOfferWaitMs.coerceAtLeast(0L))
+        while (true) {
+            val (selected, changed) = synchronized(lock) {
+                selectReverseChannelLocked(request) to reverseOffersChanged
             }
-            if (reverseOffers.size == 1) reverseOffers.values.singleOrNull()?.let {
-                return@synchronized it to "only registered reverse channel"
+            if (selected != null) {
+                val (offer, evidence) = selected
+                AirPlayTrace.record(
+                    "Reverse channel selected for /play by $evidence",
+                    connectionId = offer.connectionId,
+                    role = AirPlayConnectionRole.REVERSE_EVENT.name,
+                    associationEvidence = if (evidence == "AirPlay session id") "PROTOCOL_ID" else null,
+                )
+                return offer
             }
-            null
+            if (isStopped() || !isSessionCurrent(request.token)) return null
+            val remainingNanos = deadline - System.nanoTime()
+            if (remainingNanos <= 0L) return null
+            try {
+                if (!changed.await(remainingNanos, TimeUnit.NANOSECONDS)) return null
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return null
+            }
         }
-        selected?.let { (offer, evidence) ->
-            AirPlayTrace.record(
-                "Reverse channel selected for /play by $evidence",
-                connectionId = offer.connectionId,
-                role = AirPlayConnectionRole.REVERSE_EVENT.name,
-                associationEvidence = if (evidence == "AirPlay session id") "PROTOCOL_ID" else null,
-            )
+    }
+
+    /** Called only while [lock] is held. A missing/mismatched id never guesses between channels. */
+    private fun selectReverseChannelLocked(request: SenderMediatedPlayRequest): Pair<ReverseOffer, String>? {
+        val senderId = request.senderSessionId?.trim()?.takeIf { it.isNotEmpty() }
+        val sameControl = reverseOffers[request.connectionId]
+        if (sameControl != null && (senderId == null || sameControl.senderSessionId == null ||
+                sameControl.senderSessionId == senderId)
+        ) {
+            return sameControl to "same control connection"
         }
-        return selected?.first
+        if (senderId == null) return null
+        val matches = reverseOffers.values.filter { it.senderSessionId == senderId }
+        return matches.singleOrNull()?.let { it to "AirPlay session id" }
+    }
+
+    /** Counts down the current waiter and installs the next generation; call only under [lock]. */
+    private fun signalReverseOfferChangeLocked() {
+        val previous = reverseOffersChanged
+        reverseOffersChanged = CountDownLatch(1)
+        previous.countDown()
     }
 
     private companion object {
         const val MAX_CONNECTION_ID_CHARS = 48
         const val MAX_REVERSE_OFFERS = 8
+        const val DEFAULT_REVERSE_OFFER_WAIT_MS = 3_000L
     }
 }

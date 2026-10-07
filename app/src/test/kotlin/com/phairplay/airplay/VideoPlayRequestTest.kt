@@ -102,6 +102,33 @@ class VideoPlayRequestTest {
         assertTrue(senderMediated.request.seconds)
     }
 
+    @Test fun `direct Photos video URLs remain separate from still photo actions`() {
+        val photoVideoUrl = "https://media.example.test/assets/clip.mov?signature=keep-me"
+        val body = PlistCodec.encode(mapOf("Content-Location" to photoVideoUrl))
+
+        val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
+
+        assertTrue("expected direct HTTP video, got $parsed", parsed is BodyParse.Success)
+        assertEquals(photoVideoUrl, (parsed as BodyParse.Success).request.url)
+    }
+
+    @Test fun `sender loopback HTTP media URLs are rejected rather than resolved on the receiver`() {
+        val senderLocalUrls = listOf(
+            "http://localhost:64321/photo.mov",
+            "http://sender.localhost/photo.mov",
+            "http://127.0.0.1:64321/photo.mov",
+            "http://127.4.5.6/photo.mov",
+            "http://[::1]:64321/photo.mov",
+            "http://0.0.0.0/photo.mov",
+        )
+
+        senderLocalUrls.forEach { senderLocalUrl ->
+            val body = PlistCodec.encode(mapOf("Content-Location" to senderLocalUrl))
+            val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
+            assertTrue("$senderLocalUrl should not be passed to the player: $parsed", parsed is BodyParse.Invalid)
+        }
+    }
+
     @Test fun `oversized and empty bodies are rejected without parsing`() {
         val oversized = VideoPlayRequest.decodeBody(ByteArray(VideoPlayRequest.MAX_BODY_BYTES + 1), null)
         assertTrue("expected invalid, got $oversized", oversized is BodyParse.Invalid)

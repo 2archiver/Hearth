@@ -15,11 +15,15 @@ import com.phairplay.MainActivity
 import com.phairplay.R
 import android.view.Surface
 import com.phairplay.airplay.AirPlayReceiver
+import com.phairplay.airplay.ReceiverShutdownReason
 import com.phairplay.update.StageResult
 import com.phairplay.update.StagedUpdate
 import com.phairplay.update.UpdateCheck
 import com.phairplay.update.UpdateInfo
 import com.phairplay.update.UpdateManager
+import com.phairplay.update.UpdateNotifications
+import com.phairplay.update.UpdateWorkScheduler
+import com.phairplay.update.UpdateInstallSafety
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.DisplayCaps
@@ -31,10 +35,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 
@@ -65,7 +67,7 @@ class PhairPlayService : Service() {
     private sealed interface ReceiverLifecycleCommand {
         val ticket: Long
         data class Start(override val ticket: Long) : ReceiverLifecycleCommand
-        data class Stop(override val ticket: Long) : ReceiverLifecycleCommand
+        data class Stop(override val ticket: Long, val reason: ReceiverShutdownReason) : ReceiverLifecycleCommand
         data class Restart(override val ticket: Long) : ReceiverLifecycleCommand
     }
 
@@ -140,9 +142,6 @@ class PhairPlayService : Service() {
     @Volatile private var airPlayReceiver: AirPlayReceiver? = null
     @Volatile private var airPlayReceiverCallbackTicket: Long = 0L
 
-    /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
-    private var updateCheckJob: kotlinx.coroutines.Job? = null
-
     /** Watches update preferences so toggles take effect without restarting the receivers. */
     private var updateSettingsJob: kotlinx.coroutines.Job? = null
 
@@ -192,7 +191,7 @@ class PhairPlayService : Service() {
                             if (receiverCommandGate.isCurrent(command.ticket)) startReceivers(command.ticket)
                         }
                         is ReceiverLifecycleCommand.Stop -> {
-                            stopReceivers()
+                            stopReceivers(command.reason)
                             receiverCommandGate.runIfCurrent(command.ticket) {
                                 _serviceState.value = ServiceState.Stopped
                                 stopSelf()
@@ -228,9 +227,12 @@ class PhairPlayService : Service() {
                     settings.autoDownloadUpdates,
                     settings.autoInstallUpdates
                 )
-                if (previous != null && previous != current && _serviceState.value == ServiceState.Running) {
-                    Logger.i("Update preferences changed — refreshing the background update checker")
-                    startUpdateChecker(settings)
+                val prior = previous
+                if (prior == null || prior.first != current.first) {
+                    UpdateWorkScheduler.sync(applicationContext, settings.autoCheckForUpdates)
+                }
+                if (prior != null && prior != current) {
+                    Logger.i("Update preferences changed — the next scheduled check will use the new policy")
                 }
                 previous = current
             }
@@ -243,7 +245,7 @@ class PhairPlayService : Service() {
 
         when (intent?.action) {
             ACTION_START -> enqueueReceiverStart()
-            ACTION_STOP -> enqueueReceiverStop()
+            ACTION_STOP -> enqueueReceiverStop(ReceiverShutdownReason.USER_REQUESTED)
             ACTION_STOP_PLAYBACK -> stopCurrentPlayback()
             ACTION_RESTART -> enqueueReceiverRestart()
             else -> enqueueReceiverStart() // default: start
@@ -259,8 +261,8 @@ class PhairPlayService : Service() {
     }
 
     /** Acknowledge Stop synchronously, then enqueue the potentially slow receiver teardown. */
-    private fun enqueueReceiverStop() {
-        val command = ReceiverLifecycleCommand.Stop(receiverCommandGate.next())
+    private fun enqueueReceiverStop(reason: ReceiverShutdownReason) {
+        val command = ReceiverLifecycleCommand.Stop(receiverCommandGate.next(), reason)
         receiverCallbackGate.next() // invalidate callbacks before the synchronous Stop acknowledgment
         acknowledgeReceiverStop()
         queueReceiverLifecycleCommand(command)
@@ -293,7 +295,7 @@ class PhairPlayService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         Logger.i("App task removed — stopping receivers + service")
-        enqueueReceiverStop()
+        enqueueReceiverStop(ReceiverShutdownReason.APP_TASK_REMOVED)
         super.onTaskRemoved(rootIntent)
     }
 
@@ -335,8 +337,8 @@ class PhairPlayService : Service() {
             acknowledged = playbackStopGate.beginStopIf(
                 isActive = {
                     val state = _airPlayPlaybackState.value
-                    _activeConnection.value != null || mirroring || _nowPlaying.value != null ||
-                        state != null && state !in setOf(
+                    _activeConnection.value != null || mirroring || _photoFrame.value != null ||
+                        _nowPlaying.value != null || state != null && state !in setOf(
                             com.phairplay.airplay.AirPlayPlaybackState.STOPPED,
                             com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED,
                         )
@@ -347,6 +349,7 @@ class PhairPlayService : Service() {
                     // the Stop acknowledgment while socket/codec teardown is still on IO.
                     _airPlayPlaybackState.value = com.phairplay.airplay.AirPlayPlaybackState.STOPPING
                     _airPlayPlaybackFailure.value = null
+                    refreshUpdateInstallSafety()
                     _airPlayState.value = ProtocolState.ADVERTISING
                     _appleCastingState.value = ProtocolState.ADVERTISING
                     _appleCastingDetail.value = null
@@ -380,6 +383,7 @@ class PhairPlayService : Service() {
                         playbackStopGate.runCallback(publishDuringStop = true) {
                             if (_airPlayPlaybackState.value == com.phairplay.airplay.AirPlayPlaybackState.STOPPING) {
                                 _airPlayPlaybackState.value = com.phairplay.airplay.AirPlayPlaybackState.STOPPED
+                                refreshUpdateInstallSafety()
                             }
                         }
                     }
@@ -394,12 +398,10 @@ class PhairPlayService : Service() {
         receiverCallbackGate.next()
         receiverLifecycleCommands.close()
         serviceJob.cancel()
-        updateCheckJob?.cancel()
-        updateCheckJob = null
         updateSettingsJob?.cancel()
         updateSettingsJob = null
         Logger.i("PhairPlayService destroying")
-        stopAllReceiversInternal()
+        stopAllReceiversInternal(ReceiverShutdownReason.SERVICE_DESTROYED)
         super.onDestroy()
     }
 
@@ -435,9 +437,8 @@ class PhairPlayService : Service() {
         }
 
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
-        // Look for a newer Hearth build in the background. Throttled inside
-        // UpdateManager (once every few hours), so this is cheap to call every start.
-        startUpdateChecker(settings)
+        // Keep durable hourly work aligned with the existing preference; Android may defer it in Doze.
+        UpdateWorkScheduler.sync(applicationContext, settings.autoCheckForUpdates)
     }
 
     /** Publish a visible Stop acknowledgment before socket/codec teardown begins. */
@@ -450,6 +451,7 @@ class PhairPlayService : Service() {
         _photoFrame.value = null
         _nowPlaying.value = null
         mirroring = false
+        refreshUpdateInstallSafety()
         endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
         updateNotification(isRunning = false)
     }
@@ -458,9 +460,9 @@ class PhairPlayService : Service() {
      * Stops all active receivers and updates the service state to Stopped.
      * Does NOT call stopSelf() — use [ACTION_STOP] for that.
      */
-    private fun stopReceivers() {
-        Logger.i("Stopping all receivers")
-        stopAllReceiversInternal()
+    private fun stopReceivers(reason: ReceiverShutdownReason) {
+        Logger.i("Stopping all receivers (${reason.name.lowercase()})")
+        stopAllReceiversInternal(reason)
         _activeConnection.value = null
         updateNotification(isRunning = false)
     }
@@ -471,8 +473,8 @@ class PhairPlayService : Service() {
      */
     private suspend fun restartReceivers(ticket: Long) {
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
-        Logger.i("Restarting all receivers")
-        stopAllReceiversInternal()
+        Logger.i("Restarting all receivers (${ReceiverShutdownReason.RESTART.name.lowercase()})")
+        stopAllReceiversInternal(ReceiverShutdownReason.RESTART)
         kotlinx.coroutines.delay(500) // brief pause to ensure ports are released
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         startReceivers(ticket)
@@ -507,6 +509,7 @@ class PhairPlayService : Service() {
         }
         _airPlayPlaybackState.value = null
         _airPlayPlaybackFailure.value = null
+        refreshUpdateInstallSafety()
         // Captures the sender name reported by AirPlayReceiver before CONNECTED fires.
         // onSenderNameChanged is called synchronously before emitState(CONNECTED), so
         // this assignment happens-before the Main-thread read in onStateChanged.
@@ -546,13 +549,16 @@ class PhairPlayService : Service() {
             },
             onPhotoReceived = { bytes, imageType ->
                 withCurrentAirPlayReceiver(receiver, callbackTicket) {
-                    _photoFrame.value = PhotoFrame(bytes.copyOf(), imageType.mimeType)
+                    // The receiver transfers this request-owned array; neither it nor the view mutates it.
+                    _photoFrame.value = PhotoFrame(bytes, imageType.mimeType)
+                    refreshUpdateInstallSafety()
                     updateNotification(isRunning = true)
                 }
             },
             onPhotoCleared = {
                 withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
                     _photoFrame.value = null
+                    refreshUpdateInstallSafety()
                 }
             },
             onNowPlayingChanged = { info ->
@@ -560,7 +566,10 @@ class PhairPlayService : Service() {
                     receiver,
                     callbackTicket,
                     publishDuringPlaybackStop = info == null,
-                ) { _nowPlaying.value = info }
+                ) {
+                    _nowPlaying.value = info
+                    refreshUpdateInstallSafety()
+                }
             },
             onAdvertiseNotice = { notice ->
                 withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
@@ -577,6 +586,7 @@ class PhairPlayService : Service() {
                         it == com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED
                     }
                     _airPlayPlaybackFailure.value = failure
+                    refreshUpdateInstallSafety()
                 }
             },
             onMirroringChanged = { active ->
@@ -592,6 +602,7 @@ class PhairPlayService : Service() {
                     } else {
                         null
                     }
+                    refreshUpdateInstallSafety()
                     Logger.i("Apple Casting: mirroring ${if (active) "started" else "stopped"}")
                 }
             },
@@ -635,6 +646,7 @@ class PhairPlayService : Service() {
                             if (state == ProtocolState.DISABLED) _appleCastingDetail.value = null
                         }
                     }
+                    refreshUpdateInstallSafety()
                 }
             },
         )
@@ -678,38 +690,21 @@ class PhairPlayService : Service() {
     }
 
     /**
-     * Periodically asks GitHub whether a newer Hearth APK exists.
-     *
-     * Runs on the service's own scope, so a TV left sitting on the Home screen still hears
-     * about an update instead of only finding out the next time Settings is opened.
-     * UpdateManager throttles the network call itself; this loop only wakes it up.
+     * One full update pass: check → (maybe) download → verify/stage → (maybe) install → notify.
+     * Scheduled execution is owned by WorkManager, not this foreground service's lifetime.
      */
-    private fun startUpdateChecker(settings: AppSettings) {
-        updateCheckJob?.cancel()
-        if (!settings.autoCheckForUpdates) return
-        updateCheckJob = serviceScope.launch {
-            while (isActive) {
-                runCatching { runUpdateCheck(settings) }
-                    .onFailure { Logger.w("Background update check failed: ${it.message}") }
-                delay(UPDATE_CHECK_PERIOD_MS)
-            }
-        }
-    }
-
-    /**
-     * One full update pass: check → (maybe) download → (maybe) install → notify.
-     *
-     * @return what the check found, so the Settings screen can report it.
-     */
-    private suspend fun runUpdateCheck(settings: AppSettings): UpdateCheck =
-        com.phairplay.update.UpdateFlow.run(
-            context = applicationContext,
-            autoDownload = settings.autoDownloadUpdates,
-            autoInstall = settings.autoInstallUpdates,
-            onNotifyAvailable = { notifyUpdateAvailable(it) },
-            onNotifyReady = { notifyUpdateReady(it) },
-            onNotifyKeyMismatch = { notifyUpdateKeyMigrationRequired(it) }
-        )
+    private suspend fun runUpdateCheck(
+        settings: AppSettings,
+        forceCheck: Boolean = false,
+    ): UpdateCheck = com.phairplay.update.UpdateFlow.run(
+        context = applicationContext,
+        autoDownload = settings.autoDownloadUpdates,
+        autoInstall = settings.autoInstallUpdates,
+        forceCheck = forceCheck,
+        onNotifyAvailable = { notifyUpdateAvailable(it) },
+        onNotifyReady = { notifyUpdateReady(it) },
+        onNotifyKeyMismatch = { notifyUpdateKeyMigrationRequired(it) },
+    )
 
     /**
      * Settings → "Check for updates": one immediate check, respecting the download/install
@@ -719,7 +714,7 @@ class PhairPlayService : Service() {
         val settings = settingsRepository.settingsFlow.first()
         _updateChecking.value = true
         return try {
-            runUpdateCheck(settings)
+            runUpdateCheck(settings, forceCheck = true)
         } finally {
             _updateChecking.value = false
         }
@@ -739,52 +734,36 @@ class PhairPlayService : Service() {
     /** Forgets the staged download. */
     fun discardStagedUpdate() = UpdateManager.get(applicationContext).clearDownload()
 
-    private fun notifyUpdateAvailable(info: UpdateInfo) = notifyUpdate(
-        title = getString(R.string.update_notification_title),
-        text = getString(R.string.update_notification_available, info.shortLabel())
-    )
+    private fun notifyUpdateAvailable(info: UpdateInfo) = UpdateNotifications.available(this, info)
 
-    private fun notifyUpdateReady(info: UpdateInfo) = notifyUpdate(
-        title = getString(R.string.update_notification_title),
-        text = getString(R.string.update_notification_ready, info.shortLabel())
-    )
+    private fun notifyUpdateReady(info: UpdateInfo) = UpdateNotifications.ready(this, info)
 
-    private fun notifyUpdateKeyMigrationRequired(info: UpdateInfo) = notifyUpdate(
-        title = getString(R.string.update_notification_migration_title),
-        text = getString(R.string.update_notification_migration, info.shortLabel())
-    )
+    private fun notifyUpdateKeyMigrationRequired(info: UpdateInfo) =
+        UpdateNotifications.keyMigrationRequired(this, info)
 
-    /** Posts a dismissible (non-ongoing) notification on the service channel. */
-    private fun notifyUpdate(title: String, text: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return
-        val openApp = PendingIntent.getActivity(
-            this, UPDATE_PENDING_INTENT_ID,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setContentIntent(openApp)
-            .setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_RECOMMENDATION)
-            .build()
-        try {
-            manager.notify(UPDATE_NOTIFICATION_ID, notification)
-        } catch (e: SecurityException) {
-            // Android 13+ needs POST_NOTIFICATIONS; without it the Settings screen is the
-            // only place an update can be announced, which is fine.
-            Logger.w("Could not post the update notification: notification permission not granted")
-        }
+    private fun refreshUpdateInstallSafety() {
+        val playback = _airPlayPlaybackState.value
+        val active = _activeConnection.value != null || mirroring || _photoFrame.value != null ||
+            _nowPlaying.value != null || (playback != null && playback !in setOf(
+                com.phairplay.airplay.AirPlayPlaybackState.STOPPED,
+                com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED,
+            ))
+        UpdateInstallSafety.setPlaybackActive(active)
     }
 
-    private fun stopAllReceiversInternal() {
+    private fun stopAllReceiversInternal(reason: ReceiverShutdownReason) {
+        com.phairplay.airplay.AirPlayTrace.record(
+            "Receiver shutdown requested (${reason.traceLabel})",
+            kind = com.phairplay.airplay.AirPlayTrace.Kind.LIFECYCLE,
+        )
         val receiver = airPlayReceiver
         airPlayReceiver = null // Ignore any callback still queued by this receiver before tearing it down.
         airPlayReceiverCallbackTicket = 0L
-        try { receiver?.stop() } catch (e: Exception) { Logger.w("AirPlay stop failed (${e.javaClass.simpleName})") }
+        try {
+            receiver?.stop(reason)
+        } catch (e: Exception) {
+            Logger.w("AirPlay stop failed (${reason.name.lowercase()}, ${e.javaClass.simpleName})")
+        }
 
         _airPlayDetail.value = null
         _airPlayPlaybackState.value = null
@@ -797,6 +776,7 @@ class PhairPlayService : Service() {
         _photoFrame.value = null
         _nowPlaying.value = null
         _registeredName.value = null
+        refreshUpdateInstallSafety()
         // Every receiver is gone, so no session can still be writing counters.
         com.phairplay.airplay.StreamStats.endSession()
     }
@@ -870,7 +850,7 @@ class PhairPlayService : Service() {
             .setContentIntent(openAppIntent)
             .setOngoing(true)                   // Prevents user from swiping away
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(R.drawable.ic_stop, getString(R.string.action_stop_playback), stopPlaybackIntent)
+            .addAction(R.drawable.ic_stop, getString(R.string.action_stop_casting), stopPlaybackIntent)
             .addAction(R.drawable.ic_stop, getString(R.string.action_stop), stopIntent)
             .addAction(R.drawable.ic_restart, getString(R.string.action_restart), restartIntent)
             .build()
@@ -903,10 +883,9 @@ class PhairPlayService : Service() {
 
         /** Separate, dismissible notification used to announce an available update. */
         const val UPDATE_NOTIFICATION_ID = 1002
-        const val UPDATE_PENDING_INTENT_ID = 20
 
-        /** How often the background updater wakes up (UpdateManager throttles the rest). */
-        const val UPDATE_CHECK_PERIOD_MS = 6 * 60 * 60 * 1000L
+        /** Compatibility/display constant; scheduling is durable WorkManager work, not an exact timer. */
+        const val UPDATE_CHECK_PERIOD_MS = 60 * 60 * 1000L
         const val ACTION_START    = "com.phairplay.action.START"
         const val ACTION_STOP     = "com.phairplay.action.STOP"
         const val ACTION_STOP_PLAYBACK = "com.phairplay.action.STOP_PLAYBACK"

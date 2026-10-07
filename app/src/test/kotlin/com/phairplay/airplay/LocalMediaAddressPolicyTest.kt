@@ -37,6 +37,20 @@ class LocalMediaAddressPolicyTest {
     }
 
     @Test
+    fun `loopback sender URLs are blocked for both initial requests and TLS redirects`() {
+        listOf("localhost", "sender.localhost", "127.4.5.6", "::1", "0:0:0:0:0:0:0:1")
+            .forEach { host -> assertTrue("$host is a loopback alias", LocalMediaAddressPolicy.isLoopbackHost(host)) }
+        assertEquals(
+            "loopback media host may refer to the sender, not this receiver",
+            MediaRedirectPolicy.rejectionReason(URI("https://localhost:64321/photo.mov")),
+        )
+        assertEquals(
+            "loopback media host may refer to the sender, not this receiver",
+            MediaRedirectPolicy.rejectionReason(URI("https://127.0.0.1/photo.mov"), originalScheme = "https"),
+        )
+    }
+
+    @Test
     fun `initial direct URLs allow local cleartext and public TLS only`() {
         assertNull(MediaRedirectPolicy.rejectionReason(URI("http://192.168.1.24/movie.m3u8")))
         assertNull(MediaRedirectPolicy.rejectionReason(URI("https://media.example/movie.m3u8")))

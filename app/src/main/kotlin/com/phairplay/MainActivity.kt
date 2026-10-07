@@ -69,6 +69,7 @@ class MainActivity : AppCompatActivity() {
      */
     private var currentAppleCastingState = ProtocolState.DISABLED
     private var currentPhotoFrame: PhotoFrame? = null
+    private var displayedPhotoFrame: PhotoFrame? = null
     private var currentNowPlaying: NowPlayingInfo? = null
 
     private val serviceConnection = object : ServiceConnection {
@@ -227,6 +228,8 @@ class MainActivity : AppCompatActivity() {
      * Hides the nav panel and content area to give the stream the full screen.
      */
     fun showStreamingScreen() {
+        photoScreen.clearPhoto()
+        displayedPhotoFrame = null
         photoScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.GONE
         nowPlayingScreen.clear()
@@ -237,19 +240,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun showPhotoScreen(photoFrame: PhotoFrame) {
-        if (photoScreen.showPhoto(photoFrame.bytes)) {
-            streamingScreen.visibility = View.GONE
-            nowPlayingScreen.visibility = View.GONE
-                photoScreen.visibility = View.VISIBLE
-            streamingContainer.keepScreenOn = true
-            streamingContainer.visibility = View.VISIBLE
-            streamingContainer.bringToFront()
+        if (displayedPhotoFrame !== photoFrame) {
+            if (!photoScreen.showPhoto(photoFrame.bytes)) return
+            displayedPhotoFrame = photoFrame
         }
+        streamingScreen.visibility = View.GONE
+        nowPlayingScreen.visibility = View.GONE
+        photoScreen.visibility = View.VISIBLE
+        streamingContainer.keepScreenOn = true
+        streamingContainer.visibility = View.VISIBLE
+        streamingContainer.bringToFront()
     }
 
     /** Shows the audio-only now-playing card (AirPlay audio with no video). */
     fun showNowPlayingScreen(info: NowPlayingInfo) {
         nowPlayingScreen.update(info)
+        photoScreen.clearPhoto()
+        displayedPhotoFrame = null
         streamingScreen.visibility = View.GONE
         photoScreen.visibility = View.GONE
         nowPlayingScreen.visibility = View.VISIBLE
@@ -264,6 +271,7 @@ class MainActivity : AppCompatActivity() {
      */
     fun hideStreamingScreen() {
         photoScreen.clearPhoto()
+        displayedPhotoFrame = null
         photoScreen.visibility = View.GONE
         nowPlayingScreen.clear()
         nowPlayingScreen.visibility = View.GONE

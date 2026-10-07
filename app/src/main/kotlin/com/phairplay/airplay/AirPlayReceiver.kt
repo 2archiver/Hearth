@@ -149,6 +149,10 @@ internal class AirPlayReceiver(
     @Volatile private var audioServer: AudioStreamServer? = null
     @Volatile private var bufferedAudioServer: BufferedAudioServer? = null
     @Volatile private var urlVideoPlayer: AirPlayVideoPlayer? = null
+    /** Session-scoped bounded cache for Photos cacheOnly/displayCached asset actions. */
+    private val photoAssetCache = SessionPhotoAssetCache()
+    /** True while a still is displayed or cached, so Media Stop can handle a photo-only session. */
+    @Volatile private var photoStateActive = false
     /** Invalidates completion/error callbacks from a URL player replaced by a newer /play. */
     private var urlVideoGeneration = 0L
 
@@ -319,21 +323,27 @@ internal class AirPlayReceiver(
      * MUST be called when [PhairPlayService] stops or is destroyed.
      */
     @Synchronized
-    fun stop() {
+    fun stop(reason: ReceiverShutdownReason = ReceiverShutdownReason.UNSPECIFIED) {
         if (!shutdownStarted.compareAndSet(false, true)) return
-        Logger.i("AirPlayReceiver stopping")
+        AirPlayTrace.record(
+            "AirPlay receiver shutdown initiated (${reason.traceLabel})",
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        Logger.i("AirPlayReceiver stopping (${reason.name.lowercase()})")
         // Invalidate claims/callbacks before closing sockets. A late media callback can no longer
         // regain ownership while the remaining resources are being released.
         stopped = true
         sessionOwnership.reset()
-        silenceMediaOutputs("receiver stopped")
+        photoAssetCache.clear()
+        clearPhotoDisplay()
+        silenceMediaOutputs("receiver shutdown: ${reason.traceLabel}")
 
         val server = rtspServer.also { rtspServer = null }
         val timing = timingHandler.also { timingHandler = null }
         val mdns = mdnsService.also { mdnsService = null }
         CleanupSafety.runAll(
             listOf(
-                "RTSP listener" to { server?.stop() },
+                "RTSP listener" to { server?.stop(reason) },
                 "NTP listener" to { timing?.stop() },
                 "mDNS advertisement" to { stopMdnsOnMain(mdns) },
                 "DACP remote control" to { dacpClient.stop() },
@@ -343,7 +353,10 @@ internal class AirPlayReceiver(
         // All blocking sockets have been closed before cancellation, so cancellation cannot strand
         // an active read or discard the only cleanup path for a player/network request.
         scope.cancel()
-        AirPlayTrace.record("Receiver stopped; AirPlay listener and discovery are no longer active")
+        AirPlayTrace.record(
+            "Receiver stopped (${reason.traceLabel}); AirPlay listener and discovery are no longer active",
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
     }
 
     /**
@@ -356,7 +369,7 @@ internal class AirPlayReceiver(
     fun stopPlayback(): Boolean {
         if (stopped) return false
         val snapshot = sessionOwnership.snapshot()
-        if (snapshot == null && !hasLiveMediaComponents()) return false
+        if (snapshot == null && !hasLiveMediaComponents() && !photoStateActive) return false
         val token = snapshot?.token
         val startedNanos = System.nanoTime()
         AirPlayTrace.record(
@@ -368,6 +381,8 @@ internal class AirPlayReceiver(
         // Mute/pause before any socket or decoder cleanup, so a slow sender or codec cannot leave
         // local sound/video running while the rest of the pipeline is being torn down.
         silenceMediaOutputs("local Stop playback")
+        photoAssetCache.clear()
+        clearPhotoDisplay()
         sessionOwnership.reset()
         if (token != null) {
             CleanupSafety.runAll(
@@ -437,6 +452,8 @@ internal class AirPlayReceiver(
                 onStreamingStopped = {},
                 onPhotoReceived = { bytes, imageType -> onPhotoReceived(bytes, imageType) },
                 onPhotoCleared = { onPhotoCleared() },
+                onPhotoPut = { request, token, id, fingerprint -> handlePhotoPut(request, token, id, fingerprint) },
+                onPhotoDelete = { token, id, fingerprint -> handlePhotoDelete(token, id, fingerprint) },
                 onMirrorSetupKeysSession = { aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort, token ->
                     startMirrorKeys(aesKey, ecdhSecret, aesIv, remoteAddr, senderTimingPort, token)
                 },
@@ -760,7 +777,84 @@ internal class AirPlayReceiver(
         )
     }
 
+    @Synchronized
+    private fun handlePhotoPut(
+        request: PhotoPutRequest,
+        token: SessionToken?,
+        connectionId: String,
+        protocolSessionFingerprint: String?,
+    ): PhotoRequestResult {
+        if (stopped || (token != null && !sessionOwnership.isCurrent(token)) ||
+            (token == null && sessionOwnership.isClaimed())
+        ) return PhotoRequestResult.CONFLICT
+        val cacheSession = photoCacheSessionKey(token, connectionId, protocolSessionFingerprint)
+        return when (request.action) {
+            PhotoAssetAction.DISPLAY_CACHED -> {
+                val key = request.assetKey ?: return PhotoRequestResult.BAD_REQUEST
+                val cached = photoAssetCache.get(cacheSession, key) ?: return PhotoRequestResult.NOT_FOUND
+                onPhotoReceived(cached.bytes, cached.imageType)
+                photoStateActive = true
+                PhotoRequestResult.ACCEPTED
+            }
+            PhotoAssetAction.CACHE_ONLY,
+            PhotoAssetAction.DISPLAY -> {
+                val validation = PhotoHandler.validatePhoto(request.bytes, request.contentType)
+                if (validation !is PhotoValidation.Valid) return PhotoRequestResult.BAD_REQUEST
+                val assetKey = request.assetKey
+                if (assetKey != null) {
+                    val stored = photoAssetCache.put(cacheSession, assetKey, request.bytes, validation.imageType)
+                    if (request.action == PhotoAssetAction.CACHE_ONLY && !stored) {
+                        return PhotoRequestResult.STORAGE_FULL
+                    }
+                } else if (request.action == PhotoAssetAction.CACHE_ONLY) {
+                    return PhotoRequestResult.BAD_REQUEST
+                }
+                if (request.action == PhotoAssetAction.DISPLAY) {
+                    // Request bodies are immutable after parsing; transfer ownership to the service
+                    // instead of allocating another potentially 25 MiB copy while caching it.
+                    onPhotoReceived(request.bytes, validation.imageType)
+                    photoStateActive = true
+                }
+                PhotoRequestResult.ACCEPTED
+            }
+        }
+    }
+
+    @Synchronized
+    private fun handlePhotoDelete(
+        token: SessionToken?,
+        connectionId: String,
+        protocolSessionFingerprint: String?,
+    ): Boolean {
+        if (stopped || (token != null && !sessionOwnership.isCurrent(token)) ||
+            (token == null && sessionOwnership.isClaimed())
+        ) return false
+        if (token == null && protocolSessionFingerprint == null) {
+            photoAssetCache.clearSession(photoCacheSessionKey(null, connectionId, null))
+        }
+        clearPhotoDisplay()
+        return true
+    }
+
+    private fun clearPhotoDisplay() {
+        photoStateActive = false
+        try {
+            onPhotoCleared()
+        } catch (error: Exception) {
+            reportCleanupFailure("Photos display clear callback", RuntimeException(error.javaClass.name))
+        }
+    }
+
+    private fun photoCacheSessionKey(
+        token: SessionToken?,
+        connectionId: String,
+        protocolSessionFingerprint: String?,
+    ): String = token?.let { "session:${it.sessionId}:${it.generation}" }
+        ?: protocolSessionFingerprint?.let { "protocol:$it" }
+        ?: "connection:$connectionId"
+
     private fun finishSessionResources(token: SessionToken?, reason: String) {
+        if (token != null) photoAssetCache.clearSession(photoCacheSessionKey(token, "", null))
         AirPlayTrace.record(
             "Session stopped: $reason",
             sessionId = token?.sessionId,

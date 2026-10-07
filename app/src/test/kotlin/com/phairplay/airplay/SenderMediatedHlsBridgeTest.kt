@@ -253,15 +253,44 @@ class SenderMediatedHlsBridgeTest {
         assertTrue(delivery.summary.contains("ignored"))
 
         // A fresh fetch is served: the stale answer did not poison the channel for the URL.
-        sender.answers[MASTER_URI] = "#EXTM3U\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nv720/prog.m3u8\n"
         sender.autoAnswer = true
         assertTrue(bridge.open(bridge.playerUri).isNotEmpty())
     }
 
     @Test
+    fun `an audio-only master is rejected as video before it can start a player`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = """
+            #EXTM3U
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,AUTOSELECT=YES,URI="audio/prog.m3u8"
+        """.trimIndent() + "\n"
+        val bridge = bridge(sender)
+
+        assertFalse("audio-only negotiation must not be reported as YouTube video", bridge.start())
+        assertTrue(bridge.failureReason().orEmpty().contains("no video variants"))
+        assertEquals("the invalid master is rejected before requesting audio renditions", listOf(MASTER_URI), sender.requestedUrls())
+    }
+
+    @Test
+    fun `a stream variant explicitly containing only audio codecs is not accepted as video`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = """
+            #EXTM3U
+            #EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS="mp4a.40.2"
+            audio/prog.m3u8
+        """.trimIndent() + "\n"
+        val bridge = bridge(sender)
+
+        assertFalse("audio-only CODECS metadata must not start a video player", bridge.start())
+        assertTrue(bridge.failureReason().orEmpty().contains("audio streams but no video variants"))
+        assertEquals("reject before asking FCUP for an audio playlist", listOf(MASTER_URI), sender.requestedUrls())
+    }
+
+    @Test
     fun `an HTTP 200 FCUP status is a successful playlist response`() {
         val sender = FakeSender(session.sessionId)
-        sender.answers[MASTER_URI] = "#EXTM3U\n"
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nv720/prog.m3u8\n"
         sender.statusOverride = 200
         val bridge = bridge(sender)
 

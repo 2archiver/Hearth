@@ -23,6 +23,9 @@ internal object MediaRedirectPolicy {
         if (candidate.rawUserInfo != null) return "media URL credentials are blocked"
         val host = candidate.host?.takeIf(String::isNotBlank)
             ?: return "media URL has no valid host"
+        if (LocalMediaAddressPolicy.isLoopbackHost(host)) {
+            return "loopback media host may refer to the sender, not this receiver"
+        }
         if (scheme == "http" && !LocalMediaAddressPolicy.allowsCleartextHost(host)) {
             return "cleartext media host is not a local sender"
         }

@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.3] — hourly updates, reasoned shutdown, and session-scoped Photos
+
+A reliability implementation release. It adds durable best-effort update scheduling, records receiver
+shutdown initiators before network sockets close, tightens sender-mediated video/session selection,
+and implements bounded AirPlay Photos still-image asset handling. These code changes are **not**
+real-device acceptance: YouTube-app video and Photos still/video results are recorded separately in
+[docs/CASTING-1.9.3.md](docs/CASTING-1.9.3.md).
+
+### Changed
+- Set `phairplay.versionName` to **1.9.3**. Keep the existing package/application IDs, updater
+  repository and metadata format, signing identity/lineage, ABI/flavor setup, and CI-monotonic
+  `versionCode` policy.
+- Replace the service-lifetime update loop with network-constrained WorkManager scheduling at an
+  hourly best-effort cadence. Persist attempts, successful checks, retry deadlines and GitHub
+  rate-limit deadlines; expose last result and next eligibility in Settings. Android may defer work
+  during Doze/sleep, and force-stop prevents it. Manual Check now bypasses cadence except for an
+  in-flight operation or an active GitHub rate limit.
+- Keep automatic and manual update work single-flight. Verified downloads remain staged, and the
+  installer guard defers any install while audio, video, mirroring or a still photo is being cast.
+  Notifications only announce availability/readiness; they do not launch an installer.
+- Replace the Home media-stop text button with a focus-ring square stop icon whose accessible name
+  is “Stop casting”. Keep receiver controls labelled “Start” and “Stop receiver”.
+
+### Fixed
+- Record a structured shutdown reason for user Stop receiver, app-task removal, service restart and
+  service destruction before the RTSP listener/connections close. Preserve Media Stop as a distinct
+  operation that ends the session but leaves receiver discovery/listeners running; a displayed
+  photo-only cast is also recognized and cleared by Media Stop.
+- Wait briefly for a reverse-channel offer that races `POST /play`. Select a cross-connection offer
+  only by the exact AirPlay session ID; channel count or peer address alone is not association
+  evidence. Reject HLS masters with no video variants, including explicitly audio-codec-only variants,
+  before a player can be started.
+- Block sender-local loopback URLs from direct playback, HLS direct references and redirect hops;
+  they must never be silently reinterpreted as TV-local URLs.
+- Parse Photos `X-Apple-AssetKey`, `X-Apple-AssetAction` (`cacheOnly` / `displayCached`) and
+  `X-Apple-Transition`; route empty-body `displayCached` requests through a bounded, session-keyed
+  LRU. Decode still images off the UI thread with an edge/pixel bound, generation cancellation,
+  stale-result rejection and prompt bitmap cleanup. Keep Photos video on the separate `/play` URL
+  path; parsing a direct `.mov` URL is not evidence that a native Photos video cast works.
+
+### Validation and hardware status
+- Added regression tests for late reverse offers, refusing ambiguous singleton channels, audio-only
+  HLS masters, loopback media URLs, Photos cache actions/session isolation/eviction, and update
+  cadence/retry/rate-limit policy. `./gradlew test`, `./gradlew :test-runner:test`, `./gradlew lint`,
+  and `./gradlew assembleGoogletvRelease` were attempted but each stopped before Gradle because
+  `JAVA_HOME` is unset and no `java` command is installed. The prior OpenJDK install attempt was
+  blocked by unreachable Debian package repositories. Tests/lint/build are **NOT RUN**; no APK was
+  produced here. Offline `git diff --check`, parsing of 32 Android XML files and the version-catalog
+  TOML, workflow shell/YAML validation, and four release-notes helper tests passed; these do not
+  substitute for Android/Kotlin validation.
+- YouTube-app AirPlay moving-video acceptance, native Photos still/slideshow acceptance, and native
+  Photos video acceptance are each **NOT TESTED** on real Google TV hardware. An HTTP response, a
+  parsed playlist, still-image rendering or audio playback does not promote those statuses.
+- The reference review is documented in `docs/CASTING-1.9.3.md`. No code was copied from the GPL-3.0
+  AirPlayer or UxPlay projects.
+
 ## [1.9.2] — lifecycle-safe Stop, canonical updates, and separate iOS video gates
 
 This patch is a reliability and verification release, not a claim that iOS Photos or YouTube video

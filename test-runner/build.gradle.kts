@@ -63,10 +63,14 @@ sourceSets {
                 // VideoDecoder is shadowed by src/stubs/VideoDecoder.kt which has no
                 // MediaCodec/Surface dependencies but exposes the companion-object
                 // members (parseSpsResolution, SpsBitReader) needed by VideoDecoderSpsTest.
-                "**/airplay/VideoDecoder.kt"
-                // com.phairplay.update stays IN this compilation: it touches AndroidX and R
-                // not at all, only android.content.* and java.net.*, and its tests never open
-                // a socket. Anything that needs a live NsdManager/MediaCodec stays out.
+                "**/airplay/VideoDecoder.kt",
+                // Scheduled updates depend on WorkManager / AndroidX notifications; the pure
+                // updater policy, parser and manager remain in this offline JVM compilation.
+                "**/update/UpdateCheckWorker.kt",
+                "**/update/UpdateWorkScheduler.kt",
+                "**/update/UpdateNotifications.kt"
+                // com.phairplay.update pure core stays IN this compilation: it touches no AndroidX
+                // and its tests never open a socket. Anything Android-framework-heavy stays out.
             )
         }
     }

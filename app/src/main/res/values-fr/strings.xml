@@ -31,7 +31,7 @@
     <!-- ── Control buttons ─────────────────────────────────────── -->
     <string name="action_start">Démarrer</string>
     <string name="action_stop">Arrêter le récepteur</string>
-    <string name="action_stop_playback">Arrêter la lecture</string>
+    <string name="action_stop_casting">Arrêter la diffusion</string>
     <string name="action_restart">Redémarrer</string>
 
     <!-- ── Settings section headers ────────────────────────────── -->
@@ -49,7 +49,7 @@
     <string name="setting_check_updates">Rechercher les mises à jour</string>
     <string name="setting_check_updates_subtitle">Rechercher la dernière version de Hearth</string>
     <string name="setting_auto_check_updates">Rechercher automatiquement</string>
-    <string name="setting_auto_check_updates_subtitle">Rechercher en arrière-plan toutes les six heures environ pendant l’exécution de Hearth</string>
+    <string name="setting_auto_check_updates_subtitle">Vérifier environ une fois par heure si le téléviseur est en ligne. Android peut différer les vérifications en veille.</string>
     <string name="setting_auto_download_updates">Télécharger automatiquement</string>
     <string name="setting_auto_download_updates_subtitle">Télécharger et vérifier les nouvelles versions pour les préparer</string>
     <string name="setting_auto_install_updates">Installer automatiquement</string>

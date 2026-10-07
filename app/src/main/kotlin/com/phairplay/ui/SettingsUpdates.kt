@@ -2,6 +2,8 @@ package com.phairplay.ui
 
 import android.content.Intent
 import android.net.Uri
+import java.text.DateFormat
+import java.util.Date
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -18,6 +20,7 @@ import com.phairplay.update.StageResult
 import com.phairplay.update.UpdateCheck
 import com.phairplay.update.UpdateFlow
 import com.phairplay.update.UpdateInfo
+import com.phairplay.update.UpdateWorkScheduler
 import com.phairplay.util.Logger
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -39,6 +42,7 @@ internal class SettingsUpdates(
     private var updateCheckRunning = false
     private var pendingAvailableUpdate: UpdateInfo? = null
     private var pendingKeyMismatchUpdate: UpdateInfo? = null
+    private var automaticChecksEnabled = true
     private val viewLifecycleOwner get() = fragment.viewLifecycleOwner
     private val isAdded get() = fragment.isAdded
     private fun requireContext() = fragment.requireContext()
@@ -61,9 +65,13 @@ internal class SettingsUpdates(
         }
     }
 
-    /** Refresh a staged download when returning from Android's installer. */
+    /** Refresh staged state and the persisted last/next/retry timing when Settings resumes. */
     fun refresh() {
-        if (!updateCheckRunning) refreshStagedUpdateRow()
+        if (updateCheckRunning) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            automaticChecksEnabled = settingsRepository.settingsFlow.first().autoCheckForUpdates
+            refreshStagedUpdateRow()
+        }
     }
 
     private fun refreshStagedUpdateRow() {
@@ -113,13 +121,67 @@ internal class SettingsUpdates(
         }
     }
 
+    private fun timingSummary(): String {
+        val now = System.currentTimeMillis()
+        val manager = com.phairplay.update.UpdateManager.get(requireContext())
+        val schedule = manager.checkScheduleStatus()
+        val parts = mutableListOf<String>()
+        when {
+            schedule.lastSuccessMillis > 0L -> parts += getString(
+                R.string.update_timing_last_success,
+                formatTime(schedule.lastSuccessMillis),
+            )
+            schedule.lastAttemptMillis > 0L -> parts += getString(
+                R.string.update_timing_last_attempt,
+                formatTime(schedule.lastAttemptMillis),
+            )
+            schedule.lastCheckMillis > 0L -> parts += getString(
+                R.string.update_timing_last_attempt,
+                formatTime(schedule.lastCheckMillis),
+            )
+            else -> parts += getString(R.string.update_timing_never)
+        }
+        if (schedule.lastAttemptMillis > 0L && schedule.lastSuccessMillis > 0L &&
+            schedule.lastAttemptMillis > schedule.lastSuccessMillis
+        ) {
+            parts += getString(R.string.update_timing_last_attempt, formatTime(schedule.lastAttemptMillis))
+        }
+        if (schedule.lastFailureMillis > 0L && schedule.lastFailureMillis >= schedule.lastSuccessMillis) {
+            parts += getString(
+                R.string.update_timing_last_failure,
+                schedule.lastFailureMessage ?: getString(R.string.update_status_error),
+            )
+        }
+        val deadline = when {
+            !automaticChecksEnabled -> getString(R.string.update_timing_disabled)
+            schedule.rateLimitUntilMillis > now -> getString(
+                R.string.update_timing_rate_limit,
+                formatTime(schedule.rateLimitUntilMillis),
+            )
+            schedule.retryAfterMillis > now -> getString(
+                R.string.update_timing_retry,
+                formatTime(schedule.retryAfterMillis),
+            )
+            else -> getString(
+                R.string.update_timing_next,
+                formatTime(manager.nextEligibleCheckAtMillis(now)),
+            )
+        }
+        parts += deadline
+        return parts.joinToString("  •  ")
+    }
+
+    private fun formatTime(millis: Long): String =
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
+
     private fun setUpdateCardState(
         message: CharSequence,
         badge: Int?,
         action: Int,
         badgeColor: Int = R.color.accent_blue
     ) {
-        textCheckUpdatesValue.text = message
+        val timing = timingSummary()
+        textCheckUpdatesValue.text = if (timing.isBlank()) message else "$message\n$timing"
         textCheckUpdatesAction.setText(action)
         if (badge == null) {
             textUpdateBadge.visibility = View.GONE
@@ -137,6 +199,7 @@ internal class SettingsUpdates(
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val settings = settingsRepository.settingsFlow.first()
+                automaticChecksEnabled = settings.autoCheckForUpdates
                 val staged = com.phairplay.update.UpdateManager.get(requireContext()).stagedUpdate()
                 if (staged != null) {
                     showInstallDialog(staged.info)
@@ -157,6 +220,21 @@ internal class SettingsUpdates(
                     autoInstall = settings.autoInstallUpdates,
                     forceCheck = true
                 )
+                val scheduleManager = com.phairplay.update.UpdateManager.get(requireContext())
+                when {
+                    settings.autoCheckForUpdates && result is UpdateCheck.Failed &&
+                        result.reason == com.phairplay.update.UpdateFailureReason.CHECK_FAILED ->
+                        UpdateWorkScheduler.scheduleRetry(
+                            requireContext(),
+                            scheduleManager.nextEligibleCheckAtMillis(),
+                        )
+                    settings.autoCheckForUpdates && result is UpdateCheck.Skipped ->
+                        UpdateWorkScheduler.scheduleRetry(
+                            requireContext(),
+                            scheduleManager.nextEligibleCheckAtMillis(),
+                        )
+                    else -> UpdateWorkScheduler.cancelRetry(requireContext())
+                }
 
                 when (result) {
                     is UpdateCheck.Available -> {
@@ -225,7 +303,12 @@ internal class SettingsUpdates(
                         }
                     }
 
-                    is UpdateCheck.Skipped -> refreshStagedUpdateRow()
+                    is UpdateCheck.Skipped -> setUpdateCardState(
+                        message = result.reason,
+                        badge = R.string.update_status_deferred,
+                        action = R.string.update_action_check_now,
+                        badgeColor = R.color.status_transitioning,
+                    )
                 }
             } finally {
                 updateCheckRunning = false
@@ -392,9 +475,20 @@ internal class SettingsUpdates(
                 R.string.update_status_installing, R.string.update_action_install,
                 R.color.status_transitioning
             )
-            when (manager.installStaged()) {
+            val installStart = manager.installStaged()
+            val deferredForPlayback = installStart == InstallStart.PLAYBACK_ACTIVE
+            when (installStart) {
                 InstallStart.QUEUED -> Logger.i("Update install queued — waiting for Android")
                 InstallStart.PERMISSION_REQUIRED -> showInstallPermissionDialog()
+                InstallStart.PLAYBACK_ACTIVE -> {
+                    setUpdateCardState(
+                        getString(R.string.update_install_deferred_playback),
+                        R.string.update_status_ready,
+                        R.string.update_action_install,
+                        R.color.status_transitioning,
+                    )
+                    showMessageDialog(R.string.update_ready_title, getString(R.string.update_install_deferred_playback))
+                }
                 InstallStart.NOTHING_STAGED ->
                     showMessageDialog(R.string.update_dialog_title, getString(R.string.update_install_nothing_staged))
                 InstallStart.VERIFICATION_FAILED ->
@@ -402,7 +496,7 @@ internal class SettingsUpdates(
                 InstallStart.FAILED ->
                     showMessageDialog(R.string.update_install_failed_title, getString(R.string.update_install_failed))
             }
-            if (isAdded) refreshStagedUpdateRow()
+            if (isAdded && !deferredForPlayback) refreshStagedUpdateRow()
         }
     }
 

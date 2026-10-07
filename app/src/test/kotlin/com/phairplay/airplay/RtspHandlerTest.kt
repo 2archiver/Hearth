@@ -287,6 +287,68 @@ class RtspHandlerTest {
     }
 
     @Test
+    fun `cacheOnly passes the asset action to the session cache without displaying the photo`() {
+        var displayed = false
+        var seenAction: PhotoAssetAction? = null
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onPhotoReceived = { _, _ -> displayed = true },
+            onPhotoPut = { request, _, _, _ ->
+                seenAction = request.action
+                PhotoRequestResult.ACCEPTED
+            },
+        )
+        val response = handler.handlePhotoPutPublic(
+            RtspRequest(
+                method = "PUT",
+                uri = "/photo",
+                headers = mapOf(
+                    "Content-Type" to "image/jpeg",
+                    "X-Apple-AssetKey" to "photo-asset-1",
+                    "X-Apple-AssetAction" to "cacheOnly",
+                ),
+                body = "",
+                bodyBytes = JPEG_BYTES,
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(200, response.statusCode)
+        assertEquals(PhotoAssetAction.CACHE_ONLY, seenAction)
+        assertFalse("cacheOnly must not replace the visible still", displayed)
+    }
+
+    @Test
+    fun `displayCached empty body is routed by asset key and returns cache miss truthfully`() {
+        var seenKey: String? = null
+        val handler = TestableRtspHandler(
+            onStreamingStarted = {},
+            onStreamingStopped = {},
+            onPhotoPut = { request, _, _, _ ->
+                seenKey = request.assetKey
+                PhotoRequestResult.NOT_FOUND
+            },
+        )
+        val response = handler.handlePhotoPutPublic(
+            RtspRequest(
+                method = "PUT",
+                uri = "/photo",
+                headers = mapOf(
+                    "X-Apple-AssetKey" to "photo-asset-1",
+                    "X-Apple-AssetAction" to "displayCached",
+                ),
+                body = "",
+                bodyBytes = ByteArray(0),
+                protocol = "HTTP/1.1",
+            )
+        )
+
+        assertEquals(404, response.statusCode)
+        assertEquals("photo-asset-1", seenKey)
+    }
+
+    @Test
     fun `PUT photo with invalid payload returns 400`() {
         val response = createTestHandler().handlePhotoPutPublic(
             RtspRequest(
@@ -863,6 +925,8 @@ class TestableRtspHandler(
     onStreamingStopped: () -> Unit,
     onPhotoReceived: (ByteArray, PhotoImageType) -> Unit = { _, _ -> },
     onPhotoCleared: () -> Unit = {},
+    onPhotoPut: ((PhotoPutRequest, SessionToken?, String, String?) -> PhotoRequestResult)? = null,
+    onPhotoDelete: ((SessionToken?, String, String?) -> Boolean)? = null,
     onMirrorAudioStop: () -> Unit = {},
     onMirrorVideoStop: () -> Unit = {},
     onVolume: (Float) -> Unit = {},
@@ -878,6 +942,8 @@ class TestableRtspHandler(
     onStreamingStopped = onStreamingStopped,
     onPhotoReceived = onPhotoReceived,
     onPhotoCleared = onPhotoCleared,
+    onPhotoPut = onPhotoPut,
+    onPhotoDelete = onPhotoDelete,
     onMirrorAudioStop = onMirrorAudioStop,
     onMirrorVideoStop = onMirrorVideoStop,
     onVolume = onVolume,

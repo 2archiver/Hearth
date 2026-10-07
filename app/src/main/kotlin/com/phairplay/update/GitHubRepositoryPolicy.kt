@@ -7,7 +7,7 @@ internal object GitHubRepositoryPolicy {
     const val CANONICAL_REPOSITORY = "2archiver/Hearth"
     const val RENAMED_FROM_REPOSITORY = "2archiver/phairplay-archiver-fork-"
 
-    private val repositoryPattern = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    private val repositorySegmentPattern = Regex("^[A-Za-z0-9_.-]+$")
 
     /** Normalize the GitHub rename before constructing requests; reject anything but owner/name. */
     fun canonicalRepository(repository: String): String? {
@@ -15,7 +15,12 @@ internal object GitHubRepositoryPolicy {
         if (candidate.equals(RENAMED_FROM_REPOSITORY, ignoreCase = true)) {
             return CANONICAL_REPOSITORY
         }
-        return candidate.takeIf(repositoryPattern::matches)
+        val segments = candidate.split('/')
+        return candidate.takeIf {
+            segments.size == 2 && segments.all { segment ->
+                segment != "." && segment != ".." && repositorySegmentPattern.matches(segment)
+            }
+        }
     }
 
     fun latestReleaseApiUrl(repository: String): String? = canonicalRepository(repository)?.let {
