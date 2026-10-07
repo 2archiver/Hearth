@@ -34,7 +34,9 @@ class UpdateSchedulePolicyTest {
     @Test
     fun `GitHub rate-limit deadline takes precedence over the hourly schedule`() {
         val limited = UpdateScheduleStatus(
+            lastAttemptMillis = 100_000L,
             lastSuccessMillis = 1L,
+            lastFailureMillis = 100_000L,
             retryAfterMillis = 200_000L,
             rateLimitUntilMillis = 250_000L,
         )
