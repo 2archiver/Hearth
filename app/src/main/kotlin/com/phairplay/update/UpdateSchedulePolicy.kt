@@ -21,9 +21,11 @@ data class UpdateScheduleStatus(
             // A newer in-flight, interrupted, or failed attempt supersedes an older success.
             // Otherwise the hourly-success cadence could hide the shorter retry deadline.
             lastAttemptMillis > lastSuccessMillis && lastAttemptMillis > 0L ->
-                safeAdd(lastAttemptMillis, UpdatePreferences.RETRY_INTERVAL_MS)
+                retryAfterMillis.takeIf { it > 0L }
+                    ?: safeAdd(lastAttemptMillis, UpdatePreferences.RETRY_INTERVAL_MS)
             lastFailureMillis > lastSuccessMillis && lastFailureMillis > 0L ->
-                safeAdd(lastFailureMillis, UpdatePreferences.RETRY_INTERVAL_MS)
+                retryAfterMillis.takeIf { it > 0L }
+                    ?: safeAdd(lastFailureMillis, UpdatePreferences.RETRY_INTERVAL_MS)
             lastSuccessMillis > 0L -> safeAdd(lastSuccessMillis, UpdatePreferences.CHECK_INTERVAL_MS)
             lastAttemptMillis > 0L -> safeAdd(lastAttemptMillis, UpdatePreferences.RETRY_INTERVAL_MS)
             lastCheckMillis > 0L -> safeAdd(lastCheckMillis, UpdatePreferences.RETRY_INTERVAL_MS)
