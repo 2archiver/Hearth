@@ -12,6 +12,7 @@
     <!-- Launcher label, notification title and Settings header. Renamed from "PhairPlay
          (archiver)" in 1.7.0 — see docs/RENAME.md. -->
     <string name="app_name">Hearth</string>
+    <string name="photo_screen_description">Shared AirPlay photo</string>
 
     <!-- ── Navigation ──────────────────────────────────────────── -->
     <string name="nav_home">Home</string>
@@ -89,7 +90,7 @@
     <!-- ── Control buttons ─────────────────────────────────────── -->
     <string name="action_start">Start</string>
     <string name="action_stop">Stop receiver</string>
-    <string name="action_stop_playback">Stop playback</string>
+    <string name="action_stop_casting">Stop casting</string>
     <string name="action_restart">Restart</string>
 
     <!-- ── Notification ────────────────────────────────────────── -->
@@ -168,7 +169,7 @@
     <string name="setting_check_updates_subtitle">Look for the latest Hearth build</string>
     <string name="update_card_trust_hint">Updates are checked before they are installed</string>
     <string name="setting_auto_check_updates">Check automatically</string>
-    <string name="setting_auto_check_updates_subtitle">Look for updates in the background about every six hours while Hearth is running</string>
+    <string name="setting_auto_check_updates_subtitle">Look about once an hour while the TV is online. Android may defer checks while it sleeps.</string>
     <string name="setting_auto_download_updates">Download automatically</string>
     <string name="setting_auto_download_updates_subtitle">Download and verify new builds so they are ready when you are</string>
     <string name="setting_auto_install_updates">Install automatically</string>
@@ -191,6 +192,17 @@
     <string name="update_status_current">UP TO DATE</string>
     <string name="update_status_action_needed">ACTION NEEDED</string>
     <string name="update_status_error">CHECK FAILED</string>
+    <string name="update_status_deferred">CHECK DEFERRED</string>
+    <!-- Times below are eligibility information; WorkManager may be delayed by Android. -->
+    <string name="update_timing_last_success">Last successful check: %1$s</string>
+    <string name="update_timing_last_attempt">Last attempt: %1$s</string>
+    <string name="update_timing_last_failure">Last check failed: %1$s</string>
+    <string name="update_timing_never">No update check has completed yet.</string>
+    <string name="update_timing_disabled">Automatic checks are off.</string>
+    <string name="update_timing_retry">Retry eligible after %1$s. Android may defer it.</string>
+    <string name="update_timing_rate_limit">GitHub rate limit is active until %1$s.</string>
+    <string name="update_timing_next">Next eligible automatic check after %1$s; Android may defer it.</string>
+    <string name="update_install_deferred_playback">Casting is active. Stop casting, then choose Install now.</string>
     <!-- %1$s = versionName, %2$d = versionCode of this install -->
     <string name="update_current_version">Installed %1$s (build %2$d) — the newest published build</string>
     <string name="update_key_mismatch_card">A one-time reinstall is needed to switch signing keys</string>

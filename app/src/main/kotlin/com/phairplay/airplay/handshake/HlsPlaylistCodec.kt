@@ -1,5 +1,6 @@
 package com.phairplay.airplay.handshake
 
+import com.phairplay.airplay.LocalMediaAddressPolicy
 import java.net.URI
 import java.util.Locale
 
@@ -17,6 +18,8 @@ import java.util.Locale
  * Everything here is pure: no sockets, no logging of URLs, no policy about what "fetchable" means
  * (that is the caller's `resolver`).
  */
+private val AUDIO_CODEC_FAMILIES = setOf("mp4a", "ac-3", "ec-3", "ac-4", "opus", "flac", "alac")
+
 internal object HlsPlaylistCodec {
 
     const val TAG_EXTM3U = "#EXTM3U"
@@ -110,10 +113,22 @@ internal object HlsPlaylistCodec {
 
         val audioRenditions: List<Rendition> get() = renditions.filter { it.type.equals("AUDIO", true) }
 
+        /**
+         * True only when at least one variant is not explicitly audio-only. Missing CODECS metadata
+         * stays ambiguous rather than being misreported as audio-only.
+         */
+        val hasPotentialVideoVariant: Boolean
+            get() = variants.any { variant ->
+                variant.codecs.isEmpty() || variant.codecs.any { codec ->
+                    codec.substringBefore('.').lowercase(Locale.US) !in AUDIO_CODEC_FAMILIES
+                }
+            }
+
         val shape: Shape
             get() = when {
                 variants.isEmpty() && audioRenditions.isNotEmpty() -> Shape.AUDIO_ONLY
                 variants.isEmpty() -> Shape.NO_VARIANTS
+                !hasPotentialVideoVariant -> Shape.AUDIO_ONLY
                 audioRenditions.any { !it.uri.isNullOrBlank() } -> Shape.SEPARATE_AUDIO
                 else -> Shape.MUXED
             }
@@ -446,24 +461,13 @@ internal object HlsPlaylistCodec {
         if (scheme != "http" && scheme != "https") return false
         val host = parsed.host ?: return false
         if (host.isBlank() || parsed.rawUserInfo != null) return false
-        return !isLoopbackHost(host)
+        return !LocalMediaAddressPolicy.isLoopbackHost(host)
     }
 
     /** True when the reference is not absolute, i.e. relative to the playlist's own URI. */
     private fun isRelativeReference(reference: String): Boolean {
         val parsed = runCatching { URI(reference.trim()) }.getOrNull() ?: return true
         return !parsed.isAbsolute
-    }
-
-    /** `localhost`, `*.localhost`, an IPv4 loopback / `0.0.0.0`, or `::1`. */
-    private fun isLoopbackHost(host: String): Boolean {
-        val lowered = host.trim('[', ']').lowercase(Locale.US)
-        if (lowered == "localhost" || lowered.endsWith(".localhost") || lowered == "::1") return true
-        val octets = lowered.split('.')
-        if (octets.size != 4) return false
-        val values = octets.map { it.toIntOrNull() ?: return false }
-        if (values.any { it < 0 || it > 255 }) return false
-        return values[0] == 127 || lowered == "0.0.0.0"
     }
 
     /** Short description of a reference for diagnostics: scheme, extension, query presence, length. */
@@ -624,5 +628,4 @@ internal object HlsPlaylistCodec {
             ?.filter { it.isNotEmpty() }
             ?: emptyList()
 
-    private val AUDIO_CODEC_FAMILIES = setOf("mp4a", "ac-3", "ec-3", "ac-4", "opus", "flac", "alac")
 }

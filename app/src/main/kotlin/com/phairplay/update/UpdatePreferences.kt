@@ -20,10 +20,90 @@ internal class UpdatePreferences(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Wall-clock time (ms) of the last completed update check, 0 = never. */
+    /** Wall-clock time (ms) of the last check attempt, 0 = never. */
     var lastCheckMillis: Long
         get() = prefs.getLong(KEY_LAST_CHECK, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_CHECK, value).apply()
+
+    /** Last request start, successful completion, failure, and persisted retry/rate-limit deadlines. */
+    val lastAttemptMillis: Long get() = prefs.getLong(KEY_LAST_ATTEMPT, 0L)
+    val lastSuccessfulCheckMillis: Long get() = prefs.getLong(KEY_LAST_SUCCESS, 0L)
+    val lastFailureMillis: Long get() = prefs.getLong(KEY_LAST_FAILURE, 0L)
+    val retryAfterMillis: Long get() = prefs.getLong(KEY_RETRY_AFTER, 0L)
+    val rateLimitUntilMillis: Long get() = prefs.getLong(KEY_RATE_LIMIT_UNTIL, 0L)
+    val lastFailureMessage: String? get() = prefs.getString(KEY_LAST_FAILURE_MESSAGE, null)
+
+    /** True once the new schedule schema has been written; false permits a legacy timestamp fallback. */
+    private val hasScheduleState: Boolean get() = prefs.getBoolean(KEY_SCHEDULE_STATE_INITIALIZED, false)
+
+    /** Reads timing state while preserving the old last-check throttle after an upgrade. */
+    fun scheduleStatus(): UpdateScheduleStatus {
+        val legacyLastCheck = lastCheckMillis
+        return if (hasScheduleState) {
+            UpdateScheduleStatus(
+                lastCheckMillis = legacyLastCheck,
+                lastAttemptMillis = lastAttemptMillis,
+                lastSuccessMillis = lastSuccessfulCheckMillis,
+                lastFailureMillis = lastFailureMillis,
+                retryAfterMillis = retryAfterMillis,
+                rateLimitUntilMillis = rateLimitUntilMillis,
+                lastFailureMessage = lastFailureMessage,
+            )
+        } else {
+            // Previous builds encoded retry timing by backdating this value. We cannot infer
+            // whether it represents success or failure, so preserve its conservative cadence once.
+            UpdateScheduleStatus(
+                lastCheckMillis = legacyLastCheck,
+                lastAttemptMillis = legacyLastCheck,
+                legacyTimestampOnly = legacyLastCheck > 0L,
+            )
+        }
+    }
+
+    /** Persist an attempt before network I/O, so process death still leaves a bounded retry. */
+    fun recordCheckAttempt(nowMillis: Long) {
+        prefs.edit()
+            .putBoolean(KEY_SCHEDULE_STATE_INITIALIZED, true)
+            .putLong(KEY_LAST_CHECK, nowMillis)
+            .putLong(KEY_LAST_ATTEMPT, nowMillis)
+            .putLong(KEY_RETRY_AFTER, safeAdd(nowMillis, RETRY_INTERVAL_MS))
+            .apply()
+    }
+
+    /** Persist a completed successful check and clear transient retry/rate-limit state. */
+    fun recordCheckSuccess(nowMillis: Long) {
+        prefs.edit()
+            .putBoolean(KEY_SCHEDULE_STATE_INITIALIZED, true)
+            .putLong(KEY_LAST_CHECK, nowMillis)
+            .putLong(KEY_LAST_ATTEMPT, nowMillis)
+            .putLong(KEY_LAST_SUCCESS, nowMillis)
+            .putLong(KEY_LAST_FAILURE, 0L)
+            .putLong(KEY_RETRY_AFTER, 0L)
+            .putLong(KEY_RATE_LIMIT_UNTIL, 0L)
+            .remove(KEY_LAST_FAILURE_MESSAGE)
+            .apply()
+    }
+
+    /** Persist a failure with a server-supplied rate-limit deadline when one is available. */
+    fun recordCheckFailure(
+        nowMillis: Long,
+        retryAtMillis: Long,
+        rateLimitUntilMillis: Long = 0L,
+        safeMessage: String,
+    ) {
+        prefs.edit()
+            .putBoolean(KEY_SCHEDULE_STATE_INITIALIZED, true)
+            .putLong(KEY_LAST_CHECK, nowMillis)
+            .putLong(KEY_LAST_ATTEMPT, nowMillis)
+            .putLong(KEY_LAST_FAILURE, nowMillis)
+            .putLong(KEY_RETRY_AFTER, retryAtMillis.coerceAtLeast(nowMillis))
+            .putLong(
+                KEY_RATE_LIMIT_UNTIL,
+                if (rateLimitUntilMillis > 0L) rateLimitUntilMillis.coerceAtLeast(nowMillis) else 0L,
+            )
+            .putString(KEY_LAST_FAILURE_MESSAGE, safeMessage.take(MAX_FAILURE_MESSAGE_CHARS))
+            .apply()
+    }
 
     /** versionCode the user dismissed with "not now"; 0 = nothing skipped. */
     var skippedVersionCode: Int
@@ -131,8 +211,19 @@ internal class UpdatePreferences(context: Context) {
     }
 
     companion object {
+        private fun safeAdd(value: Long, delta: Long): Long =
+            if (value > Long.MAX_VALUE - delta) Long.MAX_VALUE else value + delta
+
         private const val PREFS_NAME = "phairplay_updates"
         private const val KEY_LAST_CHECK = "last_check_millis"
+        private const val KEY_LAST_ATTEMPT = "last_attempt_millis"
+        private const val KEY_LAST_SUCCESS = "last_successful_check_millis"
+        private const val KEY_LAST_FAILURE = "last_failure_millis"
+        private const val KEY_RETRY_AFTER = "retry_after_millis"
+        private const val KEY_RATE_LIMIT_UNTIL = "rate_limit_until_millis"
+        private const val KEY_LAST_FAILURE_MESSAGE = "last_failure_message"
+        private const val KEY_SCHEDULE_STATE_INITIALIZED = "schedule_state_initialized"
+        private const val MAX_FAILURE_MESSAGE_CHARS = 240
         private const val KEY_SKIPPED_CODE = "skipped_version_code"
         private const val KEY_STAGED_CODE = "staged_version_code"
         private const val KEY_STAGED_PATH = "staged_apk_path"
@@ -144,10 +235,10 @@ internal class UpdatePreferences(context: Context) {
         private const val KEY_INSTALL_MESSAGE = "install_message"
         private const val KEY_INSTALL_STATE_AT = "install_state_at"
 
-        /** How long a successful check stays fresh. */
-        const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        /** Hourly best-effort cadence; Android may defer background work while the TV sleeps/Dozes. */
+        const val CHECK_INTERVAL_MS = 60 * 60 * 1000L
 
-        /** How long to wait before retrying after a failed check. */
+        /** How long to wait before retrying after a failed check unless GitHub asks for longer. */
         const val RETRY_INTERVAL_MS = 30 * 60 * 1000L
     }
 }

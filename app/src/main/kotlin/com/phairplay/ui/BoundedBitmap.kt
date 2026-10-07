@@ -18,7 +18,9 @@ internal object BoundedBitmap {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
             if (options.outWidth <= 0 || options.outHeight <= 0) return null
             var sample = 1
+            // Keep the divisor positive even for malformed dimensions near Int.MAX_VALUE.
             while (options.outWidth / sample > maxEdge || options.outHeight / sample > maxEdge) {
+                if (sample >= (1 shl 30)) break
                 sample *= 2
             }
             options.inJustDecodeBounds = false

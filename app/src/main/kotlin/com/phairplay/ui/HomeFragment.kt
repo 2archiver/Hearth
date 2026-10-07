@@ -10,6 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
@@ -63,7 +64,7 @@ class HomeFragment : Fragment() {
     private lateinit var cardAppleCasting: View
     private lateinit var textConnectionLog: TextView
     private lateinit var btnStart: Button
-    private lateinit var btnStopPlayback: Button
+    private lateinit var btnStopPlayback: ImageButton
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
     private var serviceIsRunning = false
@@ -248,7 +249,7 @@ class HomeFragment : Fragment() {
             ServiceController.start(requireContext())
         }
         btnStopPlayback.setOnClickListener {
-            Logger.d("User tapped Stop playback")
+            Logger.d("User tapped Stop casting")
             service?.stopCurrentPlayback() ?: ServiceController.stopPlayback(requireContext())
         }
         btnStop.setOnClickListener {

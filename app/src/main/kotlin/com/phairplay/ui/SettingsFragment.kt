@@ -18,6 +18,7 @@ import com.phairplay.R
 import com.phairplay.service.ServiceController
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
+import com.phairplay.update.UpdateWorkScheduler
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
 import kotlinx.coroutines.flow.first
@@ -200,6 +201,8 @@ class SettingsFragment : Fragment() {
     private fun save(transform: (AppSettings) -> AppSettings) {
         viewLifecycleOwner.lifecycleScope.launch {
             settingsRepository.update(transform)
+            val saved = settingsRepository.settingsFlow.first()
+            UpdateWorkScheduler.sync(requireContext(), saved.autoCheckForUpdates)
             Logger.d("Settings saved")
         }
     }
@@ -207,6 +210,8 @@ class SettingsFragment : Fragment() {
     private fun saveAndRestart(transform: (AppSettings) -> AppSettings) {
         viewLifecycleOwner.lifecycleScope.launch {
             settingsRepository.update(transform)
+            val saved = settingsRepository.settingsFlow.first()
+            UpdateWorkScheduler.sync(requireContext(), saved.autoCheckForUpdates)
             ServiceController.restart(requireContext())
             Logger.i("Settings saved — restarting receivers to apply")
         }
@@ -246,6 +251,7 @@ class SettingsFragment : Fragment() {
     private fun resetSettings() {
         viewLifecycleOwner.lifecycleScope.launch {
             settingsRepository.resetToDefaults()
+            UpdateWorkScheduler.sync(requireContext(), AppSettings.DEFAULT.autoCheckForUpdates)
             val defaults = AppSettings.DEFAULT
             populateUI(defaults)
             ServiceController.restart(requireContext())

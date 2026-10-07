@@ -28,6 +28,8 @@ enum class InstallStart {
     QUEUED,
     /** Android 8+ "Install unknown apps" is not granted — open its settings page first. */
     PERMISSION_REQUIRED,
+    /** A verified update is ready, but playback is active; wait until casting has stopped. */
+    PLAYBACK_ACTIVE,
     /** Nothing was staged (or the staged file was obsolete) — nothing to install. */
     NOTHING_STAGED,
     /** The staged file failed verification and was deleted. */

@@ -1,6 +1,14 @@
 package com.phairplay
 
 import android.app.Application
+import com.phairplay.settings.SettingsRepository
+import com.phairplay.update.UpdateWorkScheduler
+import com.phairplay.util.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
@@ -22,6 +30,19 @@ class PhairPlayApp : Application() {
         super.onCreate()
         initLogging()
         installUrlVideoBackend()
+        syncAutomaticUpdateWork()
+    }
+
+    /** Load the existing user preference and persist the durable hourly schedule outside the service. */
+    private fun syncAutomaticUpdateWork() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                val settings = SettingsRepository(applicationContext).settingsFlow.first()
+                UpdateWorkScheduler.sync(applicationContext, settings.autoCheckForUpdates)
+            }.onFailure {
+                Logger.w("Could not synchronize scheduled update checks (${it.javaClass.simpleName})")
+            }
+        }
     }
 
     /**

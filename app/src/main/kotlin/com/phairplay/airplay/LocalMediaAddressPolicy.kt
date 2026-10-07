@@ -3,6 +3,7 @@ package com.phairplay.airplay
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.Locale
 
 /**
  * Narrow exception for AirPlay sender-hosted cleartext media.
@@ -13,6 +14,19 @@ import java.net.InetAddress
  * multicast and public addresses are not accepted. HTTPS media does not use this exception.
  */
 internal object LocalMediaAddressPolicy {
+
+    /** Blocks sender-local loopback names from ever being interpreted as receiver-local URLs. */
+    fun isLoopbackHost(host: String?): Boolean {
+        val candidate = host?.trim()?.removePrefix("[")?.removeSuffix("]")
+            ?.lowercase(Locale.ROOT)?.takeIf { it.isNotEmpty() } ?: return false
+        if (candidate == "localhost" || candidate.endsWith(".localhost") || candidate == "0.0.0.0") {
+            return true
+        }
+        if (candidate.matches(Regex("[0-9.]+")) || ':' in candidate) {
+            return runCatching { InetAddress.getByName(candidate).isLoopbackAddress }.getOrDefault(false)
+        }
+        return false
+    }
 
     fun allowsCleartextHost(host: String?): Boolean {
         val candidate = host?.trim()?.removePrefix("[")?.removeSuffix("]")

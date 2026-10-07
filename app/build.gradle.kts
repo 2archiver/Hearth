@@ -155,7 +155,7 @@ android {
         // back before publishing. The versionCode fallback increases with each local build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.9.2")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.9.3")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")
@@ -358,6 +358,9 @@ dependencies {
 
     // Leanback — TV focus management, on-screen keyboard, TV-specific widgets
     implementation(libs.androidx.leanback)
+
+    // WorkManager — durable, network-constrained hourly update checks (best-effort under Doze/sleep)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // DataStore — async, type-safe replacement for SharedPreferences
     implementation(libs.androidx.datastore.preferences)

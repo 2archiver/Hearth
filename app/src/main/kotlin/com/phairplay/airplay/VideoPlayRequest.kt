@@ -47,11 +47,15 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
             if (scheme !in DIRECT_SCHEMES && !senderMediated) {
                 return FieldParse.UnsupportedScheme(scheme)
             }
-            if (uri.host.isNullOrBlank() || uri.rawUserInfo != null) {
+            val host = uri.host
+            if (host.isNullOrBlank() || uri.rawUserInfo != null) {
                 return FieldParse.Invalid(
                     if (senderMediated) "sender-mediated location requires a host and may not embed credentials"
                     else "HTTP(S) media URL requires a host and may not embed credentials"
                 )
+            }
+            if (!senderMediated && LocalMediaAddressPolicy.isLoopbackHost(host)) {
+                return FieldParse.Invalid("direct media host is loopback and may belong to the sender, not this receiver")
             }
 
             // Explicit seconds always take precedence. The older Start-Position field is fractional.

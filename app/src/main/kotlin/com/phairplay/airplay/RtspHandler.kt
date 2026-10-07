@@ -43,6 +43,9 @@ open class RtspHandler(
     private val onStreamingStopped: () -> Unit,
     private val onPhotoReceived: (bytes: ByteArray, imageType: PhotoImageType) -> Unit = { _, _ -> },
     private val onPhotoCleared: () -> Unit = {},
+    /** Session-aware cacheOnly/displayCached handling; legacy tests may use the display callback above. */
+    private val onPhotoPut: ((PhotoPutRequest, SessionToken?, String, String?) -> PhotoRequestResult)? = null,
+    private val onPhotoDelete: ((SessionToken?, String, String?) -> Boolean)? = null,
     /**
      * AirPlay 2 mirror SETUP msg 1: supply decrypted AES key + pairing secret + the sender's
      * address and timing port (so the receiver can start NTP). Returns (eventPort, timingPort).
@@ -557,9 +560,20 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         closeQuietly()
     }
 
-    /** Closes this connection. Called by [RtspServer.stop] and by [AirPlayReceiver.stop]. */
+    /** Closes this connection without assigning a receiver-wide lifecycle reason. */
     override fun close() {
-        if (!closed) closeReason = "receiver shutdown closed this connection"
+        if (!closed) closeReason = "RTSP listener closed this connection"
+        closed = true
+        closeQuietly()
+    }
+
+    /** Records the service-level initiator before the socket close can raise an expected exception. */
+    override fun close(reason: ReceiverShutdownReason) {
+        if (!closed) {
+            closeReason = "receiver shutdown: ${reason.traceLabel}".take(MAX_CLOSE_REASON_CHARS)
+            trace("Connection $traceConnectionId closing for receiver shutdown (${reason.name.lowercase()})",
+                kind = AirPlayTrace.Kind.LIFECYCLE)
+        }
         closed = true
         closeQuietly()
     }
@@ -677,8 +691,15 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
     private fun dispatchRequest(request: RtspRequest): RtspResponse {
         // DACP values are used by the remote-control client, but are never written to diagnostics.
         request.header("Active-Remote")?.let { onRemoteControlInfo(request.header("DACP-ID"), it) }
-        if (request.method.equals("POST", true) && normalizedEndpoint(request.uri) == "/reverse") {
+        val endpoint = normalizedEndpoint(request.uri)
+        if (request.method.equals("POST", true) && endpoint == "/reverse") {
             associateSession(AirPlayConnectionRole.REVERSE_EVENT)
+        } else if ((request.method.equals("PUT", true) || request.method.equals("DELETE", true)) &&
+            endpoint == PhotoHandler.PHOTO_PATH
+        ) {
+            // A Photos connection joins an existing media session only with the exact protocol id.
+            // Without a matching active session, its cache falls back to the opaque id or connection.
+            associateSession(AirPlayConnectionRole.CONTROL)
         }
         return when (request.method.uppercase(Locale.US)) {
             "OPTIONS"       -> handleOptionsInternal(request)
@@ -1719,47 +1740,64 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
 
     /** Handles AirPlay photo sharing: HTTP `PUT /photo` with a JPEG/PNG body. */
     open fun handlePhotoPutInternal(request: RtspRequest): RtspResponse {
-        if (!request.isPhotoRequest()) {
-            return handleUnknownInternal(request)
+        if (!request.isPhotoRequest()) return handleUnknownInternal(request)
+        val action = PhotoHandler.parseAssetAction(request.header("X-Apple-AssetAction"))
+            ?: return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
+        val rawAssetKey = request.header("X-Apple-AssetKey")?.trim()?.takeIf { it.isNotEmpty() }
+        if (!PhotoHandler.isValidAssetKey(rawAssetKey) ||
+            (action != PhotoAssetAction.DISPLAY && rawAssetKey == null)
+        ) {
+            return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
+        val photoRequest = PhotoPutRequest(
+            bytes = request.bodyBytes,
+            contentType = request.header("Content-Type"),
+            assetKey = rawAssetKey,
+            action = action,
+            transition = request.header("X-Apple-Transition")?.take(64),
+        )
+        val result = onPhotoPut?.invoke(
+            photoRequest,
+            sessionToken,
+            traceConnectionId,
+            protocolSessionFingerprint,
+        ) ?: handleLegacyPhotoPut(photoRequest)
+        if (result.statusCode in 200..299) {
+            Logger.i("Photo ${action.name.lowercase()} accepted (${request.bodyBytes.size} bytes)")
+        } else {
+            Logger.w("Photo request refused (${result.diagnostic})")
+        }
+        return RtspResponse(
+            statusCode = result.statusCode,
+            statusMessage = result.statusMessage,
+            protocol = request.responseProtocol(),
+        )
+    }
 
-        return when (val validation = PhotoHandler.validatePhoto(
-            request.bodyBytes,
-            request.header("Content-Type")
-        )) {
+    private fun handleLegacyPhotoPut(request: PhotoPutRequest): PhotoRequestResult {
+        if (request.action != PhotoAssetAction.DISPLAY) return PhotoRequestResult.NOT_FOUND
+        return when (val validation = PhotoHandler.validatePhoto(request.bytes, request.contentType)) {
             is PhotoValidation.Valid -> {
-                onPhotoReceived(request.bodyBytes, validation.imageType)
-                Logger.i("Photo received (${validation.imageType.mimeType}, ${request.bodyBytes.size} bytes)")
-                RtspResponse(
-                    statusCode = 200,
-                    statusMessage = "OK",
-                    protocol = request.responseProtocol()
-                )
+                onPhotoReceived(request.bytes, validation.imageType)
+                PhotoRequestResult.ACCEPTED
             }
             is PhotoValidation.Invalid -> {
-                Logger.w("Photo rejected: ${validation.reason}")
-                RtspResponse(
-                    statusCode = 400,
-                    statusMessage = "Bad Request",
-                    protocol = request.responseProtocol()
-                )
+                Logger.w("Photo rejected (${validation.reason})")
+                PhotoRequestResult.BAD_REQUEST
             }
         }
     }
 
     /** Handles AirPlay photo clearing: HTTP `DELETE /photo`. */
     open fun handlePhotoDeleteInternal(request: RtspRequest): RtspResponse {
-        if (!request.isPhotoRequest()) {
-            return handleUnknownInternal(request)
+        if (!request.isPhotoRequest()) return handleUnknownInternal(request)
+        val cleared = onPhotoDelete?.invoke(sessionToken, traceConnectionId, protocolSessionFingerprint) ?: run {
+            onPhotoCleared()
+            true
         }
-
-        onPhotoCleared()
-        Logger.i("Photo cleared")
-        return RtspResponse(
-            statusCode = 200,
-            statusMessage = "OK",
-            protocol = request.responseProtocol()
-        )
+        if (!cleared) return RtspResponse(409, "Conflict", protocol = request.responseProtocol())
+        Logger.i("Photo display cleared")
+        return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
     private fun sendResponse(outputStream: OutputStream, response: RtspResponse) {

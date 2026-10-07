@@ -38,15 +38,15 @@ class UpdateManager(private val context: Context) {
     /** versionName of the APK currently installed. */
     fun installedVersionName(): String = checker.installedVersionName()
 
-    /**
-     * True when an automatic check is due — no successful check in the last
-     * [UpdatePreferences.CHECK_INTERVAL_MS], and no failure in the retry window.
-     */
-    fun isCheckDue(): Boolean {
-        val last = prefs.lastCheckMillis
-        if (last == 0L) return true
-        return System.currentTimeMillis() - last >= UpdatePreferences.CHECK_INTERVAL_MS
-    }
+    /** True when the persisted success/retry/rate-limit policy permits an automatic network check. */
+    fun isCheckDue(nowMillis: Long = System.currentTimeMillis()): Boolean =
+        UpdateSchedulePolicy.isAutomaticCheckDue(prefs.scheduleStatus(), nowMillis)
+
+    /** Timing facts for Settings; the UI describes deadlines as eligibility, not exact run times. */
+    fun checkScheduleStatus(): UpdateScheduleStatus = prefs.scheduleStatus()
+
+    fun nextEligibleCheckAtMillis(nowMillis: Long = System.currentTimeMillis()): Long =
+        UpdateSchedulePolicy.nextEligibleAtMillis(prefs.scheduleStatus(), nowMillis)
 
     /**
      * Checks GitHub for a newer build.
@@ -54,10 +54,17 @@ class UpdateManager(private val context: Context) {
      * @param force ignore the throttle (used by the "Check now" button).
      */
     suspend fun check(force: Boolean = false): UpdateCheck = withContext(Dispatchers.IO) {
-        if (!force && !isCheckDue()) {
-            Logger.d("Update check skipped — last check was less than 6h ago")
-            return@withContext UpdateCheck.Skipped("Checked recently.")
+        val now = System.currentTimeMillis()
+        val schedule = prefs.scheduleStatus()
+        if (schedule.rateLimitUntilMillis > now) {
+            Logger.i("Update check skipped — GitHub rate limit is still active")
+            return@withContext UpdateCheck.Skipped("GitHub temporarily limited update checks; retry after the shown time.")
         }
+        if (!force && !UpdateSchedulePolicy.isAutomaticCheckDue(schedule, now)) {
+            Logger.d("Update check skipped — hourly cadence or retry deadline has not arrived")
+            return@withContext UpdateCheck.Skipped("Checked recently; the next eligible check is shown below.")
+        }
+        prefs.recordCheckAttempt(now)
         var result = checker.check()
         // A release whose APK was already shown to be no newer than this install (its notes
         // over-stated the build) is not an update, however often it is re-checked.
@@ -78,7 +85,7 @@ class UpdateManager(private val context: Context) {
         }
         when (result) {
             is UpdateCheck.Available -> {
-                prefs.lastCheckMillis = System.currentTimeMillis()
+                prefs.recordCheckSuccess(System.currentTimeMillis())
                 prefs.latestSeenVersionName = result.info.versionName
                 prefs.latestSeenVersionCode = result.info.versionCode
                 // A staged download for an older build is stale once a newer one exists.
@@ -95,17 +102,22 @@ class UpdateManager(private val context: Context) {
 
             is UpdateCheck.UpToDate -> {
                 discardObsoleteStaged()
-                prefs.lastCheckMillis = System.currentTimeMillis()
+                prefs.recordCheckSuccess(System.currentTimeMillis())
                 prefs.latestSeenVersionName = result.info.versionName
                 prefs.latestSeenVersionCode = result.info.versionCode
             }
 
             is UpdateCheck.Failed -> {
-                // Record the attempt so a flaky network doesn't trigger a check on every
-                // single app launch, but retry sooner than a successful check would.
-                prefs.lastCheckMillis =
-                    System.currentTimeMillis() - UpdatePreferences.CHECK_INTERVAL_MS +
-                        UpdatePreferences.RETRY_INTERVAL_MS
+                val failedAt = System.currentTimeMillis()
+                val retryAt = result.retryAfterMillis?.coerceAtLeast(failedAt)
+                    ?: safeAdd(failedAt, UpdatePreferences.RETRY_INTERVAL_MS)
+                val rateLimitAt = if (result.rateLimited) retryAt else 0L
+                prefs.recordCheckFailure(
+                    nowMillis = failedAt,
+                    retryAtMillis = retryAt,
+                    rateLimitUntilMillis = rateLimitAt,
+                    safeMessage = result.message,
+                )
             }
 
             is UpdateCheck.Skipped -> Unit
@@ -275,6 +287,10 @@ class UpdateManager(private val context: Context) {
      * for a while and the app may have been updated by other means in the meantime.
      */
     suspend fun installStaged(): InstallStart = withContext(Dispatchers.IO) {
+        if (UpdateInstallSafety.isPlaybackActive()) {
+            Logger.i("Verified update install deferred while AirPlay playback is active")
+            return@withContext InstallStart.PLAYBACK_ACTIVE
+        }
         val staged = stagedUpdate() ?: run {
             Logger.w("installStaged() called with nothing staged")
             return@withContext InstallStart.NOTHING_STAGED
@@ -304,10 +320,16 @@ class UpdateManager(private val context: Context) {
             prefs.recordInstallState(InstallState.FAILED, "The downloaded update failed verification and was deleted.")
             return@withContext InstallStart.VERIFICATION_FAILED
         }
+        // Recheck after APK parsing/signature work so a cast that began during verification wins.
+        if (UpdateInstallSafety.isPlaybackActive()) {
+            Logger.i("Verified update install deferred while AirPlay playback became active")
+            return@withContext InstallStart.PLAYBACK_ACTIVE
+        }
         val start = installer.install(staged.file)
         when (start) {
             InstallStart.QUEUED -> prefs.recordInstallState(InstallState.INSTALLING)
             InstallStart.PERMISSION_REQUIRED -> prefs.recordInstallState(InstallState.PERMISSION_REQUIRED)
+            InstallStart.PLAYBACK_ACTIVE -> Unit
             InstallStart.FAILED -> prefs.recordInstallState(
                 InstallState.FAILED, "Android refused to start the install session."
             )
@@ -395,6 +417,9 @@ class UpdateManager(private val context: Context) {
     fun unskipVersion() {
         prefs.skippedVersionCode = 0
     }
+
+    private fun safeAdd(value: Long, delta: Long): Long =
+        if (value > Long.MAX_VALUE - delta) Long.MAX_VALUE else value + delta
 
     private fun destinationFor(info: UpdateInfo): File = File(
         File(context.applicationContext.cacheDir, UPDATE_DIR),

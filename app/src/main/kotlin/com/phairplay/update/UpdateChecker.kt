@@ -8,6 +8,8 @@ import java.io.InterruptedIOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * UpdateChecker — asks GitHub whether a newer Hearth APK exists and downloads it.
@@ -92,7 +94,11 @@ class UpdateChecker(
             UpdateCheck.Failed("The update check was interrupted. Try again.")
         } catch (e: HttpStatusException) {
             Logger.w("GitHub update check returned HTTP ${e.statusCode}")
-            UpdateCheck.Failed(e.toUserMessage(repository.orEmpty()))
+            UpdateCheck.Failed(
+                message = e.toUserMessage(repository.orEmpty()),
+                retryAfterMillis = e.retryAfterMillis,
+                rateLimited = e.rateLimited,
+            )
         } catch (e: IOException) {
             Logger.w("Update check failed (${e.javaClass.simpleName})")
             UpdateCheck.Failed(e.toUserMessage())
@@ -220,12 +226,45 @@ class UpdateChecker(
         return try {
             connection.connect()
             val code = connection.responseCode
-            if (code !in 200..299) throw HttpStatusException(code)
+            if (code !in 200..299) {
+                val hasRateLimitDeadline = connection.getHeaderField("Retry-After") != null ||
+                    connection.getHeaderField("X-RateLimit-Reset") != null
+                val rateLimited = code == 429 || (code == 403 && (
+                    connection.getHeaderField("X-RateLimit-Remaining")?.trim() == "0" || hasRateLimitDeadline
+                ))
+                val retryAt = if (rateLimited) retryDeadline(connection) else null
+                throw HttpStatusException(code, retryAt, rateLimited)
+            }
             connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
     }
+
+    /** Parses GitHub's standard/primary-limit headers without allowing an unbounded sleep. */
+    private fun retryDeadline(connection: HttpURLConnection): Long {
+        val now = System.currentTimeMillis()
+        val retryAfter = connection.getHeaderField("Retry-After")?.trim()?.let { value ->
+            value.toLongOrNull()?.takeIf { it >= 0L }?.let { seconds -> safeAdd(now, seconds.coerceAtMost(MAX_SERVER_RETRY_SECONDS) * 1_000L) }
+                ?: runCatching {
+                    ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
+                        .toInstant().toEpochMilli()
+                }.getOrNull()
+        }
+        val resetAt = connection.getHeaderField("X-RateLimit-Reset")?.trim()?.toLongOrNull()
+            ?.takeIf { it > 0L }
+            ?.let { seconds -> safeMultiply(seconds, 1_000L) }
+        val fallback = safeAdd(now, UpdatePreferences.RETRY_INTERVAL_MS)
+        return listOfNotNull(retryAfter, resetAt).maxOrNull()
+            ?.coerceIn(now, safeAdd(now, MAX_SERVER_RETRY_MS))
+            ?: fallback
+    }
+
+    private fun safeAdd(value: Long, delta: Long): Long =
+        if (value > Long.MAX_VALUE - delta) Long.MAX_VALUE else value + delta
+
+    private fun safeMultiply(value: Long, multiplier: Long): Long =
+        if (value > Long.MAX_VALUE / multiplier) Long.MAX_VALUE else value * multiplier
 
     private fun IOException.toUserMessage(): String = when {
         message.orEmpty().contains("UnknownHost", ignoreCase = true) ||
@@ -240,10 +279,10 @@ class UpdateChecker(
         else -> "Could not reach GitHub. Check the network and try again."
     }
 
-    private fun HttpStatusException.toUserMessage(repo: String): String = when (statusCode) {
-        404 -> "No latest release was found for $repo. Check back after a release is published."
-        403, 429 -> "GitHub temporarily limited update checks. Wait a while, then try again."
-        in 500..599 -> "GitHub is temporarily unavailable (HTTP $statusCode). Try again later."
+    private fun HttpStatusException.toUserMessage(repo: String): String = when {
+        statusCode == 404 -> "No latest release was found for $repo. Check back after a release is published."
+        rateLimited -> "GitHub temporarily limited update checks. Wait until the shown retry time, then try again."
+        statusCode in 500..599 -> "GitHub is temporarily unavailable (HTTP $statusCode). Try again later."
         else -> "GitHub rejected the update check (HTTP $statusCode). Try again later."
     }
 
@@ -258,11 +297,17 @@ class UpdateChecker(
         return String(hex)
     }
 
-    private class HttpStatusException(val statusCode: Int) : IOException("GitHub HTTP $statusCode")
+    private class HttpStatusException(
+        val statusCode: Int,
+        val retryAfterMillis: Long?,
+        val rateLimited: Boolean,
+    ) : IOException("GitHub HTTP $statusCode")
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000
+        private const val MAX_SERVER_RETRY_SECONDS = 24L * 60L * 60L
+        private const val MAX_SERVER_RETRY_MS = MAX_SERVER_RETRY_SECONDS * 1_000L
         private val HEX_DIGITS = "0123456789abcdef".toCharArray()
         private val SHA256_PATTERN = Regex("^[0-9a-f]{64}$")
     }
@@ -358,7 +403,11 @@ sealed class UpdateCheck {
     data class Failed(
         val message: String,
         val reason: UpdateFailureReason = UpdateFailureReason.CHECK_FAILED,
-        val info: UpdateInfo? = null
+        val info: UpdateInfo? = null,
+        /** Absolute deadline from GitHub Retry-After / rate-limit headers, when supplied. */
+        val retryAfterMillis: Long? = null,
+        /** True for 403/429 responses that must suppress even a manual retry until the deadline. */
+        val rateLimited: Boolean = false,
     ) : UpdateCheck()
 
     /**

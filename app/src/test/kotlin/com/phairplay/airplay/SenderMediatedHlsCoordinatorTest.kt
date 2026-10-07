@@ -3,6 +3,7 @@ package com.phairplay.airplay
 import com.phairplay.airplay.handshake.FcupCodec
 import com.phairplay.airplay.handshake.PlistCodec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -65,6 +66,105 @@ class SenderMediatedHlsCoordinatorTest {
     }
 
     @Test
+    fun `/play waits for a reverse offer that registers just after the control request`() {
+        val ownership = SessionOwnership()
+        val senderSessionId = "youtube-racing-session"
+        val claim = ownership.claimSession(
+            connection = "play-control",
+            protocolSessionFingerprint = AirPlaySessionFingerprint.of(senderSessionId),
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL,
+            mode = AirPlaySessionMode.SENDER_MEDIATED_HLS,
+        )
+        val coordinator = SenderMediatedHlsCoordinator(
+            isStopped = { false },
+            isSessionCurrent = ownership::isCurrent,
+            onPlaybackReady = { _, _ -> },
+            requestTimeoutMs = 500,
+            reverseOfferWaitMs = 1_500,
+        )
+        val result = AtomicReference<SenderMediatedPlayResult?>()
+        val failure = AtomicReference<Throwable?>()
+        val finished = java.util.concurrent.CountDownLatch(1)
+        val playThread = Thread {
+            runCatching {
+                result.set(
+                    coordinator.startSenderMediatedPlay(
+                        SenderMediatedPlayRequest(
+                            connectionId = "play-control",
+                            senderSessionId = senderSessionId,
+                            location = MASTER_URI,
+                            startSeconds = 0.0,
+                            seconds = true,
+                            token = claim.token,
+                        )
+                    )
+                )
+            }.onFailure(failure::set)
+            finished.countDown()
+        }
+        playThread.start()
+        // Model independent RTSP accept/read coroutines where /play reaches the host first.
+        Thread.sleep(60)
+        val master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nv720/prog.m3u8\n"
+        assertTrue(
+            coordinator.registerReverseChannel(
+                connectionId = "reverse-arrived-later",
+                senderSessionId = senderSessionId,
+                writer = { frame ->
+                    val (requestId, url) = decodeEventRequest(frame)
+                    coordinator.deliverAction(
+                        senderSessionId,
+                        actionBody(requestId, url, 200, master.toByteArray()),
+                    )
+                    true
+                },
+            )
+        )
+
+        assertTrue("/play should be bounded rather than rejected or left waiting", finished.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(null, failure.get())
+        assertTrue("the late, protocol-matched reverse offer should serve /play", result.get()?.accepted == true)
+        coordinator.reset("test complete")
+    }
+
+    @Test
+    fun `a lone unrelated reverse channel is not selected without protocol session evidence`() {
+        val ownership = SessionOwnership()
+        val claim = ownership.claimSession(
+            connection = "play-control",
+            protocolSessionFingerprint = null,
+            role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL,
+            mode = AirPlaySessionMode.SENDER_MEDIATED_HLS,
+        )
+        val coordinator = SenderMediatedHlsCoordinator(
+            isStopped = { false },
+            isSessionCurrent = ownership::isCurrent,
+            onPlaybackReady = { _, _ -> },
+            reverseOfferWaitMs = 0,
+        )
+        coordinator.registerReverseChannel(
+            connectionId = "unrelated-reverse",
+            senderSessionId = null,
+            writer = { true },
+        )
+
+        val result = coordinator.startSenderMediatedPlay(
+            SenderMediatedPlayRequest(
+                connectionId = "play-control",
+                senderSessionId = null,
+                location = MASTER_URI,
+                startSeconds = 0.0,
+                seconds = true,
+                token = claim.token,
+            )
+        )
+
+        assertFalse("channel count alone is not evidence that the reverse socket belongs to /play", result.accepted)
+        assertTrue(result.reason.orEmpty().contains("reverse"))
+        coordinator.reset("test complete")
+    }
+
+    @Test
     fun `replacement session keeps its matching reverse offer across old media cleanup`() {
         val ownership = SessionOwnership()
         val old = ownership.claimSession(
@@ -91,7 +191,12 @@ class SenderMediatedHlsCoordinatorTest {
                 routedSession = url
                 coordinator.deliverAction(
                     newSessionId,
-                    actionBody(requestId, url, 200, "#EXTM3U\n".toByteArray()),
+                    actionBody(
+                        requestId,
+                        url,
+                        200,
+                        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nv720/prog.m3u8\n".toByteArray(),
+                    ),
                 )
                 true
             },

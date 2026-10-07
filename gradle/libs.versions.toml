@@ -14,6 +14,7 @@ appcompat = "1.7.0"
 constraintlayout = "2.1.4"
 core-ktx = "1.13.1"
 leanback = "1.2.0"                     # TV navigation, focus management, on-screen keyboard
+work = "2.9.1"                         # Durable, network-constrained periodic updater work
 
 # Kotlin Coroutines — for all async I/O (network, media)
 coroutines = "1.8.1"
@@ -54,6 +55,7 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
 androidx-leanback = { group = "androidx.leanback", name = "leanback", version.ref = "leanback" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
 # DataStore — async, type-safe settings persistence
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }

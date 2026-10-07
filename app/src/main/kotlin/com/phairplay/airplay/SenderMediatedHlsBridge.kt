@@ -219,6 +219,15 @@ internal class SenderMediatedHlsBridge(
         val original = channel.fetch(contentLocation, "master playlist")
         if (original.size > maxPlaylistBytes) throw HlsBridgeException("master playlist exceeds the size limit")
         val text = original.toString(Charsets.UTF_8)
+        val master = HlsPlaylistCodec.parseMaster(text)
+        if (!master.hasPotentialVideoVariant) {
+            failure = if (master.audioRenditions.isNotEmpty() || master.shape == HlsPlaylistCodec.MasterPlaylist.Shape.AUDIO_ONLY) {
+                "master playlist contains audio streams but no video variants"
+            } else {
+                "master playlist contains no video variants"
+            }
+            throw HlsBridgeException(failure!!)
+        }
         var tableFull = false
         // Every playlist reference goes through the sender, relative or absolute: a media playlist
         // has to be re-read for each refresh, so it must be addressed on the sender's own transport.
@@ -238,7 +247,6 @@ internal class SenderMediatedHlsBridge(
         }
         val bytes = rewritten.text.toByteArray(Charsets.UTF_8)
         if (bytes.size > maxPlaylistBytes) throw HlsBridgeException("rewritten master playlist exceeds the size limit")
-        val master = HlsPlaylistCodec.parseMaster(text)
         masterFetches.incrementAndGet()
         AirPlayTrace.record(
             message = "Sender-mediated HLS: master loaded (variants=${master.variants.size} " +

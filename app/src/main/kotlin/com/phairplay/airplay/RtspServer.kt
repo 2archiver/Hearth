@@ -21,6 +21,9 @@ interface RtspConnection {
     /** Closes the connection. Safe to call from any thread and more than once. */
     fun close()
 
+    /** Closes for a known receiver lifecycle command; legacy/test connections may ignore the reason. */
+    fun close(reason: ReceiverShutdownReason) = close()
+
     /** True while this connection carries a live media session (never retired first). */
     val holdsSession: Boolean get() = false
 
@@ -156,14 +159,18 @@ class RtspServer(
         return closedCount
     }
 
-    /** Stops the listener and closes every live connection. */
-    fun stop() {
+    /** Stops the listener and closes every live connection after recording the initiating reason. */
+    fun stop(reason: ReceiverShutdownReason = ReceiverShutdownReason.UNSPECIFIED) {
+        AirPlayTrace.record(
+            "RTSP listener shutdown started (${reason.traceLabel})",
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
         running = false
         runCatching { serverSocket?.close() }
         serverSocket = null
-        live.forEach { connection -> runCatching { connection.close() } }
+        live.forEach { connection -> runCatching { connection.close(reason) } }
         live.clear()
-        Logger.i("RTSP server stopped")
+        Logger.i("RTSP server stopped (${reason.name.lowercase()})")
     }
 
     private fun bind(): ServerSocket {
