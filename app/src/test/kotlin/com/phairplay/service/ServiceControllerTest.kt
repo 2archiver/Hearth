@@ -68,6 +68,17 @@ class ServiceControllerTest {
     }
 
     @Test
+    fun `stopPlayback() sends ACTION_STOP_PLAYBACK intent via startService`() {
+        val intentSlot = slot<Intent>()
+        every { context.startService(capture(intentSlot)) } returns mockk()
+
+        ServiceController.stopPlayback(context)
+
+        verify { context.startService(any()) }
+        assertEquals(PhairPlayService.ACTION_STOP_PLAYBACK, intentSlot.captured.action)
+    }
+
+    @Test
     fun `restart() sends ACTION_RESTART intent via startForegroundService`() {
         ServiceController.restart(context)
 

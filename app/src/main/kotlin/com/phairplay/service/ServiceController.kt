@@ -53,6 +53,14 @@ object ServiceController {
     }
 
     /**
+     * Stops only the active AirPlay cast, keeping receiver discovery/listening alive.
+     */
+    fun stopPlayback(context: Context) {
+        Logger.i("ServiceController: stopPlayback()")
+        context.startService(buildIntent(context, PhairPlayService.ACTION_STOP_PLAYBACK))
+    }
+
+    /**
      * Restarts the PhairPlayService.
      *
      * Sends a restart command that stops all receivers and starts them again

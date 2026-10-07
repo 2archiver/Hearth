@@ -19,10 +19,9 @@ import java.security.MessageDigest
  *
  * HOW: ONE plain HTTPS call — no SDK, no dependency, and deliberately no second round trip:
  *   `GET https://api.github.com/repos/{repo}/releases/latest` → the release JSON.
- * A Hearth release carries exactly one asset, the version-named APK, so that response is the
- * entire protocol: the version name comes from the asset's file name, the versionCode and the
- * APK's SHA-256 are scraped out of the release body the workflow writes. [download] then streams
- * that one asset to a file, checking its SHA-256 on the way.
+ * A Hearth release carries one version-named Google TV APK, so that response is the entire
+ * protocol: the actual compatible asset URL, file size, versionCode and full SHA-256 are validated
+ * before [download] streams that exact asset and verifies the APK size and digest.
  *
  * (Releases published before "one APK only" also carried `version.json` and `SHA256SUMS.txt`.
  * Those parsers still exist in [ReleaseParser] and `buildUpdateInfo` still prefers them when a
@@ -35,8 +34,10 @@ import java.security.MessageDigest
  * @param repo GitHub repository in `owner/name` form (from BuildConfig.UPDATE_REPO).
  */
 class UpdateChecker(
-    private val repo: String = BuildConfig.UPDATE_REPO
+    repo: String = BuildConfig.UPDATE_REPO
 ) {
+    /** Old APKs may have compiled the pre-rename slug; normalize it to the current canonical repo. */
+    internal val repository: String? = GitHubRepositoryPolicy.canonicalRepository(repo)
 
     /** The versionCode of the APK that is currently installed. */
     fun installedVersionCode(): Int = BuildConfig.VERSION_CODE
@@ -51,20 +52,28 @@ class UpdateChecker(
      * can show something useful instead of crashing a TV screen on a flaky hotel Wi-Fi.
      */
     fun check(): UpdateCheck {
-        if (repo.isBlank()) {
-            return UpdateCheck.Failed("No update repository configured for this build.")
-        }
+        val repo = repository
+            ?: return UpdateCheck.Failed("This build has an invalid update repository setting. Contact the app maintainer.")
         return try {
-            val releaseJson = getText(URL(releasesLatestUrl()))
-                ?: return UpdateCheck.Failed("GitHub has no releases for $repo yet.")
+            val releaseJson = getText(URL(releasesLatestUrl(repo)))
             val release = ReleaseParser.parseRelease(releaseJson)
-                ?: return UpdateCheck.Failed("Could not read the release published by $repo.")
+                ?: return UpdateCheck.Failed("GitHub returned release data that Hearth could not read. Retry later or report the release.")
 
             // One release, one asset: everything is derived from the JSON above. The release's
             // only APK asset is what gets installed, its file name is the version, and the body
             // carries the versionCode and the checksum to verify the download against.
             val info = ReleaseParser.buildUpdateInfo(release, descriptor = null)
-                ?: return UpdateCheck.Failed("That release has no APK to install.")
+                ?: return UpdateCheck.Failed(
+                    "The latest release does not contain exactly one compatible Google TV APK " +
+                        "with matching version, file size, and SHA-256 metadata. Open the release page or try again later."
+                )
+            if (!GitHubRepositoryPolicy.isReleasePageUrl(info.htmlUrl, repo) ||
+                !GitHubRepositoryPolicy.isReleaseAssetUrl(info.apkUrl, repo)
+            ) {
+                return UpdateCheck.Failed(
+                    "GitHub returned a release link outside $repo. The update was blocked; contact the app maintainer."
+                )
+            }
 
             val decision = UpdateDecision.evaluate(info, installedVersionCode())
             when (decision) {
@@ -80,24 +89,26 @@ class UpdateChecker(
             }
             decision
         } catch (e: InterruptedIOException) {
-            UpdateCheck.Failed("The update check was interrupted.")
+            UpdateCheck.Failed("The update check was interrupted. Try again.")
+        } catch (e: HttpStatusException) {
+            Logger.w("GitHub update check returned HTTP ${e.statusCode}")
+            UpdateCheck.Failed(e.toUserMessage(repository.orEmpty()))
         } catch (e: IOException) {
-            Logger.w("Update check failed: ${e.message}")
+            Logger.w("Update check failed (${e.javaClass.simpleName})")
             UpdateCheck.Failed(e.toUserMessage())
         } catch (e: Exception) {
-            Logger.w("Update check failed unexpectedly: ${e.message}")
-            UpdateCheck.Failed("Update check failed: ${e.message ?: "unknown error"}")
+            Logger.w("Update check failed unexpectedly (${e.javaClass.simpleName})")
+            UpdateCheck.Failed("Update check failed unexpectedly. Check the network and try again.")
         }
     }
 
     /**
-     * Downloads [info]'s APK to [destination], verifying it against the SHA-256 written in the
-     * release body. A release whose notes carry no digest cannot be verified — [UpdateInfo.sha256]
-     * is null there and the install proceeds after a length check only.
-     *
+     * Downloads [info]'s APK to [destination], requiring a full SHA-256 digest and exact file size
+     * from the validated release metadata. Missing or malformed integrity data blocks the download.
+
      * @param onProgress called with 0..100 (coarsely — a few times per megabyte).
-     * @return the downloaded file, or null when the download or the checksum failed. A
-     *   partial download is deleted before returning null so a later retry starts clean.
+     * @return the downloaded file, or null when metadata, network, size or checksum verification
+     *   fails. A partial download is deleted before returning null so a later retry starts clean.
      */
     fun download(
         info: UpdateInfo,
@@ -107,12 +118,19 @@ class UpdateChecker(
         destination.parentFile?.mkdirs()
         if (destination.exists()) destination.delete()
 
-        // val, not var: it is captured by the streaming loop below and Kotlin can only
-        // smart-cast a captured val.
-        val digest: MessageDigest? = if (info.sha256 != null) MessageDigest.getInstance("SHA-256") else null
+        val repo = repository ?: return null
+        val expectedSha256 = info.sha256?.lowercase()
+        if (info.versionCode <= 0 || info.apkSizeBytes <= 0L ||
+            expectedSha256 == null || !SHA256_PATTERN.matches(expectedSha256) ||
+            !GitHubRepositoryPolicy.isReleaseAssetUrl(info.apkUrl, repo)
+        ) {
+            Logger.e("Refusing update download: release metadata or canonical GitHub asset URL is invalid")
+            return null
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
 
         return try {
-            val connection = open(URL(info.apkUrl))
+            val connection = open(URL(info.apkUrl), githubApi = false)
             try {
                 connection.connect()
                 val responseCode = connection.responseCode
@@ -121,6 +139,10 @@ class UpdateChecker(
                     return null
                 }
                 val total = connection.contentLengthLong
+                if (total > 0L && total != info.apkSizeBytes) {
+                    Logger.e("APK download size metadata mismatch (reported=$total expected=${info.apkSizeBytes})")
+                    return null
+                }
                 var read = 0L
                 var lastReported = -1
 
@@ -131,7 +153,7 @@ class UpdateChecker(
                             val n = input.read(buffer)
                             if (n < 0) break
                             output.write(buffer, 0, n)
-                            digest?.update(buffer, 0, n)
+                            digest.update(buffer, 0, n)
                             read += n
                             if (total > 0) {
                                 val percent = ((read * 100L) / total).toInt()
@@ -148,21 +170,21 @@ class UpdateChecker(
                 connection.disconnect()
             }
 
-            val expected = info.sha256
-            if (expected != null && digest != null) {
-                val actual = digest.digest().toHex()
-                if (!actual.equals(expected, ignoreCase = true)) {
-                    Logger.e("Update checksum mismatch: expected $expected got $actual")
-                    destination.delete()
-                    return null
-                }
-                Logger.i("Update downloaded and checksum verified: ${destination.name}")
-            } else {
-                Logger.i("Update downloaded (${destination.length()} bytes, no checksum published)")
+            if (destination.length() != info.apkSizeBytes) {
+                Logger.e("APK download size mismatch (received=${destination.length()} expected=${info.apkSizeBytes})")
+                destination.delete()
+                return null
             }
+            val actual = digest.digest().toHex()
+            if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                Logger.e("Update SHA-256 checksum mismatch; downloaded file was deleted")
+                destination.delete()
+                return null
+            }
+            Logger.i("Update downloaded; size and SHA-256 verified: ${destination.name}")
             destination
         } catch (e: Exception) {
-            Logger.e("APK download failed", e)
+            Logger.e("APK download failed (${e.javaClass.simpleName})")
             destination.delete()
             null
         }
@@ -170,50 +192,59 @@ class UpdateChecker(
 
     // ─── HTTP plumbing ───────────────────────────────────────────────────────
 
-    private fun releasesLatestUrl(): String =
-        "https://api.github.com/repos/$repo/releases/latest"
+    private fun releasesLatestUrl(repo: String): String =
+        GitHubRepositoryPolicy.latestReleaseApiUrl(repo)
+            ?: throw IOException("Invalid GitHub repository setting")
 
-    private fun open(url: URL): HttpURLConnection {
+    private fun open(url: URL, githubApi: Boolean): HttpURLConnection {
+        if (!url.protocol.equals("https", ignoreCase = true)) {
+            throw IOException("GitHub update endpoints must use HTTPS")
+        }
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
-        connection.instanceFollowRedirects = true   // release assets redirect to a CDN
-        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.instanceFollowRedirects = true // GitHub release assets may redirect to its CDN.
         connection.setRequestProperty("User-Agent", "Hearth/${BuildConfig.VERSION_NAME}")
+        connection.setRequestProperty(
+            "Accept",
+            if (githubApi) "application/vnd.github+json" else "application/octet-stream"
+        )
+        // No credentials or custom authorization headers are sent to either endpoint. Only the
+        // non-sensitive User-Agent/Accept headers can follow GitHub's asset CDN redirect.
         return connection
     }
 
-    /** Fetches a small text document, following redirects. Returns null on any non-2xx. */
-    private fun getText(url: URL): String? {
-        val connection = open(url)
+    /** Fetches the canonical latest-release API document, following GitHub's ordinary redirects. */
+    private fun getText(url: URL): String {
+        val connection = open(url, githubApi = true)
         return try {
             connection.connect()
             val code = connection.responseCode
-            if (code !in 200..299) {
-                Logger.w("GET $url → HTTP $code")
-                null
-            } else {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            }
+            if (code !in 200..299) throw HttpStatusException(code)
+            connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun IOException.toUserMessage(): String {
-        val message = message ?: ""
-        return when {
-            message.contains("UnknownHost", ignoreCase = true) ||
-                message.contains("ENETUNREACH", ignoreCase = true) ||
-                message.contains("EHOSTUNREACH", ignoreCase = true) ->
-                "No connection — the TV could not reach github.com."
+    private fun IOException.toUserMessage(): String = when {
+        message.orEmpty().contains("UnknownHost", ignoreCase = true) ||
+            message.orEmpty().contains("ENETUNREACH", ignoreCase = true) ||
+            message.orEmpty().contains("EHOSTUNREACH", ignoreCase = true) ->
+            "No connection — the TV could not reach GitHub. Check Wi-Fi/Ethernet and try again."
 
-            message.contains("timed out", ignoreCase = true) ||
-                message.contains("ETIMEDOUT", ignoreCase = true) ->
-                "The connection to github.com timed out."
+        message.orEmpty().contains("timed out", ignoreCase = true) ||
+            message.orEmpty().contains("ETIMEDOUT", ignoreCase = true) ->
+            "The connection to GitHub timed out. Check the network and try again."
 
-            else -> "Update check failed: $message"
-        }
+        else -> "Could not reach GitHub. Check the network and try again."
+    }
+
+    private fun HttpStatusException.toUserMessage(repo: String): String = when (statusCode) {
+        404 -> "No latest release was found for $repo. Check back after a release is published."
+        403, 429 -> "GitHub temporarily limited update checks. Wait a while, then try again."
+        in 500..599 -> "GitHub is temporarily unavailable (HTTP $statusCode). Try again later."
+        else -> "GitHub rejected the update check (HTTP $statusCode). Try again later."
     }
 
     private fun ByteArray.toHex(): String {
@@ -227,10 +258,13 @@ class UpdateChecker(
         return String(hex)
     }
 
+    private class HttpStatusException(val statusCode: Int) : IOException("GitHub HTTP $statusCode")
+
     companion object {
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000
         private val HEX_DIGITS = "0123456789abcdef".toCharArray()
+        private val SHA256_PATTERN = Regex("^[0-9a-f]{64}$")
     }
 }
 
@@ -277,6 +311,8 @@ enum class UpdateFailureReason {
     SIGNATURE_MISMATCH,
     /** The downloaded file is not a readable APK. */
     INVALID_APK,
+    /** The APK's package/version metadata disagrees with the release metadata. */
+    METADATA_MISMATCH,
     /**
      * The release — or the APK inside it — is older than (or the same build as) this install.
      * Android would refuse the install as a downgrade, so it is never staged.

@@ -21,6 +21,9 @@ sealed class ServiceState {
     /** The service is running normally and all enabled protocols are advertising. */
     object Running : ServiceState()
 
+    /** The service is shutting receivers down; the UI acknowledges Stop immediately. */
+    object Stopping : ServiceState()
+
     /** The service has been stopped by the user. No protocols are active. */
     object Stopped : ServiceState()
 

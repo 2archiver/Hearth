@@ -7,9 +7,9 @@ numbered releases are kept as history; new builds do not create competing releas
 
 ## Download the current APK
 
-- **The release (one asset, the APK):** <https://github.com/2archiver/phairplay-archiver-fork-/releases/latest>
-- **Release title, update notes, version, checksum and build details:** <https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest>
-- **Optional download page:** <https://2archiver.github.io/phairplay-archiver-fork-/>
+- **The release (one asset, the APK):** <https://github.com/2archiver/Hearth/releases/latest>
+- **Release title, update notes, version, checksum and build details:** <https://github.com/2archiver/Hearth/releases/tag/latest>
+- **Optional download page:** GitHub Pages is not enabled for `2archiver/Hearth` (checked via repository metadata on 2026-10-07). Use the GitHub release page above; do not rely on a Pages URL until it is enabled.
 
 A release carries **exactly one file**: `Hearth-<version>-googletv.apk`, named after the
 `versionName` embedded in it (the workflow reads that back out of the built APK with `aapt`).
@@ -123,8 +123,9 @@ Gradle properties `phairplay.keystorePath`, `phairplay.keystoreType`, `phairplay
 
 `site/index.html` is a static page with one prominent **Download latest APK** button, Downloader/ADB
 install steps, and a current-version summary. It reads the current release from GitHub in the
-browser; older release links are tucked into a collapsed history section. The button keeps working
-even if the GitHub API is unavailable because it uses the stable `latest` download URL.
+browser; older release links are tucked into a collapsed history section. Before the GitHub API responds—or if it is unavailable—the button opens the current GitHub release
+page. Once the API responds, the page uses the actual compatible asset URL returned for that
+release; it does not invent a fixed APK filename.
 
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The
 `Releases page` workflow passes `enablement: true`, so a run from `main` flips that switch for

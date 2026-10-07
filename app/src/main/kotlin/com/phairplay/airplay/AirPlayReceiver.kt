@@ -1,6 +1,8 @@
 package com.phairplay.airplay
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import com.phairplay.airplay.handshake.AirPlayNtpClient
 import com.phairplay.airplay.handshake.AudioStreamServer
@@ -22,6 +24,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * AirPlayReceiver — Top-level orchestrator for the AirPlay 2 receiver pipeline.
@@ -114,6 +117,7 @@ internal class AirPlayReceiver(
 
     /** Set by [stop] — cancels retries and any start still queued on the main thread. */
     @Volatile private var stopped = false
+    private val shutdownStarted = AtomicBoolean(false)
 
     /** How many times advertising has been retried since it last worked. */
     @Volatile private var advertiseAttempts = 0
@@ -130,7 +134,7 @@ internal class AirPlayReceiver(
     private val scope = CoroutineScope(Dispatchers.IO + job)
 
     // Child components
-    private var mdnsService: MdnsService? = null
+    @Volatile private var mdnsService: MdnsService? = null
     /** The listener on port 7000; it builds one [RtspHandler] per connection a sender opens. */
     private var rtspServer: RtspServer? = null
     private var timingHandler: TimingHandler? = null
@@ -215,7 +219,9 @@ internal class AirPlayReceiver(
      * Non-blocking — all network work runs in background coroutines, except the mDNS
      * registration itself, which hops to the main looper because NsdManager requires one.
      */
+    @Synchronized
     fun start() {
+        if (stopped) return
         Logger.i("AirPlayReceiver starting (advertised as '$advertisedName')")
         scope.launch {
             // The two servers first, advertising second — and never in one try/catch.
@@ -312,23 +318,74 @@ internal class AirPlayReceiver(
      *
      * MUST be called when [PhairPlayService] stops or is destroyed.
      */
+    @Synchronized
     fun stop() {
+        if (!shutdownStarted.compareAndSet(false, true)) return
         Logger.i("AirPlayReceiver stopping")
-        // First the flag: a start already queued on the main thread checks it and stands down,
-        // otherwise a stop could register the advertisement right after we tore it down.
+        // Invalidate claims/callbacks before closing sockets. A late media callback can no longer
+        // regain ownership while the remaining resources are being released.
         stopped = true
-        try {
-            rtspServer?.stop()
-            timingHandler?.stop()
-            mdnsService?.stop()
-            dacpClient.stop()
-            releaseMediaComponents()
-            sessionOwnership.reset()
-        } catch (e: Exception) {
-            Logger.e("Error during AirPlayReceiver stop", e)
-        } finally {
-            scope.cancel()
+        sessionOwnership.reset()
+        silenceMediaOutputs("receiver stopped")
+
+        val server = rtspServer.also { rtspServer = null }
+        val timing = timingHandler.also { timingHandler = null }
+        val mdns = mdnsService.also { mdnsService = null }
+        CleanupSafety.runAll(
+            listOf(
+                "RTSP listener" to { server?.stop() },
+                "NTP listener" to { timing?.stop() },
+                "mDNS advertisement" to { stopMdnsOnMain(mdns) },
+                "DACP remote control" to { dacpClient.stop() },
+                "media pipeline" to { releaseMediaComponents() },
+            )
+        ) { label, error -> reportCleanupFailure(label, error) }
+        // All blocking sockets have been closed before cancellation, so cancellation cannot strand
+        // an active read or discard the only cleanup path for a player/network request.
+        scope.cancel()
+        AirPlayTrace.record("Receiver stopped; AirPlay listener and discovery are no longer active")
+    }
+
+    /**
+     * End only the current cast and keep the RTSP listener, timing socket and discovery active.
+     * The service publishes STOPPING/Advertising before calling this on its IO dispatcher, so UI
+     * feedback is immediate while this synchronized section invalidates generations and closes
+     * the sender's control/reverse sockets.
+     */
+    @Synchronized
+    fun stopPlayback(): Boolean {
+        if (stopped) return false
+        val snapshot = sessionOwnership.snapshot()
+        if (snapshot == null && !hasLiveMediaComponents()) return false
+        val token = snapshot?.token
+        val startedNanos = System.nanoTime()
+        AirPlayTrace.record(
+            "Local Stop playback requested; ending the active AirPlay generation",
+            sessionId = token?.sessionId,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+
+        // Mute/pause before any socket or decoder cleanup, so a slow sender or codec cannot leave
+        // local sound/video running while the rest of the pipeline is being torn down.
+        silenceMediaOutputs("local Stop playback")
+        sessionOwnership.reset()
+        if (token != null) {
+            CleanupSafety.runAll(
+                listOf("session RTSP connections" to { rtspServer?.closeSession(token) })
+            ) { label, error -> reportCleanupFailure(label, error, token.sessionId) }
         }
+        CleanupSafety.runAll(
+            listOf("media pipeline release" to { finishSessionResources(token, "local Stop playback") })
+        ) { label, error -> reportCleanupFailure(label, error, token?.sessionId) }
+        runCatching { onUrlPlaybackStateChanged(AirPlayPlaybackState.STOPPED, null) }
+            .onFailure { reportCleanupFailure("playback state callback", RuntimeException(it.javaClass.name)) }
+        val elapsedMillis = (System.nanoTime() - startedNanos).coerceAtLeast(0L) / 1_000_000L
+        AirPlayTrace.record(
+            "Local Stop playback cleanup requested; listener remains active (${elapsedMillis}ms synchronous teardown)",
+            sessionId = token?.sessionId,
+            kind = AirPlayTrace.Kind.LIFECYCLE,
+        )
+        return true
     }
 
     /**
@@ -343,7 +400,9 @@ internal class AirPlayReceiver(
 
     // ─── Private: startup ────────────────────────────────────────────────────
 
+    @Synchronized
     private fun startTimingHandler() {
+        if (stopped) return
         timingHandler = TimingHandler().also { it.start(scope) }
         Logger.d("Timing handler started on UDP port ${TimingHandler.TIMING_PORT}")
     }
@@ -361,7 +420,9 @@ internal class AirPlayReceiver(
      * shared by whichever connection owns the session, so a reconnect cannot leave a half-shut
      * pipeline behind.
      */
+    @Synchronized
     private fun startRtspServer() {
+        if (stopped) return
         val server = RtspServer(RtspHandler.RTSP_PORT) { socket ->
             val connectionId = "C${connectionSequence.incrementAndGet()}"
             RtspHandler(
@@ -481,6 +542,16 @@ internal class AirPlayReceiver(
                         role = AirPlayConnectionRole.CONTROL.name,
                         kind = AirPlayTrace.Kind.LIFECYCLE,
                     )
+                    if (session.hasAudio && !session.hasVideo) {
+                        AirPlayTrace.record(
+                            "SDP confirmed an audio-only stream; no video track was negotiated",
+                            sessionId = token?.sessionId,
+                            connectionId = connectionId,
+                            role = AirPlayConnectionRole.CONTROL.name,
+                            kind = AirPlayTrace.Kind.LIFECYCLE,
+                        )
+                        onUrlPlaybackStateChanged(AirPlayPlaybackState.AUDIO_ONLY, null)
+                    }
                     emitSessionState(token, ProtocolState.CONNECTED)
                 } catch (e: Exception) {
                     Logger.e("Failed to start media pipeline (${e.javaClass.simpleName})")
@@ -653,6 +724,42 @@ internal class AirPlayReceiver(
         finishSessionResources(token, "session ended")
     }
 
+    private fun hasLiveMediaComponents(): Boolean =
+        videoDecoder != null || audioPlayer != null || audioSocket != null || mirrorServer != null ||
+            audioServer != null || bufferedAudioServer != null || urlVideoPlayer != null ||
+            eventSocket != null || eventClientSocket != null || ntpClient != null
+
+    /** Mute local outputs first; network closure and codec release follow on the service IO thread. */
+    private fun silenceMediaOutputs(reason: String) {
+        CleanupSafety.runAll(
+            listOf(
+                "mirror audio output" to { audioServer?.setVolume(SILENT_VOLUME_DB) },
+                "legacy AirPlay audio output" to { audioPlayer?.suspendOutput(true) },
+                "URL video player pause" to { urlVideoPlayer?.setRate(0f) },
+            )
+        ) { label, error -> reportCleanupFailure(label, error) }
+        AirPlayTrace.record("Local media outputs silenced before teardown ($reason)")
+    }
+
+    private fun stopMdnsOnMain(service: MdnsService?) {
+        if (service == null) return
+        val stop = Runnable {
+            runCatching { service.stop() }
+                .onFailure { reportCleanupFailure("mDNS advertisement", RuntimeException(it.javaClass.name)) }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) stop.run()
+        else Handler(Looper.getMainLooper()).post(stop)
+    }
+
+    private fun reportCleanupFailure(label: String, error: Exception, sessionId: String? = null) {
+        Logger.w("AirPlay cleanup failed at $label (${error.javaClass.simpleName})")
+        AirPlayTrace.record(
+            "Stop cleanup failed at $label (${error.javaClass.simpleName})",
+            sessionId = sessionId,
+            kind = AirPlayTrace.Kind.FAILURE,
+        )
+    }
+
     private fun finishSessionResources(token: SessionToken?, reason: String) {
         AirPlayTrace.record(
             "Session stopped: $reason",
@@ -666,11 +773,10 @@ internal class AirPlayReceiver(
             }
         }
         scope.launch {
-            if (sessionOwnership.isClaimed()) return@launch
-            try {
-                mdnsService?.restart(advertisedName)
-            } catch (e: Exception) {
-                Logger.e("Failed to restart mDNS after streaming (${e.javaClass.simpleName})")
+            withContext(Dispatchers.Main) {
+                if (stopped || sessionOwnership.isClaimed()) return@withContext
+                runCatching { mdnsService?.restart(advertisedName) }
+                    .onFailure { reportCleanupFailure("mDNS rediscovery after playback", RuntimeException(it.javaClass.name), token?.sessionId) }
             }
         }
     }
@@ -882,7 +988,9 @@ internal class AirPlayReceiver(
         // AirPlay 2 NTP is receiver-initiated: poll the sender's timing port so macOS proceeds.
         val ntp = AirPlayNtpClient(remoteAddress, senderTimingPort).also { ntpClient = it; it.start(scope) }
         onSenderNameChanged(npSenderName)
-        emitState(ProtocolState.CONNECTED)
+        // This state belongs to the claimed mirror generation. A queued main-thread callback from
+        // before local Stop must not restore CONNECTED after Stop has invalidated this token.
+        emitSessionState(token, ProtocolState.CONNECTED)
         Logger.i("Mirror keys set; eventPort=${event.localPort} timingPort=${ntp.localPort}")
         return event.localPort to ntp.localPort
     }
@@ -1018,6 +1126,13 @@ internal class AirPlayReceiver(
                 onMediaAudioOwnership(connectionId, token, generation, mediaOwnsAudio)
             },
             sessionSource = sessionSource,
+            traceSessionId = token.sessionId,
+            traceConnectionId = connectionId,
+            traceRole = if (mode == AirPlaySessionMode.SENDER_MEDIATED_HLS) {
+                SenderMediatedHlsBridge.ROLE
+            } else {
+                AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name
+            },
         )
         urlVideoPlayer = player
         videoPlaying = true
@@ -1197,52 +1312,58 @@ internal class AirPlayReceiver(
         preserveReverseConnectionId: String? = null,
         preserveSessionFingerprint: String? = null,
     ) {
-        try { audioSocket?.close() } catch (e: Exception) { /* non-fatal */ }
-        audioSocket = null
-        mirrorServer?.stop()
-        mirrorServer = null
-        audioServer?.stop()
-        audioServer = null
-        bufferedAudioServer?.stop()
-        bufferedAudioServer = null
+        // Detach before calling any native/socket close so late callbacks cannot see these as the
+        // current generation or accidentally tear down resources installed by a later session.
         urlVideoGeneration++
-        urlVideoPlayer?.release()
-        urlVideoPlayer = null
-        if (preserveReverseConnectionId != null || preserveSessionFingerprint != null) {
-            senderMediatedHls.replaceSession(
-                reason = "media components released for a replacement session",
-                connectionId = preserveReverseConnectionId.orEmpty(),
-                protocolSessionFingerprint = preserveSessionFingerprint,
-            )
-        } else {
-            senderMediatedHls.reset("media components released")
-        }
-        videoAudioHandover.onSessionReplaced()
-        ntpClient?.stop()
-        ntpClient = null
-        try { eventClientSocket?.close() } catch (e: Exception) { /* non-fatal */ }
-        eventClientSocket = null
-        try { eventSocket?.close() } catch (e: Exception) { /* non-fatal */ }
-        eventSocket = null
-        // Clear the FairPlay/ECDH keys on FULL teardown only. This method runs on a genuine session
-        // end (last-stream / session TEARDOWN, or control-connection close) — NOT on a per-stream
-        // teardown, which goes through stopMirrorAudio/stopMirrorVideo and leaves the keys intact so
-        // macOS can re-add a dynamic stream on the same live session without re-sending keys (that
-        // dynamic-readd path is why the keys must survive a stream stop). Clearing here prevents a
-        // brand-new control connection from reusing a previous session's stale keys.
-        mirrorAesKey = null
-        mirrorEcdhSecret = null
-        mirrorAesIv = null
-        onMirroringChanged(false)
-        videoDecoder?.release()
-        videoDecoder = null
-        audioPlayer?.release()
-        audioPlayer = null
-        // Session fully torn down — clear now-playing so the UI leaves the audio card.
+        val oldAudioSocket = audioSocket.also { audioSocket = null }
+        val oldMirrorServer = mirrorServer.also { mirrorServer = null }
+        val oldAudioServer = audioServer.also { audioServer = null }
+        val oldBufferedAudioServer = bufferedAudioServer.also { bufferedAudioServer = null }
+        val oldUrlPlayer = urlVideoPlayer.also { urlVideoPlayer = null }
+        val oldNtpClient = ntpClient.also { ntpClient = null }
+        val oldEventClient = eventClientSocket.also { eventClientSocket = null }
+        val oldEventServer = eventSocket.also { eventSocket = null }
+        val oldVideoDecoder = videoDecoder.also { videoDecoder = null }
+        val oldAudioPlayer = audioPlayer.also { audioPlayer = null }
+        val oldAesKey = mirrorAesKey.also { mirrorAesKey = null }
+        val oldEcdhSecret = mirrorEcdhSecret.also { mirrorEcdhSecret = null }
+        val oldAesIv = mirrorAesIv.also { mirrorAesIv = null }
         audioPlaying = false
         videoPlaying = false
         clearNowPlayingMetadata()
-        emitNowPlaying()
+
+        CleanupSafety.runAll(
+            listOf(
+                "audio RTP socket" to { oldAudioSocket?.close() },
+                "mirror video server" to { oldMirrorServer?.stop() },
+                "mirror audio server" to { oldAudioServer?.stop() },
+                "buffered audio server" to { oldBufferedAudioServer?.stop() },
+                "URL video player" to { oldUrlPlayer?.release() },
+                "sender-mediated HLS bridge" to {
+                    if (preserveReverseConnectionId != null || preserveSessionFingerprint != null) {
+                        senderMediatedHls.replaceSession(
+                            reason = "media components released for a replacement session",
+                            connectionId = preserveReverseConnectionId.orEmpty(),
+                            protocolSessionFingerprint = preserveSessionFingerprint,
+                        )
+                    } else {
+                        senderMediatedHls.reset("media components released")
+                    }
+                },
+                "video audio handover" to { videoAudioHandover.onSessionReplaced() },
+                "AirPlay timing client" to { oldNtpClient?.stop() },
+                "event channel client" to { oldEventClient?.close() },
+                "event channel listener" to { oldEventServer?.close() },
+                "mirror video decoder" to { oldVideoDecoder?.release() },
+                "AirPlay audio player" to { oldAudioPlayer?.release() },
+                "mirror AES key clear" to { oldAesKey?.fill(0) },
+                "mirror ECDH secret clear" to { oldEcdhSecret?.fill(0) },
+                "mirror AES IV clear" to { oldAesIv?.fill(0) },
+                "mirroring state callback" to { onMirroringChanged(false) },
+                "now-playing state callback" to { onNowPlayingChanged(null) },
+            )
+        ) { label, error -> reportCleanupFailure(label, error) }
+
     }
 
     /** Pushes the current now-playing state out: a [NowPlayingInfo] when audio plays without video, else null. */

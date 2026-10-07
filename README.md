@@ -6,11 +6,11 @@
 **A free, open-source AirPlay receiver for Google TV and Android TV.**
 Mirror your iPhone, iPad or Mac. Share photos. Bring your music to the big screen.
 
-[![Download APK](https://img.shields.io/badge/Download-Android_TV_APK-71334B?style=for-the-badge&logo=android&logoColor=white)](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-Android_TV_APK-71334B?style=for-the-badge&logo=android&logoColor=white)](https://github.com/2archiver/Hearth/releases/latest)
 [![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-F2A4BB?style=for-the-badge&logo=kofi&logoColor=211017)](https://ko-fi.com/2archiver)
 
-[![CI](https://github.com/2archiver/phairplay-archiver-fork-/actions/workflows/ci.yml/badge.svg)](https://github.com/2archiver/phairplay-archiver-fork-/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/2archiver/phairplay-archiver-fork-?label=latest%20APK&color=71334B)](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest)
+[![CI](https://github.com/2archiver/Hearth/actions/workflows/ci.yml/badge.svg)](https://github.com/2archiver/Hearth/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/2archiver/Hearth?label=latest%20APK&color=71334B)](https://github.com/2archiver/Hearth/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-71334B)](LICENSE)
 [![Platform](https://img.shields.io/badge/Android_TV-10%2B-71334B)](#requirements)
 
@@ -29,10 +29,10 @@ receiver name to select on your Apple device.
 | **Your screen** | iPhone, iPad and Mac screen mirroring through **Apple Casting**, Hearth's name for AirPlay mirroring |
 | **Your music** | AirPlay system audio, track metadata, album artwork and supported remote playback commands |
 | **Your photos** | Full-screen photo sharing with the original aspect ratio |
-| **Your videos** | H.264 hardware decoding; resolution up to 4K when the display and decoder support it |
+| **AirPlay video** | Supported H.264 streams use hardware decoding; source app/transport compatibility is tested separately |
 | **Your preferences** | Receiver name, mirror audio, resolution, startup and in-app updates |
 
-### The wine remaster — 1.8
+### The wine-red Hearth — 1.9.2
 
 A warm wine-red interface with cream text, a three-step connection guide, clearer D-pad focus,
 a quieter Home screen, an explicit **Activity** button, and a landscape Now Playing view.
@@ -44,8 +44,8 @@ playback that keeps the TV awake, and validation of AirPlay timing replies. See
 
 ## Get started
 
-1. **Install on the TV.** [Open the latest release](https://github.com/2archiver/phairplay-archiver-fork-/releases/latest)
-   and download its single `Hearth-<version>-googletv.apk` file. Sideload using Downloader or ADB.
+1. **Install on the TV.** [Open the latest release](https://github.com/2archiver/Hearth/releases/latest)
+   and download its version-named Google TV APK asset. Sideload using Downloader or ADB.
 2. **Use the same network.** Your Apple device and TV must be on the same local network.
    The TV can use Ethernet while the phone uses Wi-Fi on the same router.
 3. **Open Hearth.** On iPhone or iPad, open **Control Centre → Screen Mirroring**. On Mac,
@@ -56,7 +56,6 @@ adb install -r Hearth-<version>-googletv.apk
 ```
 
 [Step-by-step installation](docs/guides/INSTALLATION.md) ·
-[Download page](https://2archiver.github.io/phairplay-archiver-fork-/) ·
 [Apple Casting guide](docs/guides/APPLE_CASTING.md)
 
 **Updating:** choose **Settings → Updates → Check for updates**. Hearth compares build numbers,
@@ -71,7 +70,7 @@ signing key so updates can install over an existing version. [Update help](docs/
 - **Internet:** needed for downloading releases and checking updates; local mirroring works without it.
 
 The project's primary reported hardware setup is Google TV 4K over Ethernet on Android TV OS 14,
-with an iPhone 14 sender. Please [report your device and results](https://github.com/2archiver/phairplay-archiver-fork-/issues/new?template=bug_report.md)
+with an iPhone 14 sender. Please [report your device and results](https://github.com/2archiver/Hearth/issues/new?template=bug_report.md)
 to help expand real-device coverage. Software rendering tests do not replace testing on a TV.
 
 ## Know before you install
@@ -79,6 +78,10 @@ to help expand real-device coverage. Software rendering tests do not replace tes
 Hearth is community software with ongoing real-device compatibility testing.
 
 - **Protected video** from services such as Netflix, Disney+ and Apple TV+ cannot be decrypted.
+- **Native Photos in-video AirPlay and YouTube-app AirPlay video each require separate iPhone-to-TV
+  moving-video and continuous-playback checks. Both hardware checks are pending; Control Centre
+  audio routing, screen mirroring, still photos, and source-code inspection do not establish them.
+  See the 1.9.2 [changelog](CHANGELOG.md).
 - **Apple Music in-app protected audio** is not supported; unprotected system audio is a separate path.
 - **AirPlay 2 multi-room/buffered audio (type 103)** is not implemented for playback.
 - **Google Cast** is handled by your TV's built-in Chromecast receiver. Hearth does not replace it.
@@ -93,8 +96,8 @@ Hearth is community software with ongoing real-device compatibility testing.
 Use JDK 17+, Android SDK 35, NDK `28.2.13676358` and CMake `3.22.1`.
 
 ```bash
-git clone https://github.com/2archiver/phairplay-archiver-fork-.git
-cd phairplay-archiver-fork-
+git clone https://github.com/2archiver/Hearth.git
+cd Hearth
 ./gradlew :test-runner:test
 ./gradlew :app:lintGoogletvDebug :app:assembleGoogletvDebug
 ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest'

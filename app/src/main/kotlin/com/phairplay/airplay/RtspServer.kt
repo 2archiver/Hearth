@@ -23,6 +23,9 @@ interface RtspConnection {
 
     /** True while this connection carries a live media session (never retired first). */
     val holdsSession: Boolean get() = false
+
+    /** Close this connection only when it belongs to [token]; returns false for probes/stale peers. */
+    fun closeSession(token: SessionToken): Boolean = false
 }
 
 /**
@@ -134,6 +137,24 @@ class RtspServer(
 
     /** Number of connections currently being served (diagnostics). */
     fun connectionCount(): Int = live.size
+
+    /**
+     * End every control/reverse connection belonging to one cast without closing the listener.
+     * Discovery and port 7000 stay live so the sender can reconnect as a fresh session.
+     */
+    fun closeSession(token: SessionToken): Int {
+        var closedCount = 0
+        live.toList().forEach { connection ->
+            if (runCatching { connection.closeSession(token) }.getOrDefault(false)) {
+                live.remove(connection)
+                closedCount++
+            }
+        }
+        if (closedCount > 0) {
+            AirPlayTrace.record("Stop playback: closed $closedCount RTSP connection(s); listener remains active")
+        }
+        return closedCount
+    }
 
     /** Stops the listener and closes every live connection. */
     fun stop() {

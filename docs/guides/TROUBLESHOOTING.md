@@ -220,6 +220,25 @@ aspect-fitted: black bars left and right are correct, a stretched image would be
 
 ---
 
+## Video from an iPhone app does not play
+
+Photos and YouTube have separate acceptance paths. Use each app's own in-video/in-app AirPlay
+control; do not diagnose these paths through Control Centre audio routing or screen mirroring.
+
+- **Photos:** reproduce with the AirPlay control inside the video in native Photos. Record whether
+  the clip is downloaded locally or iCloud-only, then check for both moving picture and sound,
+  pause/seek, Stop and reconnect. A still photo appearing is not a video pass.
+- **YouTube:** use the YouTube iOS app's AirPlay picker and verify an actual rendered frame plus
+  continuous sound on the TV. Audio-only routing, a TV-code link and mirroring are not proof.
+- On either path, export the URL-free connection trace before retrying; record the last completed
+  stage (`/play`, reverse/PTTH, FCUP, manifest, player/audio setup, preparation, decoder or first
+  frame). Do not paste signed URLs, tokens or credentials into an issue.
+- Neither app path has a real-device pass recorded for Hearth 1.9.2 yet. See the separate run sheets
+  and pending status in [docs/CASTING-1.9.2.md](../CASTING-1.9.2.md). Do not infer codecs or support
+  from another app, mirroring, source inspection or audio playback.
+
+---
+
 ## Installing a new APK fails
 
 **"App not installed as package conflicts with an existing package"**
@@ -247,8 +266,8 @@ before installing it. A different-key APK is never passed to Android's installer
 **`INSTALL_FAILED_VERSION_DOWNGRADE`**
 - You are installing an older APK over a newer one. Every build published by CI has a higher
   versionCode than the one before it, so this means the file is old — re-download from the
-  [current `latest` release](https://github.com/2archiver/phairplay-archiver-fork-/releases/tag/latest).
-- Forcing it: `adb install -r -d Hearth-googletv.apk`.
+  [current `latest` release](https://github.com/2archiver/Hearth/releases/tag/latest).
+- Do not force a downgrade or uninstall to work around it. Download the current version-named APK from the release page and check the installed/published version codes first.
 
 **The download link returns 404**
 - The release is created by GitHub Actions on the first push to `main` after
@@ -259,15 +278,16 @@ before installing it. A different-key APK is never passed to Android's installer
 
 ## App crashes on startup
 
-1. Check you installed `Hearth-googletv.apk` and your TV runs Android TV OS 10 or newer.
-2. Try reinstalling: `adb uninstall com.phairplay.googletv` then install again.
-3. Report the crash: attach `adb logcat -d` output to a GitHub Issue.
+1. Check that the version-named `Hearth-<version>-googletv.apk` came from the canonical release page and that the TV runs Android TV OS 10 or newer.
+2. Capture `adb logcat -d` before restarting. Do not uninstall as a first step: Android may erase Hearth's preferences when the package is removed.
+3. If a reinstall is necessary, first back up any settings you need and confirm that the replacement uses the same package and signing identity.
+4. Report the crash with the TV model/OS and the relevant log excerpt; redact network credentials and signed media URLs.
 
 ---
 
 ## Still stuck?
 
-Open an issue at <https://github.com/2archiver/phairplay-archiver-fork-/issues> with:
+Open an issue at <https://github.com/2archiver/Hearth/issues> with:
 - Your TV model and OS version (e.g. Google TV Streamer 4K, Android TV OS 14)
 - Your sender and its version (e.g. iPhone 14, iOS 27.0.1; macOS 15.3)
 - The Hearth version from **Settings → Version** on the TV

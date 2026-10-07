@@ -30,7 +30,8 @@
 
     <!-- ── Control buttons ─────────────────────────────────────── -->
     <string name="action_start">Démarrer</string>
-    <string name="action_stop">Arrêter</string>
+    <string name="action_stop">Arrêter le récepteur</string>
+    <string name="action_stop_playback">Arrêter la lecture</string>
     <string name="action_restart">Redémarrer</string>
 
     <!-- ── Settings section headers ────────────────────────────── -->

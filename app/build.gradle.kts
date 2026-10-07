@@ -34,14 +34,18 @@ fun monotonicVersionCode(): Int = ((System.currentTimeMillis() / 60_000L) - 28_4
 /**
  * GitHub repo the in-app update checker polls, as "owner/name".
  *
- * Override per fork with `-Pphairplay.updateRepo=you/your-fork` (or the
- * PHAIRPLAY_UPDATE_REPO environment variable) so a fork's APK checks its own releases
- * instead of upstream's.
+ * Override per fork with `-Pphairplay.updateRepo=you/your-fork` or
+ * `PHAIRPLAY_UPDATE_REPO`. Precedence is explicit: command-line `-P` > environment >
+ * gradle.properties (including user-level Gradle properties) > the canonical fallback below.
+ * Release CI passes `-Pphairplay.updateRepo=2archiver/Hearth`, so stale runner environment
+ * values cannot silently redirect an official release build.
  */
-val updateRepo: String =
-    (providers.gradleProperty("phairplay.updateRepo").orNull
+val updateRepo: String = (
+    gradle.startParameter.projectProperties["phairplay.updateRepo"]
         ?: providers.environmentVariable("PHAIRPLAY_UPDATE_REPO").orNull
-        ?: "2archiver/phairplay-archiver-fork-").trim()
+        ?: providers.gradleProperty("phairplay.updateRepo").orNull
+        ?: "2archiver/Hearth"
+    ).trim()
 
 /**
  * Describes the key a build signs with.
@@ -151,7 +155,7 @@ android {
         // back before publishing. The versionCode fallback increases with each local build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.5.0")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.9.2")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")

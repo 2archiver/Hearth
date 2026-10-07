@@ -10,6 +10,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.BuildConfig
+import com.phairplay.update.GitHubRepositoryPolicy
 import com.phairplay.R
 import com.phairplay.update.InstallStart
 import com.phairplay.update.InstallState
@@ -441,12 +442,9 @@ internal class SettingsUpdates(
     }
 
     private fun openUpdateReleasePage() {
-        val repo = BuildConfig.UPDATE_REPO.trim()
-        val releaseUrl = if (repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) {
-            "https://github.com/$repo/releases/latest"
-        } else {
-            "https://github.com/2archiver/phairplay-archiver-fork-/releases/latest"
-        }
+        val repo = GitHubRepositoryPolicy.canonicalRepository(BuildConfig.UPDATE_REPO)
+            ?: GitHubRepositoryPolicy.CANONICAL_REPOSITORY
+        val releaseUrl = "https://github.com/$repo/releases/latest"
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
         } catch (e: Exception) {

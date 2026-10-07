@@ -30,6 +30,13 @@ class ServiceStateTest {
     }
 
     @Test
+    fun `ServiceState Stopping is identified as Stopping`() {
+        val state: ServiceState = ServiceState.Stopping
+        assertTrue(state is ServiceState.Stopping)
+        assertNotEquals(ServiceState.Stopping, ServiceState.Stopped)
+    }
+
+    @Test
     fun `ServiceState Stopped is identified as Stopped`() {
         val state: ServiceState = ServiceState.Stopped
         assertTrue(state is ServiceState.Stopped)

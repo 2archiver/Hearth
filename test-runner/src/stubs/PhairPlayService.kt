@@ -15,6 +15,7 @@ class PhairPlayService {
     companion object {
         const val ACTION_START   = "com.phairplay.action.START"
         const val ACTION_STOP    = "com.phairplay.action.STOP"
+        const val ACTION_STOP_PLAYBACK = "com.phairplay.action.STOP_PLAYBACK"
         const val ACTION_RESTART = "com.phairplay.action.RESTART"
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID     = "phairplay_service"

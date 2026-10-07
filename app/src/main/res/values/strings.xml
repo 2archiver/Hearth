@@ -48,9 +48,11 @@
     <string name="protocol_detail_casting_waiting">Mirror your iPhone, iPad or Mac screen.</string>
     <!-- %1$s = sender name; shown on the Apple Casting card while mirror video is on screen -->
     <string name="protocol_detail_mirroring">Mirroring from %1$s</string>
+    <string name="protocol_detail_video_negotiating">Negotiating AirPlay video…</string>
     <string name="protocol_detail_video_loading">Video: loading</string>
     <string name="protocol_detail_video_playing">Video: playing</string>
     <string name="protocol_detail_video_paused">Video: paused</string>
+    <string name="protocol_detail_video_stopping">Stopping playback…</string>
     <string name="protocol_detail_video_failed">Video playback failed — open the connection log</string>
     <!-- %1$s = observed pipeline stage; %2$s = URL-free failure detail -->
     <string name="protocol_detail_video_failed_at">Playback failed at %1$s — %2$s</string>
@@ -66,7 +68,7 @@
     <string name="protocol_stage_drm">media protection</string>
     <string name="protocol_stage_playback">playback</string>
     <string name="protocol_stage_unknown">unknown stage</string>
-    <string name="protocol_detail_video_audio_only">Audio only — the sender is not sending video</string>
+    <string name="protocol_detail_video_audio_only">Audio only — the source has no video track</string>
     <!-- Per-protocol ERROR details — each card states the real reason instead of a
          generic (and often fake) "Check Wi-Fi settings" hint. -->
     <string name="protocol_detail_error_airplay">Receiver error — try Restart</string>
@@ -75,6 +77,7 @@
 
     <!-- ── Service states (header badge) ───────────────────────── -->
     <string name="service_state_running">Running</string>
+    <string name="service_state_stopping">Stopping…</string>
     <string name="service_state_stopped">Stopped</string>
     <string name="service_state_restarting">Restarting…</string>
     <string name="service_state_error">Error</string>
@@ -85,7 +88,8 @@
 
     <!-- ── Control buttons ─────────────────────────────────────── -->
     <string name="action_start">Start</string>
-    <string name="action_stop">Stop</string>
+    <string name="action_stop">Stop receiver</string>
+    <string name="action_stop_playback">Stop playback</string>
     <string name="action_restart">Restart</string>
 
     <!-- ── Notification ────────────────────────────────────────── -->
@@ -155,6 +159,8 @@
     <!-- ── Connection log (Home screen) ────────────────────────── -->
     <string name="home_log_empty">Your connection activity will appear here.</string>
     <string name="home_log_dialog_title">AirPlay connection details</string>
+    <string name="home_log_share">Share diagnostics</string>
+    <string name="home_log_share_subject">Hearth AirPlay diagnostics</string>
 
     <!-- ── Updates ─────────────────────────────────────────────── -->
     <string name="settings_section_updates">Updates</string>

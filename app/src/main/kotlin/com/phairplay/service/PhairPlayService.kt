@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 
 /**
  * PhairPlayService — Android ForegroundService that hosts all receiver protocols.
@@ -61,9 +62,22 @@ class PhairPlayService : Service() {
     // Binder for Activity binding (returns this service directly)
     private val binder = LocalBinder()
 
+    private sealed interface ReceiverLifecycleCommand {
+        val ticket: Long
+        data class Start(override val ticket: Long) : ReceiverLifecycleCommand
+        data class Stop(override val ticket: Long) : ReceiverLifecycleCommand
+        data class Restart(override val ticket: Long) : ReceiverLifecycleCommand
+    }
+
     // Coroutine scope — cancelled in onDestroy() to clean up all coroutines
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    /** Commands arrive on Android's main thread and are consumed in their exact enqueue order. */
+    private val receiverLifecycleCommands = Channel<ReceiverLifecycleCommand>(Channel.UNLIMITED)
+    private val receiverCommandGate = ReceiverLifecycleGate()
+    private val receiverCallbackGate = ReceiverLifecycleGate()
+    private val playbackStopGate = PlaybackStopGate()
+    @Volatile private var destroyed = false
 
     // Observable state — Activities and Fragments observe this via the binder
     private val _serviceState = MutableStateFlow<ServiceState>(ServiceState.Stopped)
@@ -123,7 +137,8 @@ class PhairPlayService : Service() {
     @Volatile private var videoSurfaceProvider: (() -> Surface?)? = null
 
     // Receiver instances — null when not running
-    private var airPlayReceiver: AirPlayReceiver? = null
+    @Volatile private var airPlayReceiver: AirPlayReceiver? = null
+    @Volatile private var airPlayReceiverCallbackTicket: Long = 0L
 
     /** Background update-check loop, cancelled in [onDestroy] (see [startUpdateChecker]). */
     private var updateCheckJob: kotlinx.coroutines.Job? = null
@@ -168,6 +183,35 @@ class PhairPlayService : Service() {
         Logger.i("PhairPlayService created")
         settingsRepository = SettingsRepository(applicationContext)
         createNotificationChannel()
+        serviceScope.launch {
+            for (command in receiverLifecycleCommands) {
+                if (destroyed) break
+                try {
+                    when (command) {
+                        is ReceiverLifecycleCommand.Start -> {
+                            if (receiverCommandGate.isCurrent(command.ticket)) startReceivers(command.ticket)
+                        }
+                        is ReceiverLifecycleCommand.Stop -> {
+                            stopReceivers()
+                            receiverCommandGate.runIfCurrent(command.ticket) {
+                                _serviceState.value = ServiceState.Stopped
+                                stopSelf()
+                            }
+                        }
+                        is ReceiverLifecycleCommand.Restart -> {
+                            if (receiverCommandGate.isCurrent(command.ticket)) restartReceivers(command.ticket)
+                        }
+                    }
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    Logger.e("Receiver lifecycle command failed (${error.javaClass.simpleName})")
+                    receiverCommandGate.runIfCurrent(command.ticket) {
+                        _serviceState.value = ServiceState.Error("Receiver lifecycle failed")
+                        updateNotification(isRunning = false)
+                    }
+                }
+            }
+        }
         updateSettingsJob = serviceScope.launch {
             var previous: Triple<Boolean, Boolean, Boolean>? = null
             settingsRepository.settingsFlow.collect { settings ->
@@ -198,14 +242,46 @@ class PhairPlayService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification(isRunning = false))
 
         when (intent?.action) {
-            ACTION_START   -> serviceScope.launch { startReceivers() }
-            ACTION_STOP    -> serviceScope.launch { stopReceivers(); stopSelf() }
-            ACTION_RESTART -> serviceScope.launch { restartReceivers() }
-            else           -> serviceScope.launch { startReceivers() } // default: start
+            ACTION_START -> enqueueReceiverStart()
+            ACTION_STOP -> enqueueReceiverStop()
+            ACTION_STOP_PLAYBACK -> stopCurrentPlayback()
+            ACTION_RESTART -> enqueueReceiverRestart()
+            else -> enqueueReceiverStart() // default: start
         }
 
         // START_STICKY: if the system kills the service, restart it with a null intent
         return START_STICKY
+    }
+
+    /** Enqueues a serialized start after issuing a generation for this user/system command. */
+    private fun enqueueReceiverStart() {
+        queueReceiverLifecycleCommand(ReceiverLifecycleCommand.Start(receiverCommandGate.next()))
+    }
+
+    /** Acknowledge Stop synchronously, then enqueue the potentially slow receiver teardown. */
+    private fun enqueueReceiverStop() {
+        val command = ReceiverLifecycleCommand.Stop(receiverCommandGate.next())
+        receiverCallbackGate.next() // invalidate callbacks before the synchronous Stop acknowledgment
+        acknowledgeReceiverStop()
+        queueReceiverLifecycleCommand(command)
+    }
+
+    /** Mark Restarting immediately; the lifecycle actor performs stop → delay → start in order. */
+    private fun enqueueReceiverRestart() {
+        val command = ReceiverLifecycleCommand.Restart(receiverCommandGate.next())
+        receiverCallbackGate.next()
+        receiverCommandGate.runIfCurrent(command.ticket) {
+            _serviceState.value = ServiceState.Restarting
+            updateNotification(isRunning = false)
+        }
+        queueReceiverLifecycleCommand(command)
+    }
+
+    /** Queues lifecycle commands from onStartCommand in main-thread arrival order. */
+    private fun queueReceiverLifecycleCommand(command: ReceiverLifecycleCommand) {
+        if (receiverLifecycleCommands.trySend(command).isFailure && !destroyed) {
+            Logger.w("Could not queue receiver lifecycle command ${command.javaClass.simpleName}")
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -217,8 +293,7 @@ class PhairPlayService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         Logger.i("App task removed — stopping receivers + service")
-        stopReceivers()
-        stopSelf()
+        enqueueReceiverStop()
         super.onTaskRemoved(rootIntent)
     }
 
@@ -247,14 +322,84 @@ class PhairPlayService : Service() {
         airPlayReceiver?.sendRemoteCommand(command)
     }
 
+    /** Stop the current cast and retain this service/receiver so discovery stays available. */
+    fun stopCurrentPlayback() {
+        val receiver = airPlayReceiver ?: return
+        val callbackTicket = airPlayReceiverCallbackTicket
+        var acknowledged = false
+        receiverCallbackGate.runIfCurrent(callbackTicket) {
+            if (destroyed || airPlayReceiver !== receiver ||
+                airPlayReceiverCallbackTicket != callbackTicket || _serviceState.value !is ServiceState.Running
+            ) return@runIfCurrent
+
+            acknowledged = playbackStopGate.beginStopIf(
+                isActive = {
+                    val state = _airPlayPlaybackState.value
+                    _activeConnection.value != null || mirroring || _nowPlaying.value != null ||
+                        state != null && state !in setOf(
+                            com.phairplay.airplay.AirPlayPlaybackState.STOPPED,
+                            com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED,
+                        )
+                },
+                acknowledge = {
+                    // These StateFlows are observed on the main thread. Publish synchronously, and
+                    // serialize against callbacks so a stale CONNECTED/PLAYING event cannot undo
+                    // the Stop acknowledgment while socket/codec teardown is still on IO.
+                    _airPlayPlaybackState.value = com.phairplay.airplay.AirPlayPlaybackState.STOPPING
+                    _airPlayPlaybackFailure.value = null
+                    _airPlayState.value = ProtocolState.ADVERTISING
+                    _appleCastingState.value = ProtocolState.ADVERTISING
+                    _appleCastingDetail.value = null
+                    _activeConnection.value = null
+                    _photoFrame.value = null
+                    _nowPlaying.value = null
+                    mirroring = false
+                    endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
+                    updateNotification(isRunning = true)
+                }
+            )
+        }
+        if (!acknowledged) return
+
+        serviceScope.launch {
+            try {
+                if (!destroyed && airPlayReceiver === receiver && receiverCallbackGate.isCurrent(callbackTicket)) {
+                    receiver.stopPlayback()
+                }
+            } catch (error: Exception) {
+                Logger.w("Stop playback failed (${error.javaClass.simpleName})")
+                com.phairplay.airplay.AirPlayTrace.record(
+                    "Stop playback failed (${error.javaClass.simpleName})",
+                    kind = com.phairplay.airplay.AirPlayTrace.Kind.FAILURE,
+                )
+            } finally {
+                receiverCallbackGate.runIfCurrent(callbackTicket) {
+                    if (!destroyed && airPlayReceiver === receiver &&
+                        airPlayReceiverCallbackTicket == callbackTicket
+                    ) {
+                        playbackStopGate.runCallback(publishDuringStop = true) {
+                            if (_airPlayPlaybackState.value == com.phairplay.airplay.AirPlayPlaybackState.STOPPING) {
+                                _airPlayPlaybackState.value = com.phairplay.airplay.AirPlayPlaybackState.STOPPED
+                            }
+                        }
+                    }
+                }
+                playbackStopGate.finishStop()
+            }
+        }
+    }
+
     override fun onDestroy() {
+        destroyed = true
+        receiverCallbackGate.next()
+        receiverLifecycleCommands.close()
+        serviceJob.cancel()
         updateCheckJob?.cancel()
         updateCheckJob = null
         updateSettingsJob?.cancel()
         updateSettingsJob = null
         Logger.i("PhairPlayService destroying")
         stopAllReceiversInternal()
-        serviceJob.cancel()
         super.onDestroy()
     }
 
@@ -265,8 +410,10 @@ class PhairPlayService : Service() {
      *
      * Reads current settings, then starts the AirPlay receiver when it is enabled.
      */
-    private suspend fun startReceivers() {
+    private suspend fun startReceivers(ticket: Long) {
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         val settings = settingsRepository.settingsFlow.first()
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}")
 
         // Belt and braces for the debug overlay: the settings collector in onCreate() already
@@ -274,19 +421,37 @@ class PhairPlayService : Service() {
         // read a stale value.
         com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
 
-        _serviceState.value = ServiceState.Running
-        updateNotification(isRunning = true)
+        if (!receiverCommandGate.runIfCurrent(ticket) {
+                _serviceState.value = ServiceState.Running
+                updateNotification(isRunning = true)
+            }
+        ) return
 
         if (settings.airPlayEnabled) {
-            startAirPlay(settings)
+            startAirPlay(settings, ticket)
         } else {
             _appleCastingState.value = ProtocolState.DISABLED
             _appleCastingDetail.value = null
         }
 
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         // Look for a newer Hearth build in the background. Throttled inside
         // UpdateManager (once every few hours), so this is cheap to call every start.
         startUpdateChecker(settings)
+    }
+
+    /** Publish a visible Stop acknowledgment before socket/codec teardown begins. */
+    private fun acknowledgeReceiverStop() {
+        _serviceState.value = ServiceState.Stopping
+        _airPlayState.value = ProtocolState.DISABLED
+        _appleCastingState.value = ProtocolState.DISABLED
+        _appleCastingDetail.value = null
+        _activeConnection.value = null
+        _photoFrame.value = null
+        _nowPlaying.value = null
+        mirroring = false
+        endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
+        updateNotification(isRunning = false)
     }
 
     /**
@@ -296,7 +461,6 @@ class PhairPlayService : Service() {
     private fun stopReceivers() {
         Logger.i("Stopping all receivers")
         stopAllReceiversInternal()
-        _serviceState.value = ServiceState.Stopped
         _activeConnection.value = null
         updateNotification(isRunning = false)
     }
@@ -305,13 +469,13 @@ class PhairPlayService : Service() {
      * Restarts all receivers: stops them, waits briefly, then starts them again.
      * Used for applying settings changes or recovering from errors.
      */
-    private suspend fun restartReceivers() {
+    private suspend fun restartReceivers(ticket: Long) {
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         Logger.i("Restarting all receivers")
-        _serviceState.value = ServiceState.Restarting
-        updateNotification(isRunning = false)
         stopAllReceiversInternal()
         kotlinx.coroutines.delay(500) // brief pause to ensure ports are released
-        startReceivers()
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
+        startReceivers(ticket)
     }
 
     // ─── Individual Protocol Starters ────────────────────────────────────────
@@ -328,7 +492,8 @@ class PhairPlayService : Service() {
      *
      * @param settings Current app settings; read once per start/restart cycle.
      */
-    private fun startAirPlay(settings: AppSettings) {
+    private fun startAirPlay(settings: AppSettings, ticket: Long) {
+        if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         // (The debug-overlay setting is mirrored in onCreate()/startReceivers() — it is live,
         // not start-up-only.)
 
@@ -345,7 +510,7 @@ class PhairPlayService : Service() {
         // Captures the sender name reported by AirPlayReceiver before CONNECTED fires.
         // onSenderNameChanged is called synchronously before emitState(CONNECTED), so
         // this assignment happens-before the Main-thread read in onStateChanged.
-        var pendingSenderName = "AirPlay Sender"
+        val pendingSenderName = java.util.concurrent.atomic.AtomicReference("AirPlay Sender")
 
         // Ask the sender for the largest mirror this TV can both show and decode: 1080p by
         // default, up to 4K on a 4K Google TV when Settings → "Higher resolution" is on.
@@ -359,82 +524,140 @@ class PhairPlayService : Service() {
         Logger.i("AirPlay mirror advertised at ${mirror.label} (${mirror.width}x${mirror.height}) — " +
                  "panel ${panel.first}x${panel.second}, H.264 ceiling ${decode.first}x${decode.second}")
 
-        airPlayReceiver = AirPlayReceiver(
+        val callbackTicket = receiverCallbackGate.next()
+        lateinit var receiver: AirPlayReceiver
+        receiver = AirPlayReceiver(
             context = applicationContext,
             displayName = settings.effectiveDisplayName,
             mirrorWidth = mirror.width,
             mirrorHeight = mirror.height,
             audioEnabled = settings.mirrorAudioEnabled,
             // Delegate to the current provider at call time — captures the field, not a fixed value.
-            // When MainActivity calls setVideoSurfaceProvider(), future surface requests use it.
             videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
             onSenderNameChanged = { name ->
-                pendingSenderName = name.ifEmpty { "AirPlay Sender" }
+                withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
+                    pendingSenderName.set(name.ifEmpty { "AirPlay Sender" })
+                }
             },
-            onActualNameRegistered = { name -> _registeredName.value = name },
+            onActualNameRegistered = { name ->
+                withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
+                    _registeredName.value = name
+                }
+            },
             onPhotoReceived = { bytes, imageType ->
-                _photoFrame.value = PhotoFrame(
-                    bytes = bytes.copyOf(),
-                    mimeType = imageType.mimeType
-                )
-                updateNotification(isRunning = true)
+                withCurrentAirPlayReceiver(receiver, callbackTicket) {
+                    _photoFrame.value = PhotoFrame(bytes.copyOf(), imageType.mimeType)
+                    updateNotification(isRunning = true)
+                }
             },
             onPhotoCleared = {
-                _photoFrame.value = null
+                withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
+                    _photoFrame.value = null
+                }
             },
             onNowPlayingChanged = { info ->
-                _nowPlaying.value = info
+                withCurrentAirPlayReceiver(
+                    receiver,
+                    callbackTicket,
+                    publishDuringPlaybackStop = info == null,
+                ) { _nowPlaying.value = info }
             },
-            onAdvertiseNotice = { notice -> _airPlayDetail.value = notice },
-            onUrlPlaybackStateChanged = { state, failure ->
-                _airPlayPlaybackState.value = state.takeUnless {
-                    it == com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED
+            onAdvertiseNotice = { notice ->
+                withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = true) {
+                    _airPlayDetail.value = notice
                 }
-                _airPlayPlaybackFailure.value = failure
+            },
+            onUrlPlaybackStateChanged = { state, failure ->
+                withCurrentAirPlayReceiver(
+                    receiver,
+                    callbackTicket,
+                    publishDuringPlaybackStop = state == com.phairplay.airplay.AirPlayPlaybackState.STOPPED,
+                ) {
+                    _airPlayPlaybackState.value = state.takeUnless {
+                        it == com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED
+                    }
+                    _airPlayPlaybackFailure.value = failure
+                }
             },
             onMirroringChanged = { active ->
-                mirroring = active
-                _appleCastingState.value = when {
-                    active -> ProtocolState.CONNECTED
-                    _airPlayState.value == ProtocolState.ERROR -> ProtocolState.ERROR
-                    else -> ProtocolState.ADVERTISING
+                withCurrentAirPlayReceiver(receiver, callbackTicket, publishDuringPlaybackStop = !active) {
+                    mirroring = active
+                    _appleCastingState.value = when {
+                        active -> ProtocolState.CONNECTED
+                        _airPlayState.value == ProtocolState.ERROR -> ProtocolState.ERROR
+                        else -> ProtocolState.ADVERTISING
+                    }
+                    _appleCastingDetail.value = if (active) {
+                        getString(R.string.protocol_detail_mirroring, pendingSenderName.get())
+                    } else {
+                        null
+                    }
+                    Logger.i("Apple Casting: mirroring ${if (active) "started" else "stopped"}")
                 }
-                _appleCastingDetail.value = if (active) {
-                    getString(R.string.protocol_detail_mirroring, pendingSenderName)
-                } else {
-                    null   // the Home screen shows the how-to line for an idle card
-                }
-                Logger.i("Apple Casting: mirroring ${if (active) "started" else "stopped"}")
             },
             onStateChanged = { state ->
-                _airPlayState.value = state
-                when (state) {
-                    ProtocolState.CONNECTED   -> {
-                        _photoFrame.value = null
-                        _activeConnection.value =
-                            ActiveConnection(pendingSenderName, Protocol.AIRPLAY)
-                        beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
-                        updateNotification(isRunning = true, streamingSenderName = pendingSenderName)
-                    }
-                    ProtocolState.ADVERTISING,
-                    ProtocolState.UNAVAILABLE,
-                    ProtocolState.DISABLED,
-                    ProtocolState.ERROR       -> {
-                        _activeConnection.value = null
-                        endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
-                        updateNotification(isRunning = state != ProtocolState.DISABLED &&
-                                                       state != ProtocolState.ERROR)
-                        _appleCastingState.value = when {
-                            mirroring -> ProtocolState.CONNECTED
-                            state == ProtocolState.DISABLED -> ProtocolState.DISABLED
-                            else -> state
+                withCurrentAirPlayReceiver(
+                    receiver,
+                    callbackTicket,
+                    publishDuringPlaybackStop = state != ProtocolState.CONNECTED,
+                ) {
+                    _airPlayState.value = state
+                    when (state) {
+                        ProtocolState.CONNECTED -> {
+                            _photoFrame.value = null
+                            _activeConnection.value = ActiveConnection(pendingSenderName.get(), Protocol.AIRPLAY)
+                            beginStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
+                            updateNotification(
+                                isRunning = true,
+                                streamingSenderName = pendingSenderName.get(),
+                            )
                         }
-                        if (state == ProtocolState.DISABLED) _appleCastingDetail.value = null
+                        ProtocolState.ADVERTISING,
+                        ProtocolState.UNAVAILABLE,
+                        ProtocolState.DISABLED,
+                        ProtocolState.ERROR -> {
+                            if (state == ProtocolState.ADVERTISING &&
+                                _airPlayPlaybackState.value == com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY
+                            ) {
+                                _airPlayPlaybackState.value = null
+                                _airPlayPlaybackFailure.value = null
+                            }
+                            _activeConnection.value = null
+                            endStatsSession(com.phairplay.airplay.StreamStats.SOURCE_AIRPLAY)
+                            updateNotification(
+                                isRunning = state != ProtocolState.DISABLED && state != ProtocolState.ERROR,
+                            )
+                            _appleCastingState.value = when {
+                                mirroring -> ProtocolState.CONNECTED
+                                state == ProtocolState.DISABLED -> ProtocolState.DISABLED
+                                else -> state
+                            }
+                            if (state == ProtocolState.DISABLED) _appleCastingDetail.value = null
+                        }
                     }
                 }
-            }
-        ).also { it.start() }
+            },
+        )
+        airPlayReceiver = receiver
+        airPlayReceiverCallbackTicket = callbackTicket
+        receiver.start()
         Logger.d("AirPlay receiver started (displayName='${settings.effectiveDisplayName}')")
+    }
+
+    /** Apply a receiver callback only while both its instance and callback generation still own state. */
+    private fun withCurrentAirPlayReceiver(
+        receiver: AirPlayReceiver,
+        callbackTicket: Long,
+        publishDuringPlaybackStop: Boolean = false,
+        publish: () -> Unit,
+    ) {
+        receiverCallbackGate.runIfCurrent(callbackTicket) {
+            if (!destroyed && airPlayReceiver === receiver &&
+                airPlayReceiverCallbackTicket == callbackTicket
+            ) {
+                playbackStopGate.runCallback(publishDuringPlaybackStop, publish)
+            }
+        }
     }
 
     /**
@@ -558,9 +781,11 @@ class PhairPlayService : Service() {
     }
 
     private fun stopAllReceiversInternal() {
-        try { airPlayReceiver?.stop() } catch (e: Exception) { Logger.e("AirPlay stop error", e) }
+        val receiver = airPlayReceiver
+        airPlayReceiver = null // Ignore any callback still queued by this receiver before tearing it down.
+        airPlayReceiverCallbackTicket = 0L
+        try { receiver?.stop() } catch (e: Exception) { Logger.w("AirPlay stop failed (${e.javaClass.simpleName})") }
 
-        airPlayReceiver = null
         _airPlayDetail.value = null
         _airPlayPlaybackState.value = null
         _airPlayPlaybackFailure.value = null
@@ -568,7 +793,7 @@ class PhairPlayService : Service() {
         _appleCastingState.value = ProtocolState.DISABLED
         _appleCastingDetail.value = null
         mirroring = false
-        com.phairplay.airplay.AirPlayTrace.clear()
+        // AirPlayTrace is bounded and redacted; retain failures after Stop for an explicit export.
         _photoFrame.value = null
         _nowPlaying.value = null
         _registeredName.value = null
@@ -595,8 +820,8 @@ class PhairPlayService : Service() {
     /**
      * Builds the persistent notification for the ForegroundService.
      *
-     * The notification shows the service status and provides quick actions
-     * so users can Stop or Restart without opening the app.
+     * The notification shows the service status and provides distinct Stop playback,
+     * Stop receiver and Restart actions.
      *
      * @param isRunning            True if receivers are active; false if stopped/restarting.
      * @param notificationContentText Override for the notification body text.
@@ -614,7 +839,14 @@ class PhairPlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // "Stop" action — sends ACTION_STOP to this service
+        // Stop media without shutting down the receiver; Stop receiver remains a separate action.
+        val stopPlaybackIntent = PendingIntent.getService(
+            this, 3,
+            Intent(this, PhairPlayService::class.java).apply { action = ACTION_STOP_PLAYBACK },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Stop discovery/listeners and then stop the service.
         val stopIntent = PendingIntent.getService(
             this, 1,
             Intent(this, PhairPlayService::class.java).apply { action = ACTION_STOP },
@@ -638,7 +870,8 @@ class PhairPlayService : Service() {
             .setContentIntent(openAppIntent)
             .setOngoing(true)                   // Prevents user from swiping away
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(R.drawable.ic_stop,    getString(R.string.action_stop),    stopIntent)
+            .addAction(R.drawable.ic_stop, getString(R.string.action_stop_playback), stopPlaybackIntent)
+            .addAction(R.drawable.ic_stop, getString(R.string.action_stop), stopIntent)
             .addAction(R.drawable.ic_restart, getString(R.string.action_restart), restartIntent)
             .build()
     }
@@ -676,6 +909,7 @@ class PhairPlayService : Service() {
         const val UPDATE_CHECK_PERIOD_MS = 6 * 60 * 60 * 1000L
         const val ACTION_START    = "com.phairplay.action.START"
         const val ACTION_STOP     = "com.phairplay.action.STOP"
+        const val ACTION_STOP_PLAYBACK = "com.phairplay.action.STOP_PLAYBACK"
         const val ACTION_RESTART  = "com.phairplay.action.RESTART"
     }
 }

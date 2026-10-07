@@ -1,6 +1,6 @@
 # Publishes one canonical release: the newest successful build from main.
-# The APK keeps a stable download name; the GitHub release title is read from the
-# APK's embedded versionName, and its notes come from CHANGELOG.md (or recent commits).
+# The APK asset is named from the embedded versionName; the GitHub release title uses that same
+# value, and its notes come from CHANGELOG.md (or recent commits).
 #
 # Direct download (the single asset, named after its version):
 #   https://github.com/<owner>/<repo>/releases/download/latest/Hearth-<version>-googletv.apk
@@ -143,7 +143,21 @@ jobs:
           set -euo pipefail
           ./gradlew :app:assembleGoogletvRelease --stacktrace \
             -Pphairplay.versionName="$BUILD_VERSION" \
-            -Pphairplay.versionCode="$BUILD_CODE" 2>&1 | tee build.log
+            -Pphairplay.versionCode="$BUILD_CODE" \
+            -Pphairplay.updateRepo=2archiver/Hearth 2>&1 | tee build.log
+
+      - name: Verify generated updater repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_config=$(find app/build/generated/source/buildConfig \
+            -path '*/googletv/release/com/phairplay/BuildConfig.java' -print -quit)
+          if [[ -z "$build_config" ]] || ! grep -Fq 'UPDATE_REPO = "2archiver/Hearth";' "$build_config"; then
+            echo "::error::Release BuildConfig.UPDATE_REPO is not 2archiver/Hearth."
+            [[ -z "$build_config" ]] || grep -n 'UPDATE_REPO' "$build_config" || true
+            exit 1
+          fi
+          echo "Verified release updater target: 2archiver/Hearth" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify APK metadata and collect release assets
         id: assets
@@ -167,17 +181,18 @@ jobs:
             exit 1
           fi
           metadata=$("$aapt" dump badging "$src" \
-            | sed -n "s/^package: name='[^']*' versionCode='\([^']*\)' versionName='\([^']*\)'.*/\1 \2/p" \
+            | sed -n "s/^package: name='\([^']*\)' versionCode='\([^']*\)' versionName='\([^']*\)'.*/\1 \2 \3/p" \
             | head -1)
           if [[ -z "$metadata" ]]; then
-            echo "::error::Could not read versionName/versionCode from the built APK."
+            echo "::error::Could not read applicationId/versionName/versionCode from the built APK."
             exit 1
           fi
-          read -r apk_code apk_version <<< "$metadata"
+          read -r apk_package apk_code apk_version <<< "$metadata"
 
           expected_version="${VERSION}-googletv"
-          if [[ "$apk_version" != "$expected_version" || "$apk_code" != "$CODE" ]]; then
-            echo "::error::APK metadata ($apk_version / $apk_code) did not match the requested build ($expected_version / $CODE)."
+          if [[ "$apk_package" != "com.phairplay.googletv" || \
+                "$apk_version" != "$expected_version" || "$apk_code" != "$CODE" ]]; then
+            echo "::error::APK metadata ($apk_package / $apk_version / $apk_code) did not match the preserved package and requested build (com.phairplay.googletv / $expected_version / $CODE)."
             exit 1
           fi
 

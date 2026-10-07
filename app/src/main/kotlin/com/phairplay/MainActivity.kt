@@ -285,6 +285,10 @@ class MainActivity : AppCompatActivity() {
             currentAirPlayState == ProtocolState.CONNECTED ||
             currentAppleCastingState == ProtocolState.CONNECTED
         if (overlayActive) {
+            if (keyCode == android.view.KeyEvent.KEYCODE_MEDIA_STOP) {
+                service?.stopCurrentPlayback()
+                return true
+            }
             val command = when (keyCode) {
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY,

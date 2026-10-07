@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.2] — lifecycle-safe Stop, canonical updates, and separate iOS video gates
+
+This patch is a reliability and verification release, not a claim that iOS Photos or YouTube video
+has been validated on hardware. The two real-device gates and their distinct procedures are in
+[docs/CASTING-1.9.2.md](docs/CASTING-1.9.2.md).
+
+### Changed
+- Set the base version to **1.9.2** while preserving the Android `applicationId`, existing user
+  preferences/data, signing identity and monotonically increasing CI `versionCode` policy.
+- Make `2archiver/Hearth` the canonical update repository and release destination. The updater
+  normalizes the former repository slug before building its API URL; a focused test covers that
+  migration. This does not promise that every previously installed older APK can auto-migrate.
+- Point install/update guidance at the canonical GitHub release page and the actual version-named
+  Google TV APK. The current repository has Pages disabled; no active download instructions depend
+  on the guessed Pages URL or a fixed APK filename.
+- Select the actual `-googletv.apk` asset returned by GitHub, rejecting missing or ambiguous
+  compatible assets rather than choosing the first APK in API order.
+
+### Fixed — updater verification
+- Require canonical GitHub API/release endpoints and reject asset URLs outside the configured
+  repository. Missing, malformed or conflicting version, size or full SHA-256 metadata blocks an
+  offer/download; streamed byte count and digest must match.
+- Inspect the downloaded package identity and embedded version, then compare its signing
+  certificate with the installed app. Recheck package/version/signature immediately before passing
+  the staged APK to Android. A queued `PackageInstaller` request is not reported as installed;
+  success follows Android's result.
+- Keep the old repository preference as a tested migration alias for new code. Existing older APKs
+  are not represented as automatically migrated; use the canonical release page if their updater
+  cannot find or verify an update.
+
+### Fixed — stop and teardown
+- **Stop playback** now ends the active cast while keeping receiver discovery/listening available;
+  **Stop receiver** remains the separate action that shuts down the receiver/service.
+- Scope callbacks and cleanup to the owning session/generation, preserve partial audio/video
+  teardown semantics, silence local output, cancel/close pending playback work, and continue later
+  cleanup actions even when one teardown step throws.
+- Keep the final bounded, redacted session trace available for export after Stop, including the last
+  failure stage. URL-player startup receives the session ID, connection ID and media role so its
+  diagnostics belong to the correct cast.
+
+### Fixed — direct cleartext media redirects
+- Apply the local-unicast HTTP host policy to every direct-media redirect hop, not only the first
+  URL. A local cleartext source cannot redirect playback to a public HTTP host; cross-protocol and
+  credential-bearing media redirects are rejected without recording their URLs.
+
+### Video validation gates — intentionally separate
+- **Priority 1: native iOS Photos in-video AirPlay.** Verify downloaded-local and iCloud-only media
+  separately, with moving video and sound, pause/seek, Stop and reconnect. No Photos-app hardware
+  run is available in this checkout; status is **PENDING**.
+- **Priority 2: YouTube iOS app AirPlay picker.** Verify rendered moving video plus continuous
+  sound, controls, Stop and reconnect on a real TV. Control Centre audio, screen mirroring and
+  source inspection are not evidence. No hardware run is available; status is **PENDING**.
+- Report codec/container combinations only when observed. Safari, Rumble, live streams and protected
+  media remain separate; this patch does not scrape YouTube, bypass DRM, create a parallel player,
+  or claim an unsupported transport.
+
+### Validation
+- Added focused regression coverage for repository-alias migration and release URL trust,
+  compatible asset/checksum metadata, local cleartext hosts and redirect policy, cleanup continuation,
+  and playback/stop callback ordering.
+- Offline checks passed: workflow shell/YAML sanity scan, release-notes helper tests (4 passed),
+  `node --check` on the site script, Android XML parsing (30 files), and `git diff --check`.
+  `./gradlew :test-runner:test` was attempted but could not start because this checkout has no Java
+  runtime or `JAVA_HOME`; Kotlin tests, Android lint/build and instrumented tests therefore remain
+  unverified here. Real-device acceptance remains pending as above.
+
 ## [1.9.1] — PTTH response framing and truthful video status
 
 Fix the sender-mediated video exchange path introduced in 1.9.0. On an upgraded `/reverse` socket,
@@ -661,10 +727,6 @@ ports are already taken by the TV's own receiver, or that both back-ends are una
 
 ---
 
-## [Unreleased]
-
-Nothing yet — changes collect here until the next version is cut.
-
 ## [1.3] - 2026-10-02
 
 ### Fixed
@@ -737,7 +799,7 @@ be typed in) the timeout is cleared, so a live session is never dropped for bein
 ### Added
 
 **A merge to `main` now publishes an APK — no tag, no manual release, no Pages setup**
-- **Rolling `latest` release** — `.github/workflows/release.yml` runs on every push/merge to `main`, moves the `latest` tag to that commit and replaces the assets in place, so this link always serves the newest build: `https://github.com/2archiver/phairplay-archiver-fork-/releases/download/latest/PhairPlay-googletv.apk` (with `SHA256SUMS.txt` beside it)
+- **Rolling `latest` release (historical 1.2 scheme)** — `.github/workflows/release.yml` moved a `latest` tag and replaced fixed-name assets. That old `PhairPlay-googletv.apk` path is obsolete; use the canonical release page at <https://github.com/2archiver/Hearth/releases/latest> for the actual version-named Google TV APK.
 - **Versioned releases unchanged** — pushing `v1.2.0` still creates a permanent release with `PhairPlay-v1.2.0-googletv.apk`, `PhairPlay-googletv.apk` and `SHA256SUMS.txt`; `-beta.N` tags stay pre-releases. Manual runs (**Actions → Release → Run workflow**) can publish either
 - **Concurrency guard** — release runs are serialized per ref so two builds cannot fight over the `latest` tag and its assets
 

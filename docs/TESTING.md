@@ -271,23 +271,35 @@ Settings → Network so nothing can quietly fall back to it.
 
 ---
 
-## Performance Benchmarks
+## 1.9.2 iOS app-video release gates
 
-Run these measurements and record them in the release notes:
+Run the native **Photos in-video AirPlay** check and the **YouTube iOS app AirPlay picker** check
+as separate scenarios on an iPhone and Google TV. For Photos, identify downloaded-local versus
+iCloud-only media. For both apps, verify moving video and sound on the TV, pause/seek, Stop, and
+reconnect. Control Centre audio routing and screen mirroring do not count as substitutes. Record the
+last URL-free per-session failure stage and actual codec/device details; do not infer a codec matrix
+from source inspection.
+
+The exact steps, evidence fields and current pending status are in
+[docs/CASTING-1.9.2.md](CASTING-1.9.2.md). Until those real-device checks pass, keep both app paths
+marked pending regardless of unit-test or CI results.
+
+## Performance observations
+
+When real hardware is available, record the measured values and test conditions in the release
+notes; these are observations, not pass/fail latency or performance targets:
 
 ```bash
 # RAM usage during streaming
 adb shell dumpsys meminfo com.phairplay.googletv | grep "TOTAL"
 
-# CPU usage (5-second average) — replace PID with actual process ID
+# CPU usage (5-second sample) — replace PID with actual process ID
 adb shell top -n 5 -p $(adb shell pidof com.phairplay.googletv) | tail -5
 ```
 
-Target values:
-- RAM peak: ≤ 150 MB
-- CPU average: ≤ 30%
-- Frame rate: ≥ 25 fps
-- Latency: ≤ 100 ms
+For latency, describe the source, display, network and measurement method, and report the observed
+value/range rather than claiming a target was met. For URL video, record time from Stop request to
+local silence and ready-state transition as separate measurements.
 
 ---
 
