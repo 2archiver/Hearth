@@ -3,6 +3,8 @@ package com.phairplay.airplay
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.view.Surface
+import com.phairplay.airplay.handshake.MirrorPresentationAction
+import com.phairplay.airplay.handshake.MirrorPresentationPolicy
 import com.phairplay.util.Logger
 
 /**
@@ -28,7 +30,13 @@ import com.phairplay.util.Logger
  *   decoder.decodeNalUnit(nalUnitBytes)                    // call for each video chunk
  *   decoder.release()                                       // call when done
  */
-class VideoDecoder(private val outputSurface: Surface) {
+class VideoDecoder(
+    private val outputSurface: Surface,
+    /** Enabled only for AirPlay mirroring; legacy media and ExoPlayer are never paced here. */
+    private val stableMirrorPacing: Boolean = false,
+    /** Monotonic origin produced by MirrorTimestampMapper, or null before the first frame. */
+    private val mirrorPresentationOriginNanos: Long? = null,
+) {
 
     // The underlying hardware decoder — null until initialize() is called
     private var mediaCodec: MediaCodec? = null
@@ -139,53 +147,46 @@ class VideoDecoder(private val outputSurface: Surface) {
      * @param nalUnit The raw NAL unit bytes (without the RTP header).
      * @param presentationTimeUs Presentation timestamp in microseconds (for A/V sync).
      */
-    fun decodeNalUnit(nalUnit: ByteArray, presentationTimeUs: Long) {
+    fun decodeNalUnit(nalUnit: ByteArray, presentationTimeUs: Long): Boolean {
         val codec = mediaCodec ?: run {
             Logger.w("decodeNalUnit() called but decoder not initialized")
-            return
+            return false
         }
+        if (nalUnit.isEmpty()) return false
 
-        try {
-            // Drain finished frames FIRST — renders them and frees the pipeline so an input
-            // buffer becomes available. Dropping NAL units corrupts H.264 (loses reference
-            // frames) and causes a black screen until the next keyframe, so we avoid it.
+        return try {
+            // Drain completed outputs first so the decoder can accept another input. In Stable FPS
+            // mode, only decoded presentation is paced, using the validated sender/arrival mapping.
             releaseOutputBuffers(codec)
 
-            // Wait for an input buffer. Longer than before: on a modest SoC the decoder can
-            // briefly fall behind, and waiting beats dropping (which corrupts the stream).
             val inputBufferIndex = codec.dequeueInputBuffer(INPUT_BUFFER_TIMEOUT_US)
-
-            if (inputBufferIndex >= 0) {
-                // We got an input buffer — fill it with the NAL unit bytes
+            if (inputBufferIndex < 0) {
+                // Encoded loss breaks the reference chain. The mirroring queue observes false and
+                // waits for the next configured IDR instead of feeding predicted frames blindly.
+                Logger.v("VideoDecoder: no input buffer available; mirroring must resync at IDR")
+                false
+            } else {
                 val inputBuffer = codec.getInputBuffer(inputBufferIndex)!!
                 inputBuffer.clear()
                 inputBuffer.put(nalUnit)
-
-                // Tell MediaCodec: "input buffer [index] is filled with [size] bytes
-                // of data with timestamp [presentationTimeUs] — please decode it"
                 codec.queueInputBuffer(
                     inputBufferIndex,
-                    0,                 // offset: start from beginning of buffer
-                    nalUnit.size,      // size: how many bytes to decode
+                    0,
+                    nalUnit.size,
                     presentationTimeUs,
-                    0                  // flags: 0 = normal frame (not end-of-stream)
+                    0,
                 )
-            } else {
-                // No input buffer available — the decoder is catching up.
-                // Drop this NAL unit to avoid building up backlog (prefer low latency).
-                Logger.v("VideoDecoder: no input buffer available, dropping NAL unit")
+                releaseOutputBuffers(codec)
+                true
             }
-
-            // Release any output buffers that MediaCodec has finished decoding.
-            // render=true means the frame goes to the Surface immediately.
-            releaseOutputBuffers(codec)
-
         } catch (e: IllegalStateException) {
             // MediaCodec is now in the error state and cannot recover — flag for recreation.
             Logger.e("VideoDecoder entered error state — will recreate", e)
             isHealthy = false
+            false
         } catch (e: Exception) {
             Logger.e("Error decoding NAL unit", e)
+            false
         }
     }
 
@@ -210,14 +211,40 @@ class VideoDecoder(private val outputSurface: Surface) {
                 // The decoder parsed the real size from the SPS — authoritative for aspect-fit.
                 publishOutputSize(codec.outputFormat)
             } else {
-                // Render immediately. We deliberately do NOT schedule a future render time for A/V sync:
-                // this Surface's BufferQueue holds only ~3 frames, so any hold quickly back-pressures the
-                // decoder → the upstream frame queue saturates → big latency + dropped (corrupt) frames.
-                // A/V alignment is handled by keeping the AUDIO path low-latency instead (AudioStreamServer).
-                codec.releaseOutputBuffer(outputBufferIndex, true)
+                val originNanos = mirrorPresentationOriginNanos
+                if (!stableMirrorPacing || originNanos == null) {
+                    // Existing mirroring and legacy video render immediately unless Stable FPS was
+                    // latched at this mirror session's start.
+                    codec.releaseOutputBuffer(outputBufferIndex, true)
+                } else {
+                    val targetNanos = presentationTargetNanos(originNanos, bufferInfo.presentationTimeUs)
+                    val decision = MirrorPresentationPolicy.decide(
+                        enabled = true,
+                        targetTimeNanos = targetNanos,
+                        nowNanos = System.nanoTime(),
+                    )
+                    when (decision.action) {
+                        MirrorPresentationAction.DROP_STALE -> {
+                            codec.releaseOutputBuffer(outputBufferIndex, false)
+                            StreamStats.noteMirrorPresentationDropped()
+                        }
+                        MirrorPresentationAction.SCHEDULE -> {
+                            codec.releaseOutputBuffer(outputBufferIndex, decision.renderTimeNanos ?: targetNanos)
+                            StreamStats.noteMirrorPresentationScheduled()
+                        }
+                        MirrorPresentationAction.RENDER_NOW ->
+                            codec.releaseOutputBuffer(outputBufferIndex, true)
+                    }
+                }
             }
             outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
         }
+    }
+
+    private fun presentationTargetNanos(originNanos: Long, presentationTimeUs: Long): Long = try {
+        Math.addExact(originNanos, Math.multiplyExact(presentationTimeUs.coerceAtLeast(0L), 1_000L))
+    } catch (_: ArithmeticException) {
+        Long.MAX_VALUE
     }
 
     /** Reads the decoder's true display size (honouring the crop rectangle) for StreamingScreen. */

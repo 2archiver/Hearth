@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] — optional Stable FPS and AirPlay casting reliability
+
+- Add a persisted, default-off Stable FPS preference for the next mirroring session only. Bound the
+  encoded queue by age, bytes and count; preserve AES-CTR ordering and SPS/PPS-to-IDR recovery; add
+  monotonic timestamp mapping, stale presentation handling and queue/pacing diagnostics. No fixed
+  60 fps or sender negotiation is claimed; gallery bitmaps and ExoPlayer URL video are unaffected.
+- Resolve extensionless/signed direct HLS URLs through a bounded, redirect-guarded response probe;
+  validate and propagate supported HTTP request headers without logging their values.
+- Preserve distinct gallery/photo, Photos-video, native YouTube AirPlay, screen-mirroring,
+  audio-only and Rumble acceptance paths. Device outcomes are in
+  [docs/CASTING-2.0.md](docs/CASTING-2.0.md); the focused source review is in
+  [docs/UPSTREAM-REVIEW-2.0.md](docs/UPSTREAM-REVIEW-2.0.md).
+- Keep the application ID, signing lineage, supported ARM ABIs and monotonic versionCode policy.
+  This PR is not a release; no candidate APK could be produced in the current toolchain.
+
+### Validation status
+- Attempted every Gradle command listed in `docs/TESTING.md` (unit tests, filtered `RtspHandlerTest`,
+  instrumented tests, lint, JVM test-runner, Android lint/debug APK and `HearthUiTest`) plus
+  `./gradlew :app:assembleGoogletvRelease`; each exited 1 before Gradle started because `JAVA_HOME`
+  is unset and no `java` command is installed. Android SDK variables and `adb` are also unavailable.
+  Tests/lint/build are **NOT RUN** and no candidate APK was produced. Offline `git diff --check`, the
+  four release-note helper tests, workflow shell/YAML validation, parsing 30 Android XML files, and
+  parsing the version catalog passed; none substitutes for compilation or hardware acceptance.
+- The three 1.9.3 gallery behaviors are **USER-REPORTED PASS**, not independently retested. Native
+  Photos video, native YouTube video/audio/controls, Rumble video/audio/controls and device Stable
+  FPS behavior remain **NOT TESTED** until a qualifying run is recorded.
+
 ## [1.9.3] — hourly updates, reasoned shutdown, and session-scoped Photos
 
 A reliability implementation release. It adds durable best-effort update scheduling, records receiver

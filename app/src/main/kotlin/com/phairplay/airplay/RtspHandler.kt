@@ -36,6 +36,8 @@ open class RtspHandler(
     private val displayName: String = com.phairplay.util.MdnsNames.DEFAULT_DISPLAY_NAME,
     private val displayWidth: Int = 1920,
     private val displayHeight: Int = 1080,
+    /** Optional next-session display policy; a running mirror's dimensions are already latched. */
+    private val displayResolutionProvider: (() -> Pair<Int, Int>)? = null,
     private val audioEnabled: Boolean = false,
     private val videoSurfaceProvider: () -> android.view.Surface?,
     private val onStreamingStarted: (session: SessionDescription) -> Unit,
@@ -85,7 +87,14 @@ open class RtspHandler(
     /** Modern direct-video path: `Start-Position-Seconds` is an absolute offset in seconds. */
     private val onVideoPlaySeconds: (url: String, startSeconds: Double) -> Unit = onVideoPlay,
     /** Session-aware form used by the receiver to reject stale playback callbacks. */
-    private val onVideoPlaySession: ((connectionId: String, url: String, start: Double, seconds: Boolean, token: SessionToken?) -> Unit)? = null,
+    private val onVideoPlaySession: ((
+        connectionId: String,
+        url: String,
+        start: Double,
+        seconds: Boolean,
+        requestHeaders: Map<String, String>,
+        token: SessionToken?,
+    ) -> Unit)? = null,
     /** AirPlay video transport: POST /rate (≤0 pause, >0 resume). */
     private val onVideoRate: (rate: Float) -> Unit = {},
     private val onVideoRateSession: ((rate: Float, token: SessionToken?) -> Unit)? = null,
@@ -926,6 +935,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
                     parsed.request.url,
                     parsed.request.start,
                     parsed.request.seconds,
+                    parsed.request.requestHeaders,
                     sessionToken,
                 )
             } else if (parsed.request.seconds) {
@@ -1173,7 +1183,11 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
                 protocol = request.responseProtocol()
             )
         }
-        Logger.i("GET /info — capability record sent (${displayWidth}x$displayHeight, initialVolume=$currentVolume)")
+        val dimensions = runCatching { displayResolutionProvider?.invoke() }
+            .getOrNull()
+            ?.takeIf { it.first > 0 && it.second > 0 }
+            ?: (displayWidth to displayHeight)
+        Logger.i("GET /info — capability record sent (${dimensions.first}x${dimensions.second}, initialVolume=$currentVolume)")
         trace("Discovery: answered GET /info as ${com.phairplay.airplay.AirPlayIdentity.MODEL}")
         return RtspResponse(
             statusCode = 200,
@@ -1181,8 +1195,8 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             bodyBytes = InfoResponder.build(
                 context = context,
                 displayName = displayName,
-                width = displayWidth,
-                height = displayHeight,
+                width = dimensions.first,
+                height = dimensions.second,
                 initialVolume = currentVolume.toDouble()
             ),
             contentType = "application/x-apple-binary-plist",

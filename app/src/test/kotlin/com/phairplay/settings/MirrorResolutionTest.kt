@@ -1,6 +1,7 @@
 package com.phairplay.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -123,6 +124,61 @@ class MirrorResolutionTest {
             decodeWidth = 0, decodeHeight = 0
         )
         assertEquals(MirrorResolution.DEFAULT, res)
+    }
+
+    // ─── Optional Stable FPS ─────────────────────────────────────────────────
+
+    @Test
+    fun `stable fps caps a 4K offer at 1080p without changing the stored preference`() {
+        val settings = AppSettings(forceHighResolution = true, stableFpsEnabled = true)
+        val res = settings.advertisedMirrorResolution(
+            panelWidth = 3840, panelHeight = 2160,
+            decodeWidth = 3840, decodeHeight = 2160,
+        )
+
+        assertEquals(MirrorResolution.FHD, res)
+        assertTrue(settings.forceHighResolution)
+    }
+
+    @Test
+    fun `stable fps respects a lower standard panel and decoder ceiling`() {
+        val res = MirrorResolution.pick(
+            preferHighResolution = true,
+            panelWidth = 1280, panelHeight = 720,
+            decodeWidth = 1920, decodeHeight = 1080,
+            stableFpsEnabled = true,
+        )
+        assertEquals(MirrorResolution.HD, res)
+    }
+
+    @Test
+    fun `stable fps fits a nonstandard low capability without exceeding it`() {
+        val res = MirrorResolution.pick(
+            preferHighResolution = true,
+            panelWidth = 800, panelHeight = 480,
+            decodeWidth = 800, decodeHeight = 480,
+            stableFpsEnabled = true,
+        )
+        assertTrue(res.width <= 800)
+        assertTrue(res.height <= 480)
+        assertEquals("800x450", res.label)
+    }
+
+    @Test
+    fun `stable fps applies known panel cap when decoder probe is unavailable`() {
+        val res = MirrorResolution.pick(
+            preferHighResolution = true,
+            panelWidth = 1280, panelHeight = 720,
+            decodeWidth = 0, decodeHeight = 0,
+            stableFpsEnabled = true,
+        )
+        assertEquals(MirrorResolution.HD, res)
+    }
+
+    @Test
+    fun `stable fps is off for fresh settings`() {
+        assertEquals(false, AppSettings.DEFAULT.stableFpsEnabled)
+        assertEquals(false, AppSettings().stableFpsEnabled)
     }
 
     // ─── AppSettings integration ─────────────────────────────────────────────

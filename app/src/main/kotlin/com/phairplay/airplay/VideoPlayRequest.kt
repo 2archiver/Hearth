@@ -2,6 +2,8 @@ package com.phairplay.airplay
 
 import com.phairplay.airplay.handshake.PlistCodec
 import java.net.URI
+import java.util.Locale
+import java.util.TreeMap
 
 /** Schemes that mean "the sender must fetch this; the receiver cannot". */
 internal val SENDER_MEDIATED_SCHEMES = setOf("mlhls")
@@ -16,13 +18,28 @@ internal val SENDER_MEDIATED_SCHEMES = setOf("mlhls")
  *    classified separately so the handler can decide whether a bridge is available; a sender-
  *    mediated location is never handed to the player as if it were a URL.
  */
-internal data class VideoPlayRequest(val url: String, val start: Double, val seconds: Boolean) {
+internal data class VideoPlayRequest(
+    val url: String,
+    val start: Double,
+    val seconds: Boolean,
+    /** Validated HTTP request properties; never included in trace/log output. */
+    val requestHeaders: Map<String, String> = emptyMap(),
+) {
     val scheme: String get() = runCatching { URI(url).scheme?.lowercase().orEmpty() }.getOrDefault("")
 
     companion object {
         const val MAX_BODY_BYTES = 64 * 1024
         private const val MAX_FIELD_COUNT = 128
         private const val MAX_LOCATION_CHARS = 16 * 1024
+        private const val MAX_REQUEST_HEADERS = 32
+        private const val MAX_HEADER_NAME_CHARS = 128
+        private const val MAX_HEADER_VALUE_CHARS = 4096
+        private const val MAX_REQUEST_HEADER_CHARS = 16 * 1024
+        private val HEADER_NAME_PATTERN = Regex("[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+        private val FORBIDDEN_REQUEST_HEADERS = setOf(
+            "accept-encoding", "connection", "content-length", "host", "keep-alive", "range",
+            "te", "trailer", "transfer-encoding", "upgrade", "proxy-authenticate", "proxy-authorization",
+        )
 
         fun parse(fields: Map<String, Any?>): VideoPlayRequest? = when (val result = parseDetailed(fields)) {
             is FieldParse.Success -> result.request
@@ -58,6 +75,17 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
                 return FieldParse.Invalid("direct media host is loopback and may belong to the sender, not this receiver")
             }
 
+            val rawHeaders = field("Headers") ?: field("Request-Headers") ?: field("httpHeaders")
+            val requestHeaders = if (rawHeaders == null) {
+                emptyMap()
+            } else {
+                parseRequestHeaders(rawHeaders)
+                    ?: return FieldParse.Invalid("request headers are invalid or exceed the limit")
+            }
+            if (senderMediated && requestHeaders.isNotEmpty()) {
+                return FieldParse.Invalid("sender-mediated requests do not accept receiver HTTP headers")
+            }
+
             // Explicit seconds always take precedence. The older Start-Position field is fractional.
             val secondsValue = field("Start-Position-Seconds")
             val seconds = secondsValue != null
@@ -71,7 +99,7 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
             if (!start.isFinite() || start < 0.0 || (!seconds && start > 1.0)) {
                 return FieldParse.Invalid("offset is outside the supported range")
             }
-            val request = VideoPlayRequest(rawUrl, start, seconds)
+            val request = VideoPlayRequest(rawUrl, start, seconds, requestHeaders)
             return if (senderMediated) FieldParse.SenderMediated(request, scheme) else FieldParse.Success(request)
         }
 
@@ -117,6 +145,28 @@ internal data class VideoPlayRequest(val url: String, val start: Double, val sec
                     fields.keys.map { it.take(80) },
                 )
             }
+        }
+
+        private fun parseRequestHeaders(raw: Any?): Map<String, String>? {
+            val entries = raw as? Map<*, *> ?: return null
+            if (entries.size > MAX_REQUEST_HEADERS) return null
+            val accepted = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
+            var totalChars = 0
+            for ((rawName, rawValue) in entries) {
+                val name = rawName as? String ?: return null
+                val value = rawValue as? String ?: return null
+                val lowerName = name.lowercase(Locale.ROOT)
+                if (name.length !in 1..MAX_HEADER_NAME_CHARS || !HEADER_NAME_PATTERN.matches(name) ||
+                    value.length > MAX_HEADER_VALUE_CHARS ||
+                    !value.all { it.code in 0x20..0x7E || it.code in 0x80..0xFF } ||
+                    lowerName in FORBIDDEN_REQUEST_HEADERS || lowerName.startsWith("proxy-") ||
+                    accepted.containsKey(name)
+                ) return null
+                totalChars += name.length + value.length
+                if (totalChars > MAX_REQUEST_HEADER_CHARS) return null
+                accepted[name] = value
+            }
+            return accepted.toMap()
         }
 
         private fun parseText(text: String): Map<String, Any?> {

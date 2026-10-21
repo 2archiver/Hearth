@@ -61,6 +61,21 @@ class UrlVideoPlaybackControllerTest {
     }
 
     @Test
+    fun `validated direct request headers reach the backend without mutation`() {
+        val fixture = Fixture { FakeSurface() }
+        val headers = linkedMapOf("Accept" to "application/vnd.apple.mpegurl", "X-Client" to "Hearth")
+
+        fixture.controller.play(
+            "https://media.example/signed",
+            0.0,
+            requestHeaders = headers,
+        )
+        fixture.scheduler.runCurrent()
+
+        assertEquals(headers, fixture.factory.players.single().requestHeaders)
+    }
+
+    @Test
     fun `legacy fractional offset remains a fraction of duration`() {
         val fixture = Fixture { FakeSurface() }
         fixture.controller.play("https://media.example/video.mp4", 0.25)
@@ -492,6 +507,8 @@ class UrlVideoPlaybackControllerTest {
             private set
         var dataSource: String? = null
             private set
+        var requestHeaders: Map<String, String> = emptyMap()
+            private set
         val surfaces = mutableListOf<UrlVideoSurface?>()
         val seeks = mutableListOf<Int>()
         var startCount = 0
@@ -540,6 +557,12 @@ class UrlVideoPlaybackControllerTest {
 
         override fun setDataSource(url: String) {
             dataSource = url
+            requestHeaders = emptyMap()
+        }
+
+        override fun setDataSource(url: String, requestHeaders: Map<String, String>) {
+            dataSource = url
+            this.requestHeaders = requestHeaders.toMap()
         }
 
         override fun prepareAsync() = Unit

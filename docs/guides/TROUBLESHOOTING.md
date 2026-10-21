@@ -69,18 +69,22 @@ If the name still looks wrong:
 
 Two different things get called "casting". Which you want decides the route:
 
-**Screen mirroring (always works)** — the whole phone screen, including any video:
+**Screen mirroring** — a separate AirPlay path that mirrors the whole phone screen, including any
+video. It is not the native app's video-casting path and does not prove that path works:
 
 1. On the iPhone, open **Control Centre → Screen Mirroring**.
 2. Pick the name Hearth advertises (**Apple TV** by default).
-3. Open the app and play.
+3. Open the app and play, then verify moving video and sound on the TV.
+
+**Native app AirPlay** — use the app's own in-video/picker action (for example, YouTube's AirPlay
+picker). Test Rumble separately; a result in one app does not prove the other. Record rendered video,
+sustained TV audio and controls, not just device discovery or an accepted request.
 
 **Google Cast — not Hearth.** A cast icon inside an app looks for the TV's built-in Chromecast,
 which permanently owns TCP 8008/8009 and the `_googlecast._tcp` record; Hearth does not register
 a Cast receiver and never will, so it cannot appear in that list. If an app offers only a cast button
 and no Screen Mirroring, its video reaches the TV through Google's receiver or not at all —
-[CAST.md](CAST.md) explains the boundary. Screen Mirroring is the route that always works, because
-it is AirPlay, and AirPlay is what Hearth advertises.
+[CAST.md](CAST.md) explains the boundary.
 
 **Apple Casting (screen mirroring)** — the card on Hearth's Home screen of the same name; it
 mirrors the whole screen (video and audio) from an iPhone, iPad or Mac and is what
@@ -228,14 +232,20 @@ control; do not diagnose these paths through Control Centre audio routing or scr
 - **Photos:** reproduce with the AirPlay control inside the video in native Photos. Record whether
   the clip is downloaded locally or iCloud-only, then check for both moving picture and sound,
   pause/seek, Stop and reconnect. A still photo appearing is not a video pass.
-- **YouTube:** use the YouTube iOS app's AirPlay picker and verify an actual rendered frame plus
-  continuous sound on the TV. Audio-only routing, a TV-code link and mirroring are not proof.
-- On either path, export the URL-free connection trace before retrying; record the last completed
-  stage (`/play`, reverse/PTTH, FCUP, manifest, player/audio setup, preparation, decoder or first
-  frame). Do not paste signed URLs, tokens or credentials into an issue.
-- Neither app path has a real-device pass recorded for Hearth 1.9.2 yet. See the separate run sheets
-  and pending status in [docs/CASTING-1.9.2.md](../CASTING-1.9.2.md). Do not infer codecs or support
-  from another app, mirroring, source inspection or audio playback.
+- **YouTube:** use the YouTube iOS app's AirPlay picker and verify actual moving video plus
+  continuous TV audio, then pause/resume/seek/Stop/reconnect. Audio-only routing, a TV-code link and
+  mirroring are not proof.
+- **Rumble:** test the Rumble iOS app's own AirPlay action separately. Record moving video,
+  sustained TV audio and controls independently. Do not infer Rumble success from YouTube, an HLS
+  parser test, a URL suffix, or a player-ready state.
+- On each path, export the URL-free connection trace before retrying; record the last completed
+  stage (`/play`, reverse/PTTH, FCUP, guarded HLS probe, manifest, player/audio setup, preparation,
+  decoder or first frame). Do not paste signed URLs, request-header values, tokens or credentials
+  into an issue.
+- Native Photos video, YouTube app video/audio/controls and Rumble video/audio/controls are
+  **NOT TESTED** for Hearth 2.0 until a real device run is recorded in
+  [docs/CASTING-2.0.md](../CASTING-2.0.md). Do not infer codecs or support from another app,
+  mirroring, source inspection or audio playback.
 
 ---
 

@@ -213,6 +213,7 @@ class PhairPlayService : Service() {
         }
         updateSettingsJob = serviceScope.launch {
             var previous: Triple<Boolean, Boolean, Boolean>? = null
+            var previousStableFps: Boolean? = null
             settingsRepository.settingsFlow.collect { settings ->
                 // Mirror the debug-overlay toggle into the shared stats bus as it changes.
                 //
@@ -222,6 +223,10 @@ class PhairPlayService : Service() {
                 // the overlay never appeared at all for any session. Reading the flow
                 // makes the toggle take effect the moment it is flipped, mid-session included.
                 com.phairplay.airplay.StreamStats.overlayEnabled = settings.showDebugOverlay
+                if (previousStableFps != settings.stableFpsEnabled) {
+                    previousStableFps = settings.stableFpsEnabled
+                    airPlayReceiver?.setStableFpsForNextSession(settings.stableFpsEnabled)
+                }
                 val current = Triple(
                     settings.autoCheckForUpdates,
                     settings.autoDownloadUpdates,
@@ -520,10 +525,13 @@ class PhairPlayService : Service() {
         // Advertising more than the H.264 decoder supports would produce a black screen.
         val panel = DisplayCaps.panelSize(applicationContext)
         val decode = DisplayCaps.maxH264Size()
-        val mirror = settings.advertisedMirrorResolution(
-            panelWidth = panel.first, panelHeight = panel.second,
-            decodeWidth = decode.first, decodeHeight = decode.second
-        )
+        val mirrorResolutionForSession: (Boolean) -> com.phairplay.settings.MirrorResolution = { stableEnabled ->
+            settings.copy(stableFpsEnabled = stableEnabled).advertisedMirrorResolution(
+                panelWidth = panel.first, panelHeight = panel.second,
+                decodeWidth = decode.first, decodeHeight = decode.second,
+            )
+        }
+        val mirror = mirrorResolutionForSession(settings.stableFpsEnabled)
         Logger.i("AirPlay mirror advertised at ${mirror.label} (${mirror.width}x${mirror.height}) — " +
                  "panel ${panel.first}x${panel.second}, H.264 ceiling ${decode.first}x${decode.second}")
 
@@ -534,6 +542,8 @@ class PhairPlayService : Service() {
             displayName = settings.effectiveDisplayName,
             mirrorWidth = mirror.width,
             mirrorHeight = mirror.height,
+            initialStableFpsEnabled = settings.stableFpsEnabled,
+            mirrorResolutionForSession = mirrorResolutionForSession,
             audioEnabled = settings.mirrorAudioEnabled,
             // Delegate to the current provider at call time — captures the field, not a fixed value.
             videoSurfaceProvider = { videoSurfaceProvider?.invoke() },

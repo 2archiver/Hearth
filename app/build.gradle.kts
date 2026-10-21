@@ -155,7 +155,7 @@ android {
         // back before publishing. The versionCode fallback increases with each local build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("1.9.3")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.0.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")

@@ -129,6 +129,45 @@ class VideoPlayRequestTest {
         }
     }
 
+    @Test fun `direct media request headers are preserved from a plist`() {
+        val headers = linkedMapOf(
+            "Accept" to "application/vnd.apple.mpegurl, application/x-mpegurl",
+            "Authorization" to "Bearer secret-value",
+            "X-Playback-Mode" to "airplay",
+        )
+        val body = PlistCodec.encode(mapOf("Content-Location" to url, "Headers" to headers))
+
+        val parsed = VideoPlayRequest.decodeBody(body, "application/x-apple-binary-plist")
+
+        assertTrue("expected success, got $parsed", parsed is BodyParse.Success)
+        assertEquals(headers, (parsed as BodyParse.Success).request.requestHeaders)
+    }
+
+    @Test fun `request headers reject injection hop-by-hop fields and case duplicates`() {
+        val invalidHeaders = listOf(
+            mapOf("X-Test" to "ok\r\nInjected: yes"),
+            mapOf("Host" to "attacker.example"),
+            mapOf("Accept-Encoding" to "identity"),
+            linkedMapOf("Accept" to "video/*", "accept" to "application/*"),
+        )
+        invalidHeaders.forEach { headers ->
+            val result = VideoPlayRequest.parseDetailed(
+                mapOf("Content-Location" to url, "Headers" to headers),
+            )
+            assertTrue("expected invalid headers, got $result", result is FieldParse.Invalid)
+        }
+    }
+
+    @Test fun `sender mediated playback cannot smuggle receiver request headers`() {
+        val result = VideoPlayRequest.parseDetailed(
+            mapOf(
+                "Content-Location" to "mlhls://localhost/abcd/master.m3u8",
+                "Headers" to mapOf("Authorization" to "Bearer secret-value"),
+            ),
+        )
+        assertTrue(result is FieldParse.Invalid)
+    }
+
     @Test fun `oversized and empty bodies are rejected without parsing`() {
         val oversized = VideoPlayRequest.decodeBody(ByteArray(VideoPlayRequest.MAX_BODY_BYTES + 1), null)
         assertTrue("expected invalid, got $oversized", oversized is BodyParse.Invalid)

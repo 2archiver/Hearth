@@ -65,7 +65,17 @@ object StreamStats {
     @Volatile var videoBitrateKbps = 0 // payload bytes/sec over the last window, in kbit/s
     @Volatile var videoDecoderReady = false
     @Volatile var videoFramesIn = 0
+    /** Encoded frames lost before decode (queue pressure or missing codec input buffer). */
     @Volatile var videoFramesDropped = 0
+    @Volatile var videoQueueBytes = 0L
+    @Volatile var videoQueueAgeMs = 0L
+    @Volatile var videoQueueOverflows = 0L
+    @Volatile var videoAwaitingIdr = false
+    @Volatile var mirrorStableFpsEnabled = false
+    @Volatile var mirrorTimestampSource = "unknown"
+    @Volatile var mirrorTimestampDiscontinuities = 0L
+    @Volatile var videoPresentationScheduled = 0L
+    @Volatile var videoPresentationDropped = 0L
 
     // Actual decoded video dimensions (from the SPS, so portrait phone streams are portrait here).
     // StreamingScreen reads these to aspect-fit the Surface instead of stretching to 16:9.
@@ -111,6 +121,15 @@ object StreamStats {
         videoDecoderReady = false
         videoFramesIn = 0
         videoFramesDropped = 0
+        videoQueueBytes = 0L
+        videoQueueAgeMs = 0L
+        videoQueueOverflows = 0L
+        videoAwaitingIdr = false
+        mirrorStableFpsEnabled = false
+        mirrorTimestampSource = "unknown"
+        mirrorTimestampDiscontinuities = 0L
+        videoPresentationScheduled = 0L
+        videoPresentationDropped = 0L
         videoWidth = 0
         videoHeight = 0
 
@@ -165,6 +184,40 @@ object StreamStats {
         if (total > 0) videoDropPct = (videoFramesDropped * 100 / total).coerceIn(0, 100)
     }
 
+    /** Publishes bounded mirror-queue diagnostics; byte values never include media contents. */
+    fun updateMirrorQueue(
+        frames: Int,
+        bytes: Long,
+        ageMillis: Long,
+        awaitingIdr: Boolean,
+        overflows: Long,
+    ) {
+        videoQueue = frames.coerceAtLeast(0)
+        videoQueueBytes = bytes.coerceAtLeast(0L)
+        videoQueueAgeMs = ageMillis.coerceAtLeast(0L)
+        videoAwaitingIdr = awaitingIdr
+        videoQueueOverflows = overflows.coerceAtLeast(0L)
+    }
+
+    fun noteMirrorTimestamp(source: String, discontinuity: Boolean) {
+        mirrorTimestampSource = source
+        if (discontinuity) mirrorTimestampDiscontinuities++
+    }
+
+    fun noteMirrorPresentationScheduled() {
+        videoPresentationScheduled++
+    }
+
+    /** Stale decoded presentation drops do not corrupt the encoded H.264 reference chain. */
+    fun noteMirrorPresentationDropped() {
+        videoPresentationDropped++
+    }
+
+    fun configureMirrorPacing(enabled: Boolean, width: Int, height: Int) {
+        mirrorStableFpsEnabled = enabled
+        if (width > 0 && height > 0) videoRes = "${width}x${height}"
+    }
+
     // ─── Rendering ──────────────────────────────────────────────────────────
 
     /** Human-readable multi-line HUD text. */
@@ -180,14 +233,23 @@ object StreamStats {
         text.append('\n')
 
         text.append("VIDEO  ").append(videoRes.ifEmpty { "—" })
-            .append("  ").append(videoFps).append("fps")
+            .append("  rx=").append(videoFps).append("/s")
             .append("  ").append(videoBitrateKbps).append("kbps")
-            .append("  q").append(videoQueue)
-            .append("  drop").append(videoDropPct).append("%\n")
+            .append("  q=").append(videoQueue).append('/').append(videoQueueBytes / 1024).append("KiB")
+            .append("/").append(videoQueueAgeMs).append("ms")
+            .append("  drop=").append(videoDropPct).append("%\n")
         text.append("DECODE ")
             .append(if (videoDecoderReady) "ready" else "waiting for SPS/PPS + surface")
-            .append("  in ").append(videoFramesIn)
-            .append(" drop ").append(videoFramesDropped)
+            .append("  in=").append(videoFramesIn)
+            .append(" enc-drop=").append(videoFramesDropped)
+            .append(" stale-present=").append(videoPresentationDropped)
+            .append('\n')
+        text.append("PACE   stable=").append(if (mirrorStableFpsEnabled) "on" else "off")
+            .append("  pts=").append(mirrorTimestampSource)
+            .append("  scheduled=").append(videoPresentationScheduled)
+            .append("  queue-overflow=").append(videoQueueOverflows)
+            .append("  idr=").append(if (videoAwaitingIdr) "wait" else "ready")
+            .append("  timestamp-resets=").append(mirrorTimestampDiscontinuities)
             .append('\n')
         text.append("AUDIO  ")
             .append(
