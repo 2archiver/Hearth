@@ -340,7 +340,7 @@ internal object MirrorPresentationPolicy {
  * A small jitter buffer on the decoded side. Anchor AFTER the first decode: anchoring to packet
  * arrival makes every output late by the decode cost and reduces pacing to immediate rendering.
  * Preserve sender cadence through packet bursts; rebuffer only after a stall/clock discontinuity.
- * No sleeps, frame duplication, encoded-frame loss or unbounded latency.
+ * The decoder waits before releasing outputs with excessive lead; a burst is not a clock reset.
  */
 internal class MirrorPlayoutClock {
     private var anchorPtsUs: Long? = null
@@ -355,7 +355,7 @@ internal class MirrorPlayoutClock {
             null
         }
         if (target == null || ptsUs < lastPtsUs ||
-            target - nowNanos > MAX_LEAD_NANOS || nowNanos - target > REBUFFER_LATENESS_NANOS) {
+            target - nowNanos > DISCONTINUITY_LEAD_NANOS || nowNanos - target > REBUFFER_LATENESS_NANOS) {
             anchorPtsUs = ptsUs
             anchorNanos = nowNanos + BUFFER_NANOS
             lastPtsUs = ptsUs
@@ -368,6 +368,7 @@ internal class MirrorPlayoutClock {
     companion object {
         const val BUFFER_NANOS = 60_000_000L
         const val MAX_LEAD_NANOS = 120_000_000L
+        private const val DISCONTINUITY_LEAD_NANOS = 1_000_000_000L
         const val REBUFFER_LATENESS_NANOS = 250_000_000L
     }
 }
