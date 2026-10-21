@@ -335,3 +335,39 @@ internal object MirrorPresentationPolicy {
         }
     }
 }
+
+/**
+ * A small jitter buffer on the decoded side. Anchor AFTER the first decode: anchoring to packet
+ * arrival makes every output late by the decode cost and reduces pacing to immediate rendering.
+ * Preserve sender cadence through packet bursts; rebuffer only after a stall/clock discontinuity.
+ * No sleeps, frame duplication, encoded-frame loss or unbounded latency.
+ */
+internal class MirrorPlayoutClock {
+    private var anchorPtsUs: Long? = null
+    private var anchorNanos = 0L
+    private var lastPtsUs = 0L
+
+    fun targetTimeNanos(ptsUs: Long, nowNanos: Long): Long {
+        val anchor = anchorPtsUs
+        val target = if (anchor == null) null else try {
+            Math.addExact(anchorNanos, Math.multiplyExact(Math.subtractExact(ptsUs, anchor), 1_000L))
+        } catch (_: ArithmeticException) {
+            null
+        }
+        if (target == null || ptsUs < lastPtsUs ||
+            target - nowNanos > MAX_LEAD_NANOS || nowNanos - target > REBUFFER_LATENESS_NANOS) {
+            anchorPtsUs = ptsUs
+            anchorNanos = nowNanos + BUFFER_NANOS
+            lastPtsUs = ptsUs
+            return anchorNanos
+        }
+        lastPtsUs = ptsUs
+        return target
+    }
+
+    companion object {
+        const val BUFFER_NANOS = 60_000_000L
+        const val MAX_LEAD_NANOS = 120_000_000L
+        const val REBUFFER_LATENESS_NANOS = 250_000_000L
+    }
+}
