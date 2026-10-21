@@ -134,9 +134,16 @@ class SettingsFragment : Fragment() {
         )
     }
 
+    /**
+     * Labels a Settings row. Toggle rows and action rows use different child ids, so both are
+     * probed: a wrong lookup would silently render an empty row instead of failing loudly.
+     */
     private fun configureToggleRow(row: View, labelRes: Int, subtitleRes: Int) {
-        row.findViewById<TextView>(R.id.text_setting_label)?.setText(labelRes)
+        val label = row.findViewById<TextView>(R.id.text_setting_label)
+            ?: row.findViewById(R.id.text_action_row_label)
+        label?.setText(labelRes)
         val subtitle = row.findViewById<TextView>(R.id.text_setting_subtitle)
+            ?: row.findViewById(R.id.text_action_row_subtitle)
         if (subtitleRes != 0) {
             subtitle?.setText(subtitleRes)
             subtitle?.visibility = View.VISIBLE

@@ -264,8 +264,9 @@
     <string name="activity_log_filter_all">All</string>
     <string name="activity_log_filter_warning">Warnings and up</string>
     <string name="activity_log_filter_error">Errors and up</string>
-    <!-- %1$d = entries currently shown, %2$d = ring-buffer capacity -->
-    <string name="activity_log_summary">%1$d of %2$d entries retained · oldest first</string>
+    <!-- %1$d = entries currently shown, %2$d = ring-buffer capacity. Phrased without a
+         count immediately followed by a noun so lint does not require a plural resource. -->
+    <string name="activity_log_summary">Showing %1$d · capacity %2$d · oldest first</string>
     <string name="activity_log_empty">No activity recorded yet. Start the receiver or connect a sender.</string>
     <string name="activity_log_copy">Copy diagnostics</string>
     <string name="activity_log_clear">Clear</string>

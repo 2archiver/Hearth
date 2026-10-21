@@ -145,8 +145,8 @@ class HearthUiTest {
         // The activity-log row opens a dialog rather than toggling a value: it must still expose a
         // single D-pad target and must not be mistaken for a switch row.
         val activityRow = root.findViewById<View>(R.id.row_activity_log)
-        activityRow.label(R.id.text_setting_label, "Activity log")
-        activityRow.findViewById<TextView>(R.id.text_setting_subtitle).text =
+        activityRow.label(R.id.text_action_row_label, "Activity log")
+        activityRow.findViewById<TextView>(R.id.text_action_row_subtitle).text =
             "Chronological receiver, casting and decoder events with severity."
         val activityFocusables = ArrayList<View>()
         activityRow.addFocusables(activityFocusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)

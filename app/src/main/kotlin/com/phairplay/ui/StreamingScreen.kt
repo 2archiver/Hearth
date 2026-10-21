@@ -13,6 +13,7 @@ import android.view.SurfaceView
 import android.view.Surface
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
 import com.phairplay.R
 import com.phairplay.airplay.StreamStats
 import com.phairplay.util.Logger
@@ -63,7 +64,7 @@ class StreamingScreen @JvmOverloads constructor(
     // Optional debug HUD (Settings → "Debug overlay"), drawn on top of the video.
     private val debugView = TextView(context).apply {
         setTextColor(Color.parseColor("#FFD9F5E2"))
-        background = context.getDrawable(R.drawable.debug_overlay_background)
+        background = AppCompatResources.getDrawable(context, R.drawable.debug_overlay_background)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
         typeface = Typeface.MONOSPACE
         setPadding(dp(16), dp(12), dp(16), dp(12))
