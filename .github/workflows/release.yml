@@ -266,6 +266,22 @@ jobs:
             exit 1
           fi
 
+          # Both supported ARM ABIs must be inside the published APK. A build that quietly lost
+          # armeabi-v7a (for example after an NDK or abiFilters change) would still install on
+          # 64-bit TVs, so nothing else in the pipeline would notice — older 32-bit Google TV
+          # devices would simply stop receiving updates.
+          apk_abis=$(unzip -Z1 "$src" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u | tr '\n' ' ')
+          missing_abis=""
+          for abi in armeabi-v7a arm64-v8a; do
+            if ! printf '%s\n' "$apk_abis" | tr ' ' '\n' | grep -qx "$abi"; then
+              missing_abis="${missing_abis} ${abi}"
+            fi
+          done
+          if [[ -n "$missing_abis" ]]; then
+            echo "::error::The release APK is missing supported ABI(s):${missing_abis}. Found: ${apk_abis:-none}."
+            exit 1
+          fi
+
           # One immutable release, one asset: the ONLY thing published is the version-named APK.
           # Its SHA-256 and versionCode are written into the release body below, which is where
           # a person reads them and where update/ReleaseParser scrapes them.
@@ -296,6 +312,7 @@ jobs:
             echo
             echo "- Single release asset: \`$apk_name\`"
             echo "- Version from the APK: \`$apk_version\`"
+            echo "- Native ABIs in the APK: \`$apk_abis\`"
             echo "- Download size: ${size_mb} MB"
             echo "- SHA-256: \`$apk_sha256\`"
           } >> "$GITHUB_STEP_SUMMARY"

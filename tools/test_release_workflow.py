@@ -269,6 +269,22 @@ class StableMilestoneTest(unittest.TestCase):
         self.assertLess(verify_signature, tag)
         self.assertLess(tag, publish)
 
+    def test_both_supported_abis_are_verified_inside_the_published_apk(self):
+        # A build that silently loses armeabi-v7a still installs on 64-bit TVs, so only an
+        # explicit gate catches it. Both ABIs must be asserted, and the failure must be fatal.
+        self.assertIn("unzip -Z1", self.text)
+        self.assertIn("for abi in armeabi-v7a arm64-v8a; do", self.text)
+        self.assertIn("The release APK is missing supported ABI(s)", self.text)
+        gate = self.text.index("The release APK is missing supported ABI(s)")
+        tag = self.text.index("Create the immutable version tag")
+        self.assertLess(gate, tag)
+
+    def test_version_code_must_exceed_the_currently_published_release(self):
+        # The updater only installs a newer versionCode, so publishing a lower one would look
+        # like a successful release that no 2.0 install can ever take.
+        self.assertIn("code <= previous_code", self.text)
+        self.assertIn("code=$((previous_code + 1))", self.text)
+
     def test_the_milestone_path_adds_no_destructive_commands(self):
         code = "\n".join(
             line for line in self.text.splitlines()
