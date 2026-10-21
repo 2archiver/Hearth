@@ -158,6 +158,16 @@ jobs:
             echo "Signing: **community key** — later builds from this repository update in place." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Validate release automation, protocol logic and TV interface
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/test_extract_release_notes.py
+          python3 tools/test_release_workflow.py
+          python3 tools/check-workflows.py .github/workflows/*.yml
+          ./gradlew :test-runner:test :app:lintGoogletvDebug --stacktrace 2>&1 | tee build.log
+          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --stacktrace 2>&1 | tee -a build.log
+
       - name: Build release APK
         env:
           BUILD_VERSION: ${{ steps.meta.outputs.version }}
@@ -168,7 +178,7 @@ jobs:
           ./gradlew :app:assembleGoogletvRelease --stacktrace \
             -Pphairplay.versionName="$BUILD_VERSION" \
             -Pphairplay.versionCode="$BUILD_CODE" \
-            -Pphairplay.updateRepo=2archiver/Hearth 2>&1 | tee build.log
+            -Pphairplay.updateRepo=2archiver/Hearth 2>&1 | tee -a build.log
 
       - name: Verify generated updater repository
         shell: bash

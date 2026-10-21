@@ -46,6 +46,21 @@ class UpdateSchedulePolicyTest {
     }
 
     @Test
+    fun `explicit retry deadline wins over fallback but still respects a later rate limit`() {
+        val failed = UpdateScheduleStatus(
+            lastAttemptMillis = 100_000L,
+            lastFailureMillis = 120_000L,
+            lastSuccessMillis = 1L,
+            retryAfterMillis = 200_000L,
+            rateLimitUntilMillis = 150_000L,
+        )
+        assertFalse(UpdateSchedulePolicy.isAutomaticCheckDue(failed, 199_999L))
+        assertTrue(UpdateSchedulePolicy.isAutomaticCheckDue(failed, 200_000L))
+        assertFalse(UpdateSchedulePolicy.isAutomaticCheckDue(failed.copy(rateLimitUntilMillis = 250_000L), 249_999L))
+        assertTrue(UpdateSchedulePolicy.isAutomaticCheckDue(failed.copy(rateLimitUntilMillis = 250_000L), 250_000L))
+    }
+
+    @Test
     fun `legacy last-check timestamps remain hourly throttled without fabricating a success`() {
         val legacy = UpdateScheduleStatus(
             lastCheckMillis = 500_000L,

@@ -114,7 +114,7 @@ class StreamStatsTest {
         assertTrue(text.contains(StreamStats.SOURCE_AIRPLAY))
         assertTrue(text.contains("1:30"))         // uptime
         assertTrue(text.contains("1920x1080"))
-        assertTrue(text.contains("60fps"))
+        assertTrue(text.contains("rx=60/s"))
         assertTrue(text.contains("8000kbps"))
         assertTrue(text.contains("ready"))
         assertTrue(text.contains("AAC-ELD"))
