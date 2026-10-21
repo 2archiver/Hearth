@@ -23,6 +23,7 @@ internal class HearthUrlVideoDataSource(
     private val sessionSource: UrlVideoSessionSource?,
     private val traceContext: () -> UrlVideoTraceContext?,
     private val requestSequence: AtomicLong,
+    private val requestHeaders: (Uri) -> Map<String, String> = { emptyMap() },
 ) : DataSource {
 
     private val delegate = HearthRedirectGuardedHttpDataSource()
@@ -105,7 +106,7 @@ internal class HearthUrlVideoDataSource(
         }
 
         return try {
-            val length = delegate.open(dataSpec)
+            val length = delegate.open(dataSpec, requestHeaders(dataSpec.uri))
             activeResponseCode = delegate.getResponseCode()
             activeContentType = contentType(delegate.getResponseHeaders())
             trace(
@@ -149,7 +150,12 @@ internal class HearthUrlVideoDataSource(
         return result
     }
 
-    override fun getUri(): Uri? = uri
+    override fun getUri(): Uri? {
+        val requestedUri = uri ?: return null
+        // ExoPlayer resolves relative HLS segments against the final redirected playlist URI.
+        // Sender-mediated bridge URIs are virtual and must remain rooted at their original URI.
+        return if (isBridgeUri(requestedUri)) requestedUri else delegate.getUri() ?: requestedUri
+    }
 
     override fun close() {
         val requestId = activeRequestId
@@ -212,7 +218,8 @@ internal class HearthUrlVideoDataSourceFactory(
     private val sessionSource: UrlVideoSessionSource?,
     private val traceContext: () -> UrlVideoTraceContext?,
     private val requestSequence: AtomicLong,
+    private val requestHeaders: (Uri) -> Map<String, String> = { emptyMap() },
 ) : DataSource.Factory {
     override fun createDataSource(): DataSource =
-        HearthUrlVideoDataSource(sessionSource, traceContext, requestSequence)
+        HearthUrlVideoDataSource(sessionSource, traceContext, requestSequence, requestHeaders)
 }

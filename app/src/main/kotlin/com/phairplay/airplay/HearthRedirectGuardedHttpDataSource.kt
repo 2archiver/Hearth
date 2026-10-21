@@ -44,7 +44,9 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
 
     override fun getResponseHeaders(): Map<String, List<String>> = responseHeaders
 
-    override fun open(dataSpec: DataSpec): Long {
+    override fun open(dataSpec: DataSpec): Long = open(dataSpec, emptyMap())
+
+    fun open(dataSpec: DataSpec, additionalHeaders: Map<String, String>): Long {
         close()
         responseCode = -1
         responseHeaders = emptyMap()
@@ -73,7 +75,11 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
         } catch (_: Exception) {
             throw IOException("direct media URL is invalid")
         }
-        var requestHeaders = dataSpec.httpRequestHeaders.toMutableMap().apply {
+        val mergedHeaders = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER).apply {
+            putAll(dataSpec.httpRequestHeaders)
+            additionalHeaders.forEach { (name, value) -> put(name, value) }
+        }
+        var requestHeaders = mergedHeaders.toMutableMap().apply {
             keys.removeAll { it.equals("Range", ignoreCase = true) }
             keys.removeAll { it.equals("Accept-Encoding", ignoreCase = true) }
         }

@@ -9,6 +9,7 @@ import com.phairplay.airplay.handshake.AudioStreamServer
 import com.phairplay.airplay.handshake.BufferedAudioServer
 import com.phairplay.airplay.handshake.MirrorStreamServer
 import com.phairplay.service.ProtocolState
+import com.phairplay.settings.MirrorResolution
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
 import com.phairplay.util.NetworkUtils
@@ -62,9 +63,22 @@ internal class AirPlayReceiver(
      * the Android device name, so the name is always under the user's control.
      */
     private val displayName: String = MdnsNames.DEFAULT_DISPLAY_NAME,
-    /** Advertised mirroring resolution (from the "high resolution" setting). */
+    /** Startup mirroring resolution, retained as a safe fallback for handlers without a provider. */
     private val mirrorWidth: Int = 1920,
     private val mirrorHeight: Int = 1080,
+    /** Stable FPS is latched when a new mirroring stream starts; live toggles do not mutate it. */
+    initialStableFpsEnabled: Boolean = false,
+    /** Re-evaluates the persisted Higher resolution preference plus next-session Stable FPS. */
+    private val mirrorResolutionForSession: (Boolean) -> MirrorResolution = { stable ->
+        MirrorResolution.pick(
+            preferHighResolution = mirrorWidth > MirrorResolution.FHD.width,
+            panelWidth = mirrorWidth,
+            panelHeight = mirrorHeight,
+            decodeWidth = mirrorWidth,
+            decodeHeight = mirrorHeight,
+            stableFpsEnabled = stable,
+        )
+    },
     /** Whether to accept the mirroring audio stream (experimental — see AppSettings.mirrorAudioEnabled). */
     private val audioEnabled: Boolean = false,
     /** Lazy Surface provider — called only for video streams when RECORD arrives. */
@@ -155,6 +169,18 @@ internal class AirPlayReceiver(
     @Volatile private var photoStateActive = false
     /** Invalidates completion/error callbacks from a URL player replaced by a newer /play. */
     private var urlVideoGeneration = 0L
+
+    /** Updated live from DataStore, but read only when advertising/starting a new mirror session. */
+    @Volatile private var stableFpsEnabledForNextSession = initialStableFpsEnabled
+
+    private data class MirrorSessionPolicySnapshot(
+        val token: SessionToken,
+        val resolution: MirrorResolution,
+        val stableFpsEnabled: Boolean,
+    )
+
+    /** Dimensions and pacing are latched for a session and survive stream-level video restarts. */
+    @Volatile private var mirrorSessionPolicy: MirrorSessionPolicySnapshot? = null
 
     /** Audio-ownership policy: who is allowed to own the soundtrack, per video generation. */
     private val videoAudioHandover = VideoAudioHandover()
@@ -404,6 +430,15 @@ internal class AirPlayReceiver(
     }
 
     /**
+     * Updates the persisted Stable FPS preference for the next mirroring session only. The active
+     * mirror server snapshots both this flag and its effective dimensions at SETUP time.
+     */
+    fun setStableFpsForNextSession(enabled: Boolean) {
+        stableFpsEnabledForNextSession = enabled
+        Logger.i("Stable FPS preference updated; it will apply to the next mirroring session")
+    }
+
+    /**
      * Sends a DACP transport command (see [DacpClient] constants) from the TV remote back to the
      * AirPlay sender — e.g. play/pause or skip what the Mac/iPhone is streaming. No-op if no sender
      * has advertised a DACP identity yet.
@@ -420,6 +455,27 @@ internal class AirPlayReceiver(
         if (stopped) return
         timingHandler = TimingHandler().also { it.start(scope) }
         Logger.d("Timing handler started on UDP port ${TimingHandler.TIMING_PORT}")
+    }
+
+    private fun effectiveMirrorResolution(): MirrorResolution =
+        mirrorResolutionForSession(stableFpsEnabledForNextSession)
+
+    /** Latch mirror capabilities once the protocol session is actually in mirroring mode. */
+    private fun advertisedMirrorResolution(): MirrorResolution {
+        val session = sessionOwnership.snapshot()
+            ?.takeIf { it.mode == com.phairplay.airplay.AirPlaySessionMode.MIRRORING }
+            ?: return effectiveMirrorResolution()
+        val activePolicy = mirrorSessionPolicy?.takeIf { it.token == session.token }
+        if (activePolicy != null) return activePolicy.resolution
+
+        // Some senders re-query /info after claiming the mirror session but before stream SETUP.
+        // Latching here keeps that advertised size and the later decoder/server size identical.
+        val stable = stableFpsEnabledForNextSession
+        return MirrorSessionPolicySnapshot(
+            token = session.token,
+            resolution = mirrorResolutionForSession(stable),
+            stableFpsEnabled = stable,
+        ).also { mirrorSessionPolicy = it }.resolution
     }
 
     /**
@@ -445,6 +501,9 @@ internal class AirPlayReceiver(
                 displayName = advertisedName,
                 displayWidth = mirrorWidth,
                 displayHeight = mirrorHeight,
+                displayResolutionProvider = {
+                    advertisedMirrorResolution().let { it.width to it.height }
+                },
                 audioEnabled = audioEnabled,
                 videoSurfaceProvider = videoSurfaceProvider,
                 onStreamingStarted = {},
@@ -477,8 +536,8 @@ internal class AirPlayReceiver(
                     npArtwork = bytes.takeIf { it.isNotEmpty() }
                     emitNowPlaying()
                 },
-                onVideoPlaySession = { owner, url, start, seconds, token ->
-                    startUrlVideo(owner, url, start, seconds, token)
+                onVideoPlaySession = { owner, url, start, seconds, requestHeaders, token ->
+                    startUrlVideo(owner, url, start, seconds, requestHeaders, token)
                 },
                 onVideoRateSession = { rate, token ->
                     if (sessionOwnership.isCurrent(token)) urlVideoPlayer?.setRate(rate)
@@ -855,6 +914,7 @@ internal class AirPlayReceiver(
 
     private fun finishSessionResources(token: SessionToken?, reason: String) {
         if (token != null) photoAssetCache.clearSession(photoCacheSessionKey(token, "", null))
+        if (token == null || mirrorSessionPolicy?.token == token) mirrorSessionPolicy = null
         AirPlayTrace.record(
             "Session stopped: $reason",
             sessionId = token?.sessionId,
@@ -1103,8 +1163,24 @@ internal class AirPlayReceiver(
         // deriving keys from the same streamConnectionID would both try to accept the socket.
         mirrorServer?.stop()
         mirrorServer = null
-        return MirrorStreamServer(aesKey, ecdhSecret, streamConnectionId, videoSurfaceProvider, mirrorWidth, mirrorHeight)
-            .also { mirrorServer = it; it.start(scope); videoPlaying = true; emitNowPlaying() }
+        val policy = mirrorSessionPolicy?.takeIf { it.token == token } ?: run {
+            val stable = stableFpsEnabledForNextSession
+            MirrorSessionPolicySnapshot(
+                token = token!!,
+                resolution = mirrorResolutionForSession(stable),
+                stableFpsEnabled = stable,
+            ).also { mirrorSessionPolicy = it }
+        }
+        val mirrorResolution = policy.resolution
+        return MirrorStreamServer(
+            aesKey = aesKey,
+            ecdhSecret = ecdhSecret,
+            streamConnectionId = streamConnectionId,
+            surfaceProvider = videoSurfaceProvider,
+            width = mirrorResolution.width,
+            height = mirrorResolution.height,
+            stableFpsEnabled = policy.stableFpsEnabled,
+        ).also { mirrorServer = it; it.start(scope); videoPlaying = true; emitNowPlaying() }
             .dataPort
             .also { port ->
                 Logger.i("Mirror data server started on port $port")
@@ -1177,6 +1253,7 @@ internal class AirPlayReceiver(
         url: String,
         startPosition: Double,
         seconds: Boolean,
+        requestHeaders: Map<String, String> = emptyMap(),
         token: SessionToken?,
         mode: AirPlaySessionMode = AirPlaySessionMode.URL_VIDEO,
         sessionSource: UrlVideoSessionSource? = null,
@@ -1243,7 +1320,7 @@ internal class AirPlayReceiver(
             role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
             kind = AirPlayTrace.Kind.LIFECYCLE,
         )
-        player.play(url, startPosition, seconds)
+        player.play(url, startPosition, seconds, requestHeaders)
     }
 
     /**

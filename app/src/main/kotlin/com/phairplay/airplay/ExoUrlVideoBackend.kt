@@ -2,6 +2,8 @@ package com.phairplay.airplay
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -10,12 +12,14 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.phairplay.util.Logger
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -53,11 +57,22 @@ internal class ExoUrlVideoBackend(
 ) : UrlVideoBackend {
 
     @Volatile private var traceContext: UrlVideoTraceContext? = null
+    @Volatile private var activeRequestUri: Uri? = null
+    @Volatile private var activeRequestHeaders: Map<String, String> = emptyMap()
+    @Volatile private var requestGeneration = 0L
+    @Volatile private var released = false
+    private var pendingUri: Uri? = null
+    private var pendingMediaItem: MediaItem? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val prepareExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "Hearth-media-probe").apply { isDaemon = true }
+    }
     private val requestSequence = AtomicLong(0L)
     private val dataSourceFactory = HearthUrlVideoDataSourceFactory(
         sessionSource = sessionSource,
         traceContext = { traceContext },
         requestSequence = requestSequence,
+        requestHeaders = { uri -> requestHeadersFor(uri) },
     )
 
     private val hlsFactory = HlsMediaSource.Factory(dataSourceFactory)
@@ -246,22 +261,138 @@ internal class ExoUrlVideoBackend(
         firstFrameListener = listener
     }
 
-    override fun setDataSource(url: String) {
+    override fun setDataSource(url: String) = setDataSource(url, emptyMap())
+
+    override fun setDataSource(url: String, requestHeaders: Map<String, String>) {
         prepareReported = false
         videoTrackPresent = true
         audioTrackPresent = null
         unknownTracksLogged = false
         val uri = Uri.parse(url)
-        val hls = isHls(uri)
+        requestGeneration++
+        released = false
+        activeRequestUri = uri
+        activeRequestHeaders = requestHeaders.toMap()
+        pendingUri = uri
+        pendingMediaItem = MediaItem.fromUri(uri)
+    }
+
+    override fun prepareAsync() {
+        val uri = pendingUri ?: return
+        val mediaItem = pendingMediaItem ?: return
+        val generation = requestGeneration
+        if (isBridgeUri(uri) || isHls(uri)) {
+            preparePlayer(uri, mediaItem, hls = true, generation = generation, evidence = "URL path")
+            return
+        }
+        if (hasKnownProgressiveExtension(uri)) {
+            preparePlayer(uri, mediaItem, hls = false, generation = generation, evidence = "URL path")
+            return
+        }
+
+        // Source type cannot be selected from a signed/extensionless URL. Probe one bounded byte
+        // range off the UI thread through the same redirect/TLS guard used for playback. MIME type
+        // is authoritative when available; a small body prefix handles generic/octet-stream hosts.
+        prepareExecutor.execute {
+            val result = probeHls(uri, requestHeadersFor(uri))
+            mainHandler.post {
+                if (released || requestGeneration != generation) return@post
+                preparePlayer(
+                    uri,
+                    mediaItem,
+                    hls = result.isHls,
+                    generation = generation,
+                    evidence = result.evidence,
+                )
+            }
+        }
+    }
+
+    private data class HlsProbeResult(val isHls: Boolean, val evidence: String)
+
+    private fun preparePlayer(
+        uri: Uri,
+        mediaItem: MediaItem,
+        hls: Boolean,
+        generation: Long,
+        evidence: String,
+    ) {
+        if (released || requestGeneration != generation) return
         trace(
-            "Media source selected: ${if (hls) "HLS" else "progressive"}; route=" +
+            "Media source selected: ${if (hls) "HLS" else "progressive"} " +
+                "(evidence=$evidence); route=" +
                 if (isBridgeUri(uri)) "sender reverse channel" else "receiver HTTP(S)",
             AirPlayTrace.Kind.LIFECYCLE,
         )
-        player.setMediaSource(mediaSourceFor(uri, MediaItem.fromUri(uri)))
+        try {
+            player.setMediaSource(mediaSourceFor(mediaItem, hls))
+            player.prepare()
+        } catch (error: Exception) {
+            Logger.e("URL video: media source setup failed (${error.javaClass.simpleName})")
+            errorListener?.invoke(
+                UrlVideoBackendFailure(
+                    AirPlayPlaybackFailureStage.PLAYER_SETUP,
+                    "media source could not be prepared",
+                ),
+            )
+        }
     }
 
-    override fun prepareAsync() = player.prepare()
+    private fun probeHls(uri: Uri, headers: Map<String, String>): HlsProbeResult {
+        val source = HearthRedirectGuardedHttpDataSource()
+        return try {
+            val spec = DataSpec.Builder()
+                .setUri(uri)
+                .setHttpMethod(DataSpec.HTTP_METHOD_GET)
+                .setPosition(0L)
+                .setLength(HLS_PROBE_BYTES.toLong())
+                .setHttpRequestHeaders(headers)
+                .build()
+            source.open(spec, headers)
+            val mimeType = responseContentType(source.getResponseHeaders())
+            val mimeResult = UrlVideoSourceClassifier.classify(mimeType)
+            if (mimeResult.isHls) {
+                HlsProbeResult(true, mimeResult.evidence)
+            } else {
+                val prefix = ByteArray(HLS_PROBE_BYTES)
+                var read = 0
+                while (read < prefix.size) {
+                    val count = source.read(prefix, read, prefix.size - read)
+                    if (count <= 0) break
+                    read += count
+                }
+                val result = UrlVideoSourceClassifier.classify(mimeType, prefix.copyOf(read))
+                HlsProbeResult(result.isHls, result.evidence)
+            }
+        } catch (error: Exception) {
+            Logger.d("URL video: guarded HLS probe could not classify response (${error.javaClass.simpleName})")
+            HlsProbeResult(false, "probe fallback")
+        } finally {
+            runCatching { source.close() }
+        }
+    }
+
+    private fun responseContentType(headers: Map<String, List<String>>): String =
+        headers.entries.firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+            ?.value?.firstOrNull()?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
+
+    private fun requestHeadersFor(uri: Uri): Map<String, String> {
+        val root = activeRequestUri ?: return emptyMap()
+        val headers = activeRequestHeaders
+        return if (sameOrigin(root, uri)) headers else {
+            headers.filterKeys { it.lowercase(Locale.ROOT) !in SENSITIVE_REQUEST_HEADERS }
+        }
+    }
+
+    private fun sameOrigin(first: Uri, second: Uri): Boolean =
+        first.scheme.equals(second.scheme, ignoreCase = true) &&
+            first.host.equals(second.host, ignoreCase = true) && effectivePort(first) == effectivePort(second)
+
+    private fun effectivePort(uri: Uri): Int = when {
+        uri.port >= 0 -> uri.port
+        uri.scheme.equals("https", ignoreCase = true) -> 443
+        else -> 80
+    }
 
     override fun setSurface(surface: UrlVideoSurface?) {
         val platform = surface?.platformSurface
@@ -299,6 +430,14 @@ internal class ExoUrlVideoBackend(
     }
 
     override fun release() {
+        released = true
+        requestGeneration++
+        activeRequestHeaders = emptyMap()
+        activeRequestUri = null
+        pendingUri = null
+        pendingMediaItem = null
+        mainHandler.removeCallbacksAndMessages(null)
+        prepareExecutor.shutdownNow()
         runCatching { player.removeListener(listener) }
         runCatching { player.stop() }
         runCatching { player.release() }
@@ -312,13 +451,18 @@ internal class ExoUrlVideoBackend(
         }
     }
 
-    /** Explicit source choice: `.m3u8` is HLS, everything else is progressive. No content sniffing. */
-    private fun mediaSourceFor(uri: Uri, mediaItem: MediaItem): MediaSource =
-        if (isHls(uri)) hlsFactory.createMediaSource(mediaItem)
+    /** Explicit source choice after URL-path classification or the guarded response probe. */
+    private fun mediaSourceFor(mediaItem: MediaItem, hls: Boolean): MediaSource =
+        if (hls) hlsFactory.createMediaSource(mediaItem)
         else progressiveFactory.createMediaSource(mediaItem)
 
     private fun isHls(uri: Uri): Boolean =
         uri.lastPathSegment?.lowercase(Locale.ROOT)?.endsWith(".m3u8") == true
+
+    private fun hasKnownProgressiveExtension(uri: Uri): Boolean {
+        val path = uri.lastPathSegment?.lowercase(Locale.ROOT).orEmpty()
+        return KNOWN_PROGRESSIVE_EXTENSIONS.any(path::endsWith)
+    }
 
     private fun isBridgeUri(uri: Uri): Boolean =
         uri.scheme?.equals(SenderMediatedHlsBridge.SCHEME, ignoreCase = true) == true
@@ -340,6 +484,20 @@ internal class ExoUrlVideoBackend(
     }
 
     private companion object {
+        const val HLS_PROBE_BYTES = 1024
         val MIME_TYPE_PATTERN = Regex("[a-z0-9.+_-]+/[a-z0-9.+_-]+")
+        val KNOWN_PROGRESSIVE_EXTENSIONS = setOf(
+            ".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpg", ".mpeg", ".ts",
+            ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg",
+        )
+        val SENSITIVE_REQUEST_HEADERS = setOf(
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+            "cookie2",
+            "x-api-key",
+            "x-auth-token",
+            "x-access-token",
+        )
     }
 }

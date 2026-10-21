@@ -45,6 +45,8 @@ internal interface UrlVideoBackend {
     fun setOnCompletionListener(listener: (() -> Unit)?)
     fun setOnErrorListener(listener: ((failure: UrlVideoBackendFailure) -> Boolean)?)
     fun setDataSource(url: String)
+    /** Direct-media request properties; legacy/test backends may safely ignore them. */
+    fun setDataSource(url: String, requestHeaders: Map<String, String>) = setDataSource(url)
     fun prepareAsync()
     fun setSurface(surface: UrlVideoSurface?)
     fun seekTo(positionMs: Int)
@@ -213,7 +215,12 @@ internal class UrlVideoPlaybackController(
         }
     }
 
-    fun play(url: String, position: Double, seconds: Boolean = false) = onMain {
+    fun play(
+        url: String,
+        position: Double,
+        seconds: Boolean = false,
+        requestHeaders: Map<String, String> = emptyMap(),
+    ) = onMain {
         releaseMain()
         startPosition = when {
             !position.isFinite() || position < 0.0 -> 0.0
@@ -270,7 +277,7 @@ internal class UrlVideoPlaybackController(
                     }
                 }
             }
-            player.setDataSource(url)
+            player.setDataSource(url, requestHeaders.toMap())
             player.prepareAsync()
             scheduler.postDelayed(tick, 0)
         } catch (error: Throwable) {

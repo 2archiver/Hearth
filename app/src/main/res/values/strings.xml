@@ -126,6 +126,8 @@
     <string name="setting_debug_overlay_subtitle">Show live FPS, queue and drop stats while streaming</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
     <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
+    <string name="setting_stable_fps">Stable FPS</string>
+    <string name="setting_stable_fps_subtitle">Next mirroring session only: cap at 1080p or lower for this panel/decoder and smooth with sender timing. No fixed 60 fps; does not change photos or AirPlay video.</string>
     <string name="setting_version">Version</string>
     <!-- Shown next to the version: a rename must never look like a different app. -->
     <string name="setting_renamed_note">Hearth is the new name for PhairPlay — same app, same settings, same signing key.</string>

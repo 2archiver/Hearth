@@ -51,8 +51,12 @@ class AirPlayVideoPlayer(
         traceContext = UrlVideoTraceContext(traceSessionId, traceConnectionId, traceRole),
     )
 
-    fun play(url: String, startPosition: Double, seconds: Boolean = false) =
-        controller.play(url, startPosition, seconds)
+    fun play(
+        url: String,
+        startPosition: Double,
+        seconds: Boolean = false,
+        requestHeaders: Map<String, String> = emptyMap(),
+    ) = controller.play(url, startPosition, seconds, requestHeaders)
 
     /** rate ≤ 0 pauses; any positive rate resumes (variable-speed playback is not supported). */
     fun setRate(rate: Float) = controller.setRate(rate)
