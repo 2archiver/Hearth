@@ -24,6 +24,15 @@ class MirrorPlayoutClockTest {
         assertEquals(33_333_000L, third - second)
     }
 
+    @Test fun `a larger valid burst never resets presentation backwards`() {
+        val clock = MirrorPlayoutClock()
+        val first = clock.targetTimeNanos(0L, start)
+        for (i in 1..12) {
+            assertEquals(first + i * 33_333_000L,
+                clock.targetTimeNanos(i * 33_333L, start + i * 2_000_000L))
+        }
+    }
+
     @Test fun `jitter within the buffer keeps sixty fps sender cadence`() {
         val clock = MirrorPlayoutClock()
         val first = clock.targetTimeNanos(0L, start)
