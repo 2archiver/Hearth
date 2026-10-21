@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] — a smaller HUD and buffered mirroring
+
+- Compact top-left debug overlay with one measured display FPS, resolution and session time.
+  Removed SOURCE, PACE, AUDIO, RX and KEYS rows from the on-screen overlay.
+- Stable FPS now anchors a 60 ms jitter buffer after the first decoded frame, preserves sender
+  timing through bursts, discards stale decoded output and rebuffers after long stalls/clock jumps.
+  The existing resolution cap still applies on the next mirroring session. This adds video delay;
+  it does not create frames or promise a fixed 60 FPS, and audio sync still needs device validation.
+- Drain decoded output during sender idle periods so the last frame does not wait for a new packet.
+- Measure mirror FPS using actual MediaCodec frame-render callbacks; expire stale HUD readings.
+- Remove the unexplained brown square on Home. A labelled Stop casting button appears only
+  while a casting session exists; Stop receiver remains available separately.
+- Add deterministic regressions for jitter, bursts, startup decode delay, stalls and clock resets.
+
 ## [2.1.0] — frame pacing truth, a real activity log, screenshot fixes and a reliable APK
 
 Hearth 2.1.0 fixes the two unexplained squares from the 2.0 screenshots, replaces the misleading
