@@ -26,6 +26,7 @@ class VideoDecoder(
 
     fun initialize(sps: ByteArray, pps: ByteArray, width: Int, height: Int) {}
     fun decodeNalUnit(nalUnit: ByteArray, presentationTimeUs: Long = 0L): Boolean = true
+    fun drainOutput() {}
     fun release() {}
 
     companion object {
