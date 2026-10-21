@@ -253,8 +253,23 @@ class VideoDecoder(
                     // latched at this mirror session's start.
                     codec.releaseOutputBuffer(outputBufferIndex, true)
                 } else {
-                    val nowNanos = System.nanoTime()
+                    var nowNanos = System.nanoTime()
                     val targetNanos = playoutClock.targetTimeNanos(bufferInfo.presentationTimeUs, nowNanos)
+                    // A packet burst can legitimately run ahead of the Surface scheduling window.
+                    // Apply backpressure on this decoder worker instead of resetting the timeline
+                    // backwards or dumping those frames onto the display at once. The encoded
+                    // queue remains bounded and the socket reader continues independently.
+                    while (targetNanos - nowNanos > MirrorPlayoutClock.MAX_LEAD_NANOS &&
+                        !Thread.currentThread().isInterrupted) {
+                        java.util.concurrent.locks.LockSupport.parkNanos(
+                            minOf(targetNanos - nowNanos - MirrorPlayoutClock.MAX_LEAD_NANOS, 10_000_000L),
+                        )
+                        nowNanos = System.nanoTime()
+                    }
+                    if (Thread.currentThread().isInterrupted) {
+                        codec.releaseOutputBuffer(outputBufferIndex, false)
+                        return
+                    }
                     val decision = MirrorPresentationPolicy.decide(
                         enabled = true,
                         targetTimeNanos = targetNanos,
