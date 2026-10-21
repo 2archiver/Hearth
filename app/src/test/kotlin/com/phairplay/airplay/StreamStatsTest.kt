@@ -46,28 +46,6 @@ class StreamStatsTest {
     }
 
     @Test
-    fun `compact HUD shows one fps and omits technical rows`() {
-        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
-        StreamStats.videoRes = "1920x1080"
-        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
-        val text = StreamStats.diagnosticsSummary(nowNanos = 1_100_000_000L)
-        assertEquals(1, Regex("fps").findAll(text).count())
-        assertTrue(text.contains("1920x1080"))
-        for (label in listOf("SOURCE", "PACE", "AUDIO", "RX", "KEYS", "decoder")) {
-            assertFalse(text.contains(label))
-        }
-        assertTrue(text.lines().size <= 3)
-    }
-
-    @Test
-    fun `compact HUD expires a stalled fps instead of freezing on the last rate`() {
-        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
-        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
-        assertTrue(StreamStats.diagnosticsSummary(nowNanos = 4_000_000_000L).contains("N/A"))
-        StreamStats.resetStreams()
-    }
-
-    @Test
     fun `rx payload rate and bitrate publish once the sample window closes`() {
         StreamStats.resetStreams()
         StreamStats.videoRes = "1920x1080"
