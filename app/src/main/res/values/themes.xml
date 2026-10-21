@@ -22,11 +22,16 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
     </style>
+    <!-- Home control row. One 48dp height and one 8dp gap for every control, so Start,
+         Stop casting, Stop receiver and Restart line up at 720p, 1080p and 4K. The label uses a
+         state list so a disabled control is dimmed *and* outlined rather than blank. -->
     <style name="Hearth.Control" parent="Widget.AppCompat.Button">
         <item name="android:layout_width">wrap_content</item><item name="android:layout_height">48dp</item>
         <item name="android:layout_marginEnd">8dp</item><item name="android:paddingHorizontal">16dp</item>
         <item name="android:minWidth">72dp</item><item name="android:textSize">14sp</item>
-        <item name="android:textAllCaps">false</item><item name="android:textColor">@color/text_primary</item>
+        <item name="android:textAllCaps">false</item><item name="android:textColor">@color/btn_control_text</item>
+        <item name="android:gravity">center</item><item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
         <item name="android:background">@drawable/btn_control_selector</item><item name="backgroundTint">@null</item>
         <item name="android:focusable">true</item>
     </style>

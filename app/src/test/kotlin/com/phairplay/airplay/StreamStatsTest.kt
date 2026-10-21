@@ -1,24 +1,29 @@
 package com.phairplay.airplay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * StreamStatsTest — the debug overlay's counters.
+ * StreamStatsTest — the debug overlay's counters and, importantly, what they are allowed to claim.
  *
- * WHY: the overlay could sit on screen showing `0 fps … 0 kbps … AUDIO off` and there was no way
- * to tell "the overlay is broken" from "nothing has been counted yet". These tests pin the two
- * behaviours that made it look broken: fps used to refresh only every 300 payloads, and a session
- * in progress used to publish nothing at all for several seconds.
+ * WHY: 2.0's overlay printed `rx=60/s` and the app called it FPS. That number is RTP payload
+ * throughput; it can read 60 while nothing is presented, and it cannot distinguish a 30 fps source
+ * from a duplicated 60 fps one. These tests pin the 2.1.0 contract:
  *
- * Runs on the plain JVM: [StreamStats] has no Android dependencies, and the sampling window
- * takes an injectable clock so no test has to sleep a second.
+ *  - RENDER fps only comes from [StreamStats.noteFramePresented] (frames handed to the Surface);
+ *  - SOURCE fps only comes from the sender's presentation timestamps;
+ *  - RX throughput is labelled RX and never rendered as an fps;
+ *  - an unmeasured value prints `N/A`, never a fabricated `0`.
+ *
+ * Runs on the plain JVM: [StreamStats] has no Android dependencies, and every window takes an
+ * injectable clock so no test has to sleep a second.
  */
 class StreamStatsTest {
 
     @Test
-    fun `fps and bitrate publish once the sample window closes`() {
+    fun `rx payload rate and bitrate publish once the sample window closes`() {
         StreamStats.resetStreams()
         StreamStats.videoRes = "1920x1080"
 
@@ -26,24 +31,24 @@ class StreamStatsTest {
         for (i in 0 until 50) StreamStats.noteVideoPayload(1_000, 1_000L + i)
         assertEquals(50, StreamStats.videoFramesIn)
         // Window still open — publishing here is what used to make the HUD lag by seconds.
-        assertEquals(0, StreamStats.videoFps)
+        assertEquals(0, StreamStats.rxPayloadsPerSec)
 
         // One more payload a second later closes the window — and is itself counted.
         StreamStats.noteVideoPayload(1_000, 2_000L)
-        assertEquals(51, StreamStats.videoFps)                 // 51 payloads / 1000 ms
-        assertEquals(408, StreamStats.videoBitrateKbps)        // 51 000 B → 408 kbit/s
+        assertEquals(51, StreamStats.rxPayloadsPerSec)          // payloads, not frames
+        assertEquals(408, StreamStats.rxBitrateKbps)            // 51 000 B → 408 kbit/s
+        // Receive traffic must not be promoted to a frame rate.
+        assertEquals(0.0, StreamStats.presentedFps, 0.0001)
     }
 
     @Test
     fun `a slow stream still publishes instead of waiting for 300 payloads`() {
         StreamStats.resetStreams()
-        // 3 payloads over a second is a nearly-static screen — the old code showed 0 fps
-        // forever at this rate because it only recomputed every 300 payloads.
         StreamStats.noteVideoPayload(500, 1_000L)
         StreamStats.noteVideoPayload(500, 1_400L)
         StreamStats.noteVideoPayload(500, 2_000L)
-        assertEquals(3, StreamStats.videoFps)                  // 3 payloads / 1000 ms
-        assertEquals(12, StreamStats.videoBitrateKbps)         // 1500 B → 12 kbit/s
+        assertEquals(3, StreamStats.rxPayloadsPerSec)
+        assertEquals(12, StreamStats.rxBitrateKbps)             // 1500 B → 12 kbit/s
     }
 
     @Test
@@ -54,8 +59,51 @@ class StreamStatsTest {
         StreamStats.noteVideoPayload(500, 0L)
         StreamStats.noteVideoPayload(500, 400L)
         StreamStats.noteVideoPayload(500, 1_000L)
-        assertEquals(3, StreamStats.videoFps)
-        assertEquals(12, StreamStats.videoBitrateKbps)
+        assertEquals(3, StreamStats.rxPayloadsPerSec)
+        assertEquals(12, StreamStats.rxBitrateKbps)
+    }
+
+    @Test
+    fun `presented fps is measured from frames handed to the surface`() {
+        StreamStats.resetStreams()
+        // 60 fps cadence: one frame every 16.667 ms, for a little over a second.
+        val intervalNanos = 16_666_667L
+        for (i in 0..62) StreamStats.noteFramePresented(i * intervalNanos)
+
+        assertEquals(63L, StreamStats.presentedFrames)
+        assertTrue(
+            "expected a ~60 fps presentation rate, got ${StreamStats.presentedFps}",
+            StreamStats.presentedFps in 58.0..62.0,
+        )
+        assertEquals(16.7, StreamStats.frameTimeP50Ms, 0.5)
+        assertTrue(
+            "p95 must be at least p50 (${StreamStats.frameTimeP95Ms} vs ${StreamStats.frameTimeP50Ms})",
+            StreamStats.frameTimeP95Ms >= StreamStats.frameTimeP50Ms,
+        )
+    }
+
+    @Test
+    fun `a 30 fps source is reported as 30 fps and never smoothed into 60`() {
+        StreamStats.resetStreams()
+        // A sender cadence of exactly 30 fps: 33 333 µs per frame.
+        StreamStats.noteSourceFramePts(0L)
+        for (i in 1..31) StreamStats.noteSourceFramePts(i * 33_333L)
+        assertTrue(
+            "sender cadence should be ~30 fps, got ${StreamStats.sourceFps}",
+            StreamStats.sourceFps in 29.0..31.0,
+        )
+    }
+
+    @Test
+    fun `a backwards sender timestamp restarts the window instead of inventing a rate`() {
+        StreamStats.resetStreams()
+        for (i in 0..31) StreamStats.noteSourceFramePts(i * 33_333L)
+        val before = StreamStats.sourceFps
+        assertTrue(before > 0.0)
+        // A clock reset: the next window must start fresh, not produce a negative/huge value.
+        StreamStats.noteSourceFramePts(0L)
+        StreamStats.noteSourceFramePts(33_333L)
+        assertTrue(StreamStats.sourceFps.isFinite() && StreamStats.sourceFps >= 0.0)
     }
 
     @Test
@@ -73,14 +121,14 @@ class StreamStatsTest {
         StreamStats.overlayEnabled = true
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.videoRes = "1920x1080"
-        StreamStats.videoFps = 58
+        StreamStats.rxPayloadsPerSec = 58
         StreamStats.audioActive = true
 
-        // A new Apple Casting session must not inherit the previous session's numbers.
+        // A new session must not inherit the previous session's numbers.
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         assertEquals(StreamStats.SOURCE_AIRPLAY, StreamStats.source)
         assertEquals("", StreamStats.videoRes)
-        assertEquals(0, StreamStats.videoFps)
+        assertEquals(0, StreamStats.rxPayloadsPerSec)
         assertEquals(0, StreamStats.videoFramesIn)
 
         // Toggling the overlay is a setting; ending a session must not switch it back off.
@@ -93,32 +141,59 @@ class StreamStatsTest {
     @Test
     fun `summary says it is idle rather than printing a row of zeroes`() {
         StreamStats.resetStreams()
+        StreamStats.receiverState = "stopped"
         val text = StreamStats.summary(0L)
-        assertTrue(text.contains("SRC"))
         assertTrue(text.contains("idle"))
+        assertTrue(text.contains("N/A"))
+        assertFalse("a zero must never stand in for an unmeasured fps", text.contains("0.0 fps"))
     }
 
     @Test
-    fun `summary reports the live source and uptime`() {
+    fun `summary labels render, source and rx separately and never calls rx an fps`() {
         StreamStats.resetStreams()
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 1_000L     // uptime is only shown once started
         StreamStats.videoRes = "1920x1080"
-        StreamStats.videoFps = 60
-        StreamStats.videoBitrateKbps = 8_000
+        StreamStats.rxPayloadsPerSec = 60
+        StreamStats.rxBitrateKbps = 8_000
         StreamStats.videoDecoderReady = true
+        StreamStats.decoderName = "OMX.test.decoder (hw)"
         StreamStats.audioActive = true
-        StreamStats.audioCodec = "AAC-ELD 44k"
+        StreamStats.audioCodec = "AAC-ELD"
+
+        // One second of a genuine 60 fps presentation at ~8 Mbps of receive traffic.
+        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
+        StreamStats.noteSourceFramePts(0L)
+        for (i in 1..61) StreamStats.noteSourceFramePts(i * 16_667L)
 
         val text = StreamStats.summary(91_000L)  // 90 s after the session began
         assertTrue(text.contains(StreamStats.SOURCE_AIRPLAY))
-        assertTrue(text.contains("1:30"))         // uptime
+        assertTrue(text.contains("1:30"))                       // uptime
         assertTrue(text.contains("1920x1080"))
-        assertTrue(text.contains("rx=60/s"))
-        assertTrue(text.contains("8000kbps"))
-        assertTrue(text.contains("ready"))
+        assertTrue(text.contains("RENDER"))
+        assertTrue(text.contains("SOURCE"))
+        assertTrue(text.contains("p50/p95"))
+        assertTrue("decoder must be named", text.contains("OMX.test.decoder"))
+        assertTrue(text.contains("8.0 Mbps"))
         assertTrue(text.contains("AAC-ELD"))
+        // The 2.0 regression: the RX packet rate was printed as an fps.
+        assertFalse("RX throughput must not be rendered as fps", text.contains("rx=60/s"))
+        assertFalse(text.contains("rx=60"))
+        // And it must not claim a 60 Hz panel is a 60 fps render rate.
+        assertFalse(text.contains("60 fps\nSOURCE"))
         StreamStats.resetStreams()
+    }
+
+    @Test
+    fun `unavailable telemetry is labelled, not zeroed`() {
+        StreamStats.resetStreams()
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        val text = StreamStats.summary(1_000L)
+        // No frame has been presented and no sender timestamp has been read.
+        assertTrue(text.contains("RENDER  N/A"))
+        assertTrue(text.contains("SOURCE  N/A"))
+        assertTrue(text.contains("sync N/A"))
+        assertTrue(text.contains("N/A kbps"))
     }
 
     @Test
@@ -127,7 +202,7 @@ class StreamStatsTest {
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 0L
         val text = StreamStats.summary(0L)
-        assertTrue(text.contains("waiting for SPS/PPS + surface"))
+        assertTrue(text.contains("N/A"))
         StreamStats.resetStreams()
     }
 
@@ -152,6 +227,19 @@ class StreamStatsTest {
         StreamStats.sessionStartedAtMillis = 1_000L
         StreamStats.videoRes = "1280x720"
         assertTrue(StreamStats.summary(3_662_000L).contains("1:01:01"))
+        StreamStats.resetStreams()
+    }
+
+    @Test
+    fun `the panel refresh rate is reported in Hz and is not used as an fps`() {
+        StreamStats.resetStreams()
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        StreamStats.displayRefreshHz = 60f
+        val text = StreamStats.summary(1_000L)
+        assertTrue(text.contains("panel 60.0 Hz"))
+        // No frames were presented, so RENDER is still unavailable.
+        assertTrue(text.contains("RENDER  N/A"))
+        StreamStats.displayRefreshHz = 0f
         StreamStats.resetStreams()
     }
 }

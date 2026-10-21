@@ -223,6 +223,58 @@ class UpdateInfoTest {
         assertEquals("PhairPlay latest (Google TV)", info.versionName)
     }
 
+    /**
+     * Hearth 2.1.0 publishes its stable milestone as `Hearth-v2.1.0-android-tv.apk` while
+     * development builds keep `-googletv.apk`. The TV updater must read the version out of both
+     * names, or the stable release would be rejected as "no apk asset".
+     */
+    @Test
+    fun `the stable android-tv asset name is understood by the updater`() {
+        assertEquals("2.1.0", ReleaseParser.versionNameFromAssetName("Hearth-v2.1.0-android-tv.apk"))
+        assertEquals("2.1.0", ReleaseParser.versionNameFromAssetName("Hearth-2.1.0-android-tv.apk"))
+        assertNull(ReleaseParser.versionNameFromAssetName("Hearth-android-tv.apk"))
+
+        val json = """
+        {
+          "tag_name": "v2.1.0",
+          "name": "Hearth 2.1.0 for Google TV",
+          "html_url": "https://github.com/2archiver/Hearth/releases/tag/v2.1.0",
+          "body": "**Version:** `2.1.0` · `versionCode 1480342`
+**SHA-256:** `00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff`",
+          "assets": [
+            { "name": "Hearth-v2.1.0-android-tv.apk",
+              "browser_download_url": "https://github.com/2archiver/Hearth/releases/download/v2.1.0/Hearth-v2.1.0-android-tv.apk",
+              "size": 26900000 }
+          ]
+        }
+        """.trimIndent()
+        val release = requireNotNull(ReleaseParser.parseRelease(json))
+        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
+        assertEquals("Hearth-v2.1.0-android-tv.apk", info.apkName)
+        assertEquals("2.1.0", info.versionName)
+        assertEquals(1480342, info.versionCode)
+        assertEquals(26900000L, info.apkSizeBytes)
+    }
+
+    /**
+     * A release that carries both naming schemes (for example a hand-made one) must not make the
+     * updater pick arbitrarily: two compatible APKs are ambiguous, so no update is offered.
+     */
+    @Test
+    fun `two compatible APK assets are ambiguous and yield no update`() {
+        val release = Release(
+            tagName = "v2.1.0",
+            name = "Hearth 2.1.0",
+            htmlUrl = "",
+            body = null,
+            assets = listOf(
+                ReleaseAsset("Hearth-v2.1.0-android-tv.apk", "https://x/a.apk", 100),
+                ReleaseAsset("Hearth-2.1.0-main.26-googletv.apk", "https://x/b.apk", 100),
+            ),
+        )
+        assertNull(release.apkAsset())
+    }
+
     @Test
     fun `shortLabel shows version and code for support`() {
         val info = UpdateInfo(

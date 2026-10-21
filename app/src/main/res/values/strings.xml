@@ -123,11 +123,15 @@
     <string name="setting_mirror_audio_subtitle">Play the Mac\'s sound while mirroring</string>
     <string name="setting_start_on_boot">Start on boot</string>
     <string name="setting_debug_overlay">Debug overlay</string>
-    <string name="setting_debug_overlay_subtitle">Show live FPS, queue and drop stats while streaming</string>
+    <!-- Deliberately names each measurement: presented frames, sender cadence and RX throughput
+         are different numbers and 2.0 showed the RX one as "FPS". -->
+    <string name="setting_debug_overlay_subtitle">Top-left readout during playback: presented FPS, sender FPS, frame time p50/p95, drops, decoder, RX throughput and receiver state. Updates once a second.</string>
+    <string name="setting_activity_log">Activity log</string>
+    <string name="setting_activity_log_subtitle">Chronological receiver, casting and decoder events with severity. Copy a sanitised report or clear the log.</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
     <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
     <string name="setting_stable_fps">Stable FPS</string>
-    <string name="setting_stable_fps_subtitle">Next mirroring session only: cap at 1080p or lower for this panel/decoder and smooth with sender timing. No fixed 60 fps; does not change photos or AirPlay video.</string>
+    <string name="setting_stable_fps_subtitle">Next mirroring session only: cap at 1080p or lower for this panel/decoder and pace frames with the sender\'s own timestamps. It never duplicates frames to fake 60 fps, never changes a 24/25/30 fps source, and does not affect photos or AirPlay video.</string>
     <string name="setting_version">Version</string>
     <!-- Shown next to the version: a rename must never look like a different app. -->
     <string name="setting_renamed_note">Hearth is the new name for PhairPlay — same app, same settings, same signing key.</string>
@@ -254,6 +258,24 @@
     <string name="home_same_network">Connect both devices to the same network.</string>
     <string name="home_quick_steps">1   Open Control Centre\n2   Choose Screen Mirroring\n3   Select the name shown here</string>
     <string name="home_log_action">Activity</string>
+
+    <!-- ── Activity log (severity view) ───────────────────────── -->
+    <string name="activity_log_title">Activity log</string>
+    <string name="activity_log_filter_all">All</string>
+    <string name="activity_log_filter_warning">Warnings and up</string>
+    <string name="activity_log_filter_error">Errors and up</string>
+    <!-- %1$d = entries currently shown, %2$d = ring-buffer capacity. Phrased without a
+         count immediately followed by a noun so lint does not require a plural resource. -->
+    <string name="activity_log_summary">Showing %1$d · capacity %2$d · oldest first</string>
+    <string name="activity_log_empty">No activity recorded yet. Start the receiver or connect a sender.</string>
+    <string name="activity_log_copy">Copy diagnostics</string>
+    <string name="activity_log_clear">Clear</string>
+    <string name="activity_log_copied">Sanitised diagnostics copied to the clipboard</string>
+    <string name="activity_log_copy_failed">Could not access the clipboard</string>
+    <string name="activity_log_sort_hint">Newest at the bottom</string>
+    <string name="activity_log_details_hint">Press OK to show technical details</string>
+    <string name="activity_log_details_shown">Technical details shown</string>
+    <string name="activity_log_details_hidden">Technical details hidden</string>
     <string name="settings_intro">Make Hearth feel at home. Changes save automatically.</string>
     <string name="settings_reset_title">Reset your preferences?</string>
     <string name="settings_reset_message">This restores the receiver name, playback and update preferences, then restarts Hearth’s receiver.</string>

@@ -3,10 +3,16 @@
 # Every run builds the Google TV APK, verifies it, and publishes it under its own
 # versioned tag and its own GitHub Release:
 #
-#   version (embedded): 2.0.0-main.<run_number>-googletv
-#   git tag / release:  v2.0.0-main.<run_number>
-#   sole asset:         Hearth-2.0.0-main.<run_number>-googletv.apk
-#   direct download:    https://github.com/<owner>/<repo>/releases/download/v2.0.0-main.<run_number>/Hearth-2.0.0-main.<run_number>-googletv.apk
+# Development build (the default):
+#   version (embedded): 2.1.0-main.<run_number>-googletv
+#   git tag / release:  v2.1.0-main.<run_number>
+#   sole asset:         Hearth-2.1.0-main.<run_number>-googletv.apk
+#
+# Stable milestone, published once when CHANGELOG.md has a section for the base version and
+# no v<base> tag exists yet (this is how v2.1.0 is produced):
+#   version (embedded): 2.1.0-googletv
+#   git tag / release:  v2.1.0
+#   sole asset:         Hearth-v2.1.0-android-tv.apk
 #
 # Nothing here is mutable history:
 #   * tags are created once and pushed normally — there is NO force-push and NO moving tag;
@@ -66,11 +72,38 @@ jobs:
             exit 1
           fi
 
-          # One build version per workflow run. GITHUB_RUN_NUMBER is stable across reruns of
-          # the same run, so a rerun rebuilds the SAME immutable release instead of minting a
-          # new one — that is what makes reruns idempotent.
-          version="${base}-main.${GITHUB_RUN_NUMBER}"
-          tag="v${version}"
+          # ── Two publication kinds, still exactly one release per push ────────────────
+          #
+          #  * MILESTONE (stable): CHANGELOG.md carries a section for this exact version and no
+          #    v<version> tag exists yet. Publishing the stable build here is deliberate: the
+          #    repository's own gates (JVM protocol tests, TV UI render tests, lint, APK metadata,
+          #    signing fingerprint, versionCode monotonicity) all run in THIS job before the tag is
+          #    created, so nothing reaches a v2.1.0 tag that has not been validated. It also avoids
+          #    a second, duplicate release job for the same commit via workflow_dispatch.
+          #  * otherwise: the immutable per-run development build (unchanged 2.0 behaviour).
+          #
+          # A rerun keeps GITHUB_RUN_NUMBER, and the milestone tag is created last, so a failed
+          # milestone build retries the milestone instead of publishing a stray dev build.
+          milestone=false
+          # Fixed-string match on the Keep a Changelog heading, so version dots are not a regex.
+          if grep -qF "## [${base}]" CHANGELOG.md 2>/dev/null; then
+            if ! git ls-remote --exit-code --tags origin "refs/tags/v${base}" >/dev/null 2>&1; then
+              milestone=true
+            fi
+          fi
+
+          if [[ "$milestone" == "true" ]]; then
+            # Stable release: v2.1.0, APK versionName 2.1.0-googletv (the flavor suffix is added by
+            # Gradle), asset Hearth-v2.1.0-android-tv.apk.
+            version="$base"
+            tag="v${version}"
+          else
+            # One build version per workflow run. GITHUB_RUN_NUMBER is stable across reruns of
+            # the same run, so a rerun rebuilds the SAME immutable release instead of minting a
+            # new one — that is what makes reruns idempotent.
+            version="${base}-main.${GITHUB_RUN_NUMBER}"
+            tag="v${version}"
+          fi
 
           # Every build is newer than the previous APK, including two runs in the same minute.
           # This numeric code is what Android uses to decide whether an APK can update an install.
@@ -100,6 +133,7 @@ jobs:
           {
             echo "version=$version"
             echo "tag=$tag"
+            echo "milestone=$milestone"
             echo "code=$code"
             echo "previous_tag=$previous_tag"
             echo "previous_commit=$previous_commit"
@@ -112,7 +146,8 @@ jobs:
             echo "|---|---|"
             echo "| Source | \`main\` · \`${GITHUB_SHA:0:7}\` |"
             echo "| Build version | \`$version\` |"
-            echo "| Immutable tag / release | \`$tag\` |"
+            echo "| Release kind | $( [[ "$milestone" == "true" ]] && echo "stable milestone" || echo "per-run development build" ) |"
+            echo "| Tag / release | \`$tag\` |"
             echo "| Android versionCode | \`$code\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -198,6 +233,7 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           CODE: ${{ steps.meta.outputs.code }}
+          IS_MILESTONE: ${{ steps.meta.outputs.milestone }}
         shell: bash
         run: |
           set -euo pipefail
@@ -230,10 +266,33 @@ jobs:
             exit 1
           fi
 
+          # Both supported ARM ABIs must be inside the published APK. A build that quietly lost
+          # armeabi-v7a (for example after an NDK or abiFilters change) would still install on
+          # 64-bit TVs, so nothing else in the pipeline would notice — older 32-bit Google TV
+          # devices would simply stop receiving updates.
+          apk_abis=$(unzip -Z1 "$src" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u | tr '\n' ' ')
+          missing_abis=""
+          for abi in armeabi-v7a arm64-v8a; do
+            if ! printf '%s\n' "$apk_abis" | tr ' ' '\n' | grep -qx "$abi"; then
+              missing_abis="${missing_abis} ${abi}"
+            fi
+          done
+          if [[ -n "$missing_abis" ]]; then
+            echo "::error::The release APK is missing supported ABI(s):${missing_abis}. Found: ${apk_abis:-none}."
+            exit 1
+          fi
+
           # One immutable release, one asset: the ONLY thing published is the version-named APK.
           # Its SHA-256 and versionCode are written into the release body below, which is where
           # a person reads them and where update/ReleaseParser scrapes them.
-          apk_name="Hearth-${apk_version}.apk"
+          # Stable releases use the predictable Android TV name from the release brief; per-run
+          # development builds keep the embedded-version name (this one APK serves both ARM ABIs,
+          # but it is never advertised as a catch-all build).
+          if [[ "${IS_MILESTONE:-false}" == "true" ]]; then
+            apk_name="Hearth-v${VERSION}-android-tv.apk"
+          else
+            apk_name="Hearth-${apk_version}.apk"
+          fi
           mkdir -p dist
           cp "$src" "dist/$apk_name"
           apk_sha256=$(sha256sum "dist/$apk_name" | cut -d' ' -f1)
@@ -253,6 +312,7 @@ jobs:
             echo
             echo "- Single release asset: \`$apk_name\`"
             echo "- Version from the APK: \`$apk_version\`"
+            echo "- Native ABIs in the APK: \`$apk_abis\`"
             echo "- Download size: ${size_mb} MB"
             echo "- SHA-256: \`$apk_sha256\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -415,6 +475,7 @@ jobs:
 
           - **Version:** \`${VERSION}\` · \`versionCode ${CODE}\`
           - **Size:** ${APK_SIZE_MB} MB · **SHA-256:** \`${APK_SHA256}\`
+          - **ABIs:** \`armeabi-v7a\` + \`arm64-v8a\` (unchanged; 32-bit Google TV devices are still supported)
           - **TV update:** open **Settings → Updates → Check for updates**, or paste the direct APK link into Downloader.
           - **Computer:** \`adb install -r ${APK_NAME}\`
 

@@ -84,17 +84,27 @@ data class Release(
     fun asset(name: String): ReleaseAsset? = assets.firstOrNull { it.name == name }
 
     /**
-     * Select the actual Google TV APK returned by GitHub, never simply the first `.apk` asset.
+     * Select the actual Android TV / Google TV APK returned by GitHub, never simply the first
+     * `.apk` asset.
      *
-     * A release can contain APKs for more than one device/flavor. Matching the explicit
-     * `-googletv.apk` suffix (including the legacy fixed `PhairPlay-googletv.apk`) keeps the TV
-     * updater from selecting a mobile or otherwise incompatible package. Ambiguous duplicate
-     * Google TV assets are rejected instead of depending on API array order.
+     * A release can contain APKs for more than one device/flavor, so the updater matches the
+     * explicit suffix instead of trusting array order. Two names are accepted because Hearth 2.1.0
+     * publishes stable milestones under the predictable `Hearth-v2.1.0-android-tv.apk` name while
+     * per-run development builds (and every release before 2.1.0) use `-googletv.apk`:
+     *
+     *  - `-<flavor>.apk` (e.g. `Hearth-2.1.0-main.26-googletv.apk`, legacy `PhairPlay-googletv.apk`)
+     *  - `-android-tv.apk` (e.g. `Hearth-v2.1.0-android-tv.apk`, and ABI-suffixed names such as
+     *    `Hearth-v2.1.0-arm64-v8a.apk` are NOT accepted: that would make the choice depend on
+     *    device ABI knowledge the updater does not have)
+     *
+     * Ambiguous duplicates are rejected rather than resolved by guessing.
      */
     fun apkAsset(flavor: String = "googletv"): ReleaseAsset? {
         if (!flavor.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return null
-        val suffix = "-$flavor.apk"
-        val compatible = assets.filter { it.name.endsWith(suffix, ignoreCase = true) }
+        val suffixes = listOf("-$flavor.apk", "-android-tv.apk")
+        val compatible = assets.filter { asset ->
+            suffixes.any { asset.name.endsWith(it, ignoreCase = true) }
+        }
         return compatible.singleOrNull()
     }
 }
@@ -282,7 +292,7 @@ object ReleaseParser {
     }
 
     private fun normalizeFlavorSuffix(value: String): String =
-        value.removeSuffix("-googletv")
+        value.removeSuffix("-googletv").removeSuffix("-android-tv")
 
     // ─── Internal helpers ────────────────────────────────────────────────────
 
@@ -292,8 +302,15 @@ object ReleaseParser {
     private val SHA256_REGEX = Regex("""(?i)SHA-?256\W{0,8}([0-9a-f]{64})""")
     private val SHA256_FULL_REGEX = Regex("(?i)^[0-9a-f]{64}$")
 
+    // Accepts every name Hearth has published:
+    //   Hearth-1.6.1-main.44-googletv.apk   → 1.6.1-main.44  (per-run development build)
+    //   Hearth-v2.1.0-android-tv.apk        → 2.1.0           (stable milestone)
+    //   Hearth-1.5.0.apk                    → 1.5.0
+    //   PhairPlay-googletv.apk              → null            (fixed legacy name carries no version)
+    // The version must begin with a digit: without that, `Hearth-android-tv.apk` would report the
+    // flavour suffix "android-tv" as its version and the updater would compare against nonsense.
     private val ASSET_VERSION_REGEX =
-        Regex("""^(?:Hearth|PhairPlay)-(.+?)(?:-googletv)?\.apk$""", RegexOption.IGNORE_CASE)
+        Regex("""^(?:Hearth|PhairPlay)-v?(\d[^/]*?)(?:-googletv|-android-tv)?\.apk$""", RegexOption.IGNORE_CASE)
 
     private fun parseAssets(array: JSONArray?): List<ReleaseAsset> {
         if (array == null) return emptyList()

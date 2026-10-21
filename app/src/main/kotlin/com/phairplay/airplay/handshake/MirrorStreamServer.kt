@@ -4,6 +4,8 @@ import android.view.Surface
 import com.phairplay.airplay.AirPlayTrace
 import com.phairplay.airplay.StreamStats
 import com.phairplay.airplay.VideoDecoder
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -116,7 +118,16 @@ class MirrorStreamServer(
                 if (running) Logger.i("Mirror data connection closed — waiting for a reconnect")
             }
         } catch (error: Exception) {
-            if (running) Logger.e("Mirror reader error (${error.javaClass.simpleName})")
+            if (running) {
+                Logger.e("Mirror reader error (${error.javaClass.simpleName})")
+                // ERROR: the reader thread for this stream failed. The service is still running,
+                // so this is a failed operation, not a receiver crash.
+                ActivityLog.record(
+                    Severity.ERROR, "mirror",
+                    "Mirroring reader failed",
+                    cause = error,
+                )
+            }
         } finally {
             running = false
             Logger.i("Mirror data connection ended")
@@ -159,7 +170,16 @@ class MirrorStreamServer(
                 }
             }
         } catch (error: Exception) {
-            if (running) Logger.w("Mirror data connection ended (${error.javaClass.simpleName})")
+            if (running) {
+                Logger.w("Mirror data connection ended (${error.javaClass.simpleName})")
+                // WARNING: the mirroring socket dropped, but the receiver keeps advertising and
+                // the sender can reconnect, which re-establishes the stream.
+                ActivityLog.record(
+                    Severity.WARNING, "mirror",
+                    "Mirroring video connection ended",
+                    cause = error,
+                )
+            }
         }
     }
 
@@ -177,6 +197,9 @@ class MirrorStreamServer(
         val arrivalNanos = System.nanoTime()
         val sample = timestampMapper.map(rawTimestamp, arrivalNanos)
         StreamStats.noteVideoPayload(payloadSize, System.currentTimeMillis())
+        // Source cadence comes from the sender's own presentation timestamps, so the overlay can
+        // report a 30 fps mirror as 30 fps instead of implying the receiver smoothed it to 60.
+        StreamStats.noteSourceFramePts(sample.presentationTimeUs)
         StreamStats.noteMirrorTimestamp(sample.source.name.lowercase(), sample.discontinuity)
         if (sample.discontinuity) {
             AirPlayTrace.record("Mirroring timestamp discontinuity; presentation re-anchored to monotonic arrival")
@@ -330,6 +353,13 @@ class MirrorStreamServer(
         StreamStats.configureMirrorPacing(stableFpsEnabled, width, height)
         StreamStats.videoDecoderReady = true
         Logger.i("Mirror decoder rebuilt for surface (SPS=${config.sps.size}B PPS=${config.pps.size}B)")
+        // Decoder fallback is a degradation a user can see (a brief freeze); it is not a crash.
+        ActivityLog.record(
+            Severity.WARNING, "decoder",
+            "Mirror decoder rebuilt",
+            details = "SPS=${config.sps.size}B PPS=${config.pps.size}B " +
+                "surface=${if (surface == null) "none" else "attached"}",
+        )
     }
 
     private fun decodeFrame(frame: MirrorQueuedFrame) {
@@ -352,6 +382,11 @@ class MirrorStreamServer(
         }
         if (!currentDecoder.isHealthy) {
             Logger.w("Mirror: decoder unhealthy — waiting for a new codec-configured IDR")
+            ActivityLog.record(
+                Severity.WARNING, "decoder",
+                "Decoder unhealthy — waiting for a new keyframe",
+                details = "encoded input resumes only at a configured IDR",
+            )
             currentDecoder.release()
             decoder = null
             configuredSurface = null
@@ -368,6 +403,11 @@ class MirrorStreamServer(
 
         if (receivedFrames == 1L) {
             Logger.i("Mirror: first video frame queued for decode (${frame.annexB.size}B)")
+            ActivityLog.record(
+                Severity.INFO, "mirror",
+                "Mirroring video started",
+                details = "stableFps=$stableFpsEnabled",
+            )
         }
         val accepted = currentDecoder.decodeNalUnit(frame.annexB, frame.presentationTimeUs)
         if (!accepted) {

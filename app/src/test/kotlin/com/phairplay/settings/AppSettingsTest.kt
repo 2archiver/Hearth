@@ -63,6 +63,25 @@ class AppSettingsTest {
         assertFalse(AppSettings.DEFAULT.startOnBoot)
     }
 
+    /**
+     * 2.1.0 renames no preference key. Every 2.0 default must survive the version bump, because a
+     * changed default is a silent behaviour change for a TV that never opens Settings.
+     */
+    @Test
+    fun `2_1_0 keeps every 2_0 setting default`() {
+        val defaults = AppSettings.DEFAULT
+        assertEquals("Apple TV", defaults.displayName)
+        assertTrue("AirPlay stays enabled", defaults.airPlayEnabled)
+        assertFalse("start on boot stays opt-in", defaults.startOnBoot)
+        assertFalse("debug overlay stays off", defaults.showDebugOverlay)
+        assertTrue("higher resolution stays on", defaults.forceHighResolution)
+        assertFalse("Stable FPS stays an opt-in next-session policy", defaults.stableFpsEnabled)
+        assertTrue("mirror audio stays on", defaults.mirrorAudioEnabled)
+        assertTrue("automatic update checks stay on", defaults.autoCheckForUpdates)
+        assertTrue("automatic downloads stay on", defaults.autoDownloadUpdates)
+        assertFalse("automatic installs stay opt-in", defaults.autoInstallUpdates)
+    }
+
     @Test
     fun `default settings have debug overlay disabled`() {
         assertFalse(AppSettings.DEFAULT.showDebugOverlay)

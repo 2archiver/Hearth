@@ -150,14 +150,17 @@ android {
         // applicationId is overridden per flavor below
         minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
-        // Version source of truth: phairplay.versionName in gradle.properties. CI adds the
-        // workflow run number, publishes one immutable per-build release tagged
-        // v<versionName>-main.<run number> and marked GitHub Latest, and reads the final APK
-        // metadata back before publishing. The versionCode fallback increases with each local
-        // build.
+        // Version source of truth: phairplay.versionName in gradle.properties. CI publishes one
+        // immutable release per run and reads the final APK metadata back before releasing.
+        //  * stable milestone: when CHANGELOG.md has a section for this exact version and no
+        //    v<versionName> tag exists, the tag is v<versionName> and the asset is the predictable
+        //    Hearth-v<versionName>-android-tv.apk;
+        //  * otherwise: tag v<versionName>-main.<run number> and asset
+        //    Hearth-<versionName>-main.<run number>-googletv.apk.
+        // The versionCode fallback increases with each local build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.0.0")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.1.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")

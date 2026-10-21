@@ -33,7 +33,7 @@ WORKFLOW_DIR = ROOT / ".github/workflows"
 # Same version policy as the workflow's meta step and gradle.properties.
 BASE_VERSION_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?$")
 RUN_NUMBER = "23"
-EXAMPLE_BASE = "2.0.0"
+EXAMPLE_BASE = "2.1.0"
 EXAMPLE_VERSION = f"{EXAMPLE_BASE}-main.{RUN_NUMBER}"
 EXAMPLE_TAG = f"v{EXAMPLE_VERSION}"
 EXAMPLE_ASSET = f"Hearth-{EXAMPLE_VERSION}-googletv.apk"
@@ -224,6 +224,74 @@ class ReleaseLookupResponseTest(unittest.TestCase):
 
     def test_existing_release_id_is_preserved(self):
         self.assertEqual(self.lookup("401548003", 0), "401548003")
+
+
+class StableMilestoneTest(unittest.TestCase):
+    """The 2.1.0 stable release path, without weakening the immutable-release contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_milestone_is_chosen_from_a_changelog_heading_and_a_missing_tag(self):
+        # A milestone needs BOTH: notes for this exact version, and no v<version> tag yet.
+        self.assertIn('grep -qF "## [${base}]" CHANGELOG.md', self.text)
+        self.assertIn('refs/tags/v${base}', self.text)
+        self.assertIn("milestone=true", self.text)
+        self.assertIn('echo "milestone=$milestone"', self.text)
+
+    def test_stable_release_uses_the_predictable_asset_name(self):
+        self.assertIn('apk_name="Hearth-v${VERSION}-android-tv.apk"', self.text)
+        # Development builds keep their embedded-version name.
+        self.assertIn('apk_name="Hearth-${apk_version}.apk"', self.text)
+        # No duplicated extension and no "universal" label anywhere.
+        self.assertNotIn(".apk.apk", self.text)
+        self.assertNotIn("universal", self.text.lower())
+
+    def test_the_current_version_train_has_release_notes(self):
+        # The milestone branch can only fire when the changelog has a section for the base
+        # version; this catches a version bump that forgets the notes.
+        props = (ROOT / "gradle.properties").read_text(encoding="utf-8")
+        base = re.search(r"^phairplay\.versionName=(.+)$", props, re.MULTILINE).group(1).strip()
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## [{base}]", changelog)
+
+    def test_validation_gates_run_before_the_tag_and_the_release(self):
+        validate = self.text.index("Validate release automation, protocol logic and TV interface")
+        build = self.text.index("Build release APK")
+        verify_metadata = self.text.index("Verify APK metadata and collect release asset")
+        verify_signature = self.text.index("Verify the APK signature")
+        tag = self.text.index("Create the immutable version tag")
+        publish = self.text.index("Publish the immutable release (idempotent)")
+        self.assertLess(validate, build)
+        self.assertLess(build, verify_metadata)
+        self.assertLess(verify_metadata, verify_signature)
+        self.assertLess(verify_signature, tag)
+        self.assertLess(tag, publish)
+
+    def test_both_supported_abis_are_verified_inside_the_published_apk(self):
+        # A build that silently loses armeabi-v7a still installs on 64-bit TVs, so only an
+        # explicit gate catches it. Both ABIs must be asserted, and the failure must be fatal.
+        self.assertIn("unzip -Z1", self.text)
+        self.assertIn("for abi in armeabi-v7a arm64-v8a; do", self.text)
+        self.assertIn("The release APK is missing supported ABI(s)", self.text)
+        gate = self.text.index("The release APK is missing supported ABI(s)")
+        tag = self.text.index("Create the immutable version tag")
+        self.assertLess(gate, tag)
+
+    def test_version_code_must_exceed_the_currently_published_release(self):
+        # The updater only installs a newer versionCode, so publishing a lower one would look
+        # like a successful release that no 2.0 install can ever take.
+        self.assertIn("code <= previous_code", self.text)
+        self.assertIn("code=$((previous_code + 1))", self.text)
+
+    def test_the_milestone_path_adds_no_destructive_commands(self):
+        code = "\n".join(
+            line for line in self.text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        for forbidden in ("git tag -d", "git push --delete", "gh release delete", "-X DELETE"):
+            self.assertNotIn(forbidden, code)
 
 
 if __name__ == "__main__":

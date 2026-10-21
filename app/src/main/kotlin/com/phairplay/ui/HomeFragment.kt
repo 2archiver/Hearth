@@ -12,7 +12,6 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.phairplay.R
@@ -80,8 +79,6 @@ class HomeFragment : Fragment() {
     /** Receiver-supplied network and failure details for each card. */
     private var airPlayDetail: String? = null
     private var appleCastingDetail: String? = null
-    /** Recent connection steps, ordered oldest to newest. */
-    private var connectionLog: List<com.phairplay.airplay.AirPlayTrace.Entry> = emptyList()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_home, container, false)
@@ -104,6 +101,7 @@ class HomeFragment : Fragment() {
         super.onStart()
         showNetwork()
         showUpdateBadge()
+        renderConnectionLog()
         val intent = Intent(requireContext(), PhairPlayService::class.java)
         isBound = requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
@@ -195,46 +193,24 @@ class HomeFragment : Fragment() {
         else -> R.string.protocol_detail_connected
     }
 
-    /** Full connection history, newest last — what a Settings screen would show if a TV had room. */
+    /**
+     * Opens the chronological activity view.
+     *
+     * 2.0 showed a plain multi-line dump of AirPlay trace messages here: no timestamp column, no
+     * severity and no way to tell "sender disconnected" from "receiver crashed". The activity log
+     * carries severity, subsystem and expandable details, and the same view is reachable from
+     * Settings → Advanced.
+     */
     private fun showConnectionLogDialog() {
         if (!isAdded) return
-        val text = connectionLog.joinToString("\n") { entry ->
-            "%s  %s".format(entry.timeLabel(), entry.message)
-        }.ifBlank { getString(R.string.home_log_empty) }
-        AlertDialog.Builder(requireContext())
-            .setTitle(R.string.home_log_dialog_title)
-            .setMessage(text)
-            .setNeutralButton(R.string.home_log_share) { _, _ -> shareAirPlayDiagnostics() }
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+        ActivityLogDialog.show(requireContext())
     }
 
-    private fun shareAirPlayDiagnostics() {
-        val report = com.phairplay.airplay.AirPlayTrace.exportText(
-            mapOf(
-                "Hearth version" to com.phairplay.BuildConfig.VERSION_NAME,
-                "Android API" to android.os.Build.VERSION.SDK_INT.toString(),
-            )
-        )
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.home_log_share_subject))
-            putExtra(Intent.EXTRA_TEXT, report)
-        }
-        runCatching { startActivity(Intent.createChooser(send, getString(R.string.home_log_share))) }
-            .onFailure { Logger.w("Could not open a share target for the AirPlay diagnostics") }
-    }
-
-    /** Shows the latest connection step; Activity opens the complete history. */
+    /** Shows the latest activity entry; Activity opens the complete, filterable history. */
     private fun renderConnectionLog() {
         if (!::textConnectionLog.isInitialized) return
-        textConnectionLog.text = if (connectionLog.isEmpty()) {
-            getString(R.string.home_log_empty)
-        } else {
-            connectionLog.takeLast(LOG_LINES_ON_SCREEN).joinToString("\n") { entry ->
-                "%s  %s".format(entry.timeLabel(), entry.message)
-            }
-        }
+        val latest = com.phairplay.diagnostics.ActivityLog.latest()
+        textConnectionLog.text = latest?.summaryLine() ?: getString(R.string.home_log_empty)
     }
 
     private fun setupCard(card: View, iconRes: Int, nameRes: Int) {
@@ -379,8 +355,9 @@ class HomeFragment : Fragment() {
                 }
             }
             launch {
-                svc.airPlayTrace.collectLatest { entries ->
-                    connectionLog = entries
+                svc.airPlayTrace.collectLatest {
+                    // The trace is the protocol record; the footer shows the newest activity entry
+                    // and this collector is the live signal that a new one exists.
                     renderConnectionLog()
                 }
             }
@@ -501,8 +478,4 @@ class HomeFragment : Fragment() {
                     else getString(R.string.protocol_detail_disabled) + " · " + detailOverride
         }
 
-    private companion object {
-        /** How many connection-log lines fit on Home without pushing the buttons off the screen. */
-        const val LOG_LINES_ON_SCREEN = 1
-    }
 }

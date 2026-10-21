@@ -1,8 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_enabled="false"><shape><solid android:color="@color/background_dark"/><corners android:radius="14dp"/></shape></item>
-    <item android:state_pressed="true"><shape><solid android:color="@color/accent_blue_pressed"/><stroke android:width="2dp" android:color="@color/focus_ring"/><corners android:radius="14dp"/></shape></item>
-    <item android:state_focused="true"><shape><solid android:color="@color/background_surface_elevated"/><stroke android:width="2dp" android:color="@color/focus_ring"/><corners android:radius="14dp"/></shape></item>
+<!--
+    Control surface for Home's action buttons and icon buttons.
 
-    <item><shape><solid android:color="@color/background_surface"/><stroke android:width="1dp" android:color="@color/divider"/><corners android:radius="14dp"/></shape></item>
+    Disabled is a dim outline, not a black hole: before 2.1.0 it filled with the window
+    background, which on the wine palette read as a missing/blank square next to the other
+    buttons. A 1dp divider stroke still reads as "this is a control, currently unavailable"
+    while the 0.4 alpha the fragment applies keeps the label legible at 720p and above.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape>
+            <solid android:color="@color/background_surface_unavailable" />
+            <stroke android:width="1dp" android:color="@color/divider" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="@color/accent_blue_pressed" />
+            <stroke android:width="2dp" android:color="@color/focus_ring" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="@color/background_surface_elevated" />
+            <stroke android:width="2dp" android:color="@color/focus_ring" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="@color/background_surface" />
+            <stroke android:width="1dp" android:color="@color/divider" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
 </selector>

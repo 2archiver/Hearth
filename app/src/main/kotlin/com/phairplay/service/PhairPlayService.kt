@@ -27,6 +27,8 @@ import com.phairplay.update.UpdateInstallSafety
 import com.phairplay.settings.AppSettings
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.util.DisplayCaps
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -180,6 +182,9 @@ class PhairPlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         Logger.i("PhairPlayService created")
+        ActivityLog.init(applicationContext)
+        com.phairplay.airplay.StreamStats.receiverState = "starting"
+        ActivityLog.record(Severity.INFO, SUBSYSTEM, "Receiver service created")
         settingsRepository = SettingsRepository(applicationContext)
         createNotificationChannel()
         serviceScope.launch {
@@ -204,6 +209,15 @@ class PhairPlayService : Service() {
                 } catch (error: Exception) {
                     if (error is kotlinx.coroutines.CancellationException) throw error
                     Logger.e("Receiver lifecycle command failed (${error.javaClass.simpleName})")
+                    // ERROR, not CRITICAL: the service is alive and the user can press Start or
+                    // Restart. CRITICAL is reserved for a receiver that cannot recover on its own.
+                    ActivityLog.record(
+                        Severity.ERROR, SUBSYSTEM,
+                        "Receiver lifecycle command failed",
+                        details = command.javaClass.simpleName,
+                        cause = error,
+                    )
+                    com.phairplay.airplay.StreamStats.receiverState = "error"
                     receiverCommandGate.runIfCurrent(command.ticket) {
                         _serviceState.value = ServiceState.Error("Receiver lifecycle failed")
                         updateNotification(isRunning = false)
@@ -406,7 +420,11 @@ class PhairPlayService : Service() {
         updateSettingsJob?.cancel()
         updateSettingsJob = null
         Logger.i("PhairPlayService destroying")
+        com.phairplay.airplay.StreamStats.receiverState = "stopped"
+        ActivityLog.record(Severity.INFO, SUBSYSTEM, "Receiver service destroyed")
         stopAllReceiversInternal(ReceiverShutdownReason.SERVICE_DESTROYED)
+        // Asynchronous: the main thread must never wait on disk I/O during teardown.
+        ActivityLog.flushAsync()
         super.onDestroy()
     }
 
@@ -422,6 +440,13 @@ class PhairPlayService : Service() {
         val settings = settingsRepository.settingsFlow.first()
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         Logger.i("Starting receivers: AirPlay=${settings.airPlayEnabled}")
+        com.phairplay.airplay.StreamStats.receiverState = "starting"
+        ActivityLog.record(
+            Severity.INFO, SUBSYSTEM,
+            "Starting receiver",
+            details = "airplay=${settings.airPlayEnabled} " +
+                "mirrorAudio=${settings.mirrorAudioEnabled} stableFps=${settings.stableFpsEnabled}",
+        )
 
         // Belt and braces for the debug overlay: the settings collector in onCreate() already
         // mirrors this, but a receiver started before that collector's first emission must not
@@ -467,6 +492,10 @@ class PhairPlayService : Service() {
      */
     private fun stopReceivers(reason: ReceiverShutdownReason) {
         Logger.i("Stopping all receivers (${reason.name.lowercase()})")
+        // A user-requested Stop is INFO: it is the designed outcome, not a failure. Declaring it
+        // critical (as a severity-by-exception log would) is what made 2.0's messages opaque.
+        ActivityLog.record(Severity.INFO, SUBSYSTEM, "Receiver stopped", details = reason.name.lowercase())
+        com.phairplay.airplay.StreamStats.receiverState = "stopped"
         stopAllReceiversInternal(reason)
         _activeConnection.value = null
         updateNotification(isRunning = false)
@@ -479,6 +508,8 @@ class PhairPlayService : Service() {
     private suspend fun restartReceivers(ticket: Long) {
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
         Logger.i("Restarting all receivers (${ReceiverShutdownReason.RESTART.name.lowercase()})")
+        ActivityLog.record(Severity.INFO, SUBSYSTEM, "Restarting receiver")
+        com.phairplay.airplay.StreamStats.receiverState = "restarting"
         stopAllReceiversInternal(ReceiverShutdownReason.RESTART)
         kotlinx.coroutines.delay(500) // brief pause to ensure ports are released
         if (destroyed || !receiverCommandGate.isCurrent(ticket)) return
@@ -596,6 +627,23 @@ class PhairPlayService : Service() {
                         it == com.phairplay.airplay.AirPlayPlaybackState.DISCONNECTED
                     }
                     _airPlayPlaybackFailure.value = failure
+                    if (failure != null) {
+                        // ERROR = this /play operation failed. The stage and detail are already
+                        // URL-free (AirPlayPlaybackFailures.classify), so this is safe to export.
+                        ActivityLog.record(
+                            Severity.ERROR, "airplay",
+                            "AirPlay video playback failed",
+                            details = "${failure.stage.name.lowercase()} — ${failure.detail}",
+                        )
+                    } else if (state == com.phairplay.airplay.AirPlayPlaybackState.PLAYING) {
+                        ActivityLog.record(Severity.INFO, "airplay", "AirPlay video playing")
+                    } else if (state == com.phairplay.airplay.AirPlayPlaybackState.AUDIO_ONLY) {
+                        ActivityLog.record(
+                            Severity.INFO, "airplay",
+                            "AirPlay audio-only session",
+                            details = "the sender supplied no video track",
+                        )
+                    }
                     refreshUpdateInstallSafety()
                 }
             },
@@ -664,6 +712,12 @@ class PhairPlayService : Service() {
         airPlayReceiverCallbackTicket = callbackTicket
         receiver.start()
         Logger.d("AirPlay receiver started (displayName='${settings.effectiveDisplayName}')")
+        com.phairplay.airplay.StreamStats.receiverState = "running"
+        ActivityLog.record(
+            Severity.INFO, SUBSYSTEM,
+            "AirPlay receiver advertising",
+            details = "mirror=${mirror.width}x${mirror.height} stableFps=${settings.stableFpsEnabled}",
+        )
     }
 
     /** Apply a receiver callback only while both its instance and callback generation still own state. */
@@ -773,6 +827,13 @@ class PhairPlayService : Service() {
             receiver?.stop(reason)
         } catch (e: Exception) {
             Logger.w("AirPlay stop failed (${reason.name.lowercase()}, ${e.javaClass.simpleName})")
+            // Recoverable degradation: the service still reaches a stopped state.
+            ActivityLog.record(
+                Severity.WARNING, SUBSYSTEM,
+                "AirPlay receiver stop reported an error",
+                details = reason.name.lowercase(),
+                cause = e,
+            )
         }
 
         _airPlayDetail.value = null
@@ -890,6 +951,9 @@ class PhairPlayService : Service() {
     companion object {
         const val CHANNEL_ID      = "phairplay_service_channel"
         const val NOTIFICATION_ID = 1001
+
+        /** Subsystem token for this service's activity-log entries. */
+        private const val SUBSYSTEM = "receiver"
 
         /** Separate, dismissible notification used to announce an available update. */
         const val UPDATE_NOTIFICATION_ID = 1002

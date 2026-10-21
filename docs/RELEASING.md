@@ -1,10 +1,23 @@
 # Releasing Hearth (Google TV)
 
-Every successful build from `main` publishes its **own immutable GitHub Release** under its own
-version tag. Nothing is overwritten: old releases, tags and APK assets stay downloadable forever,
-and GitHub's **Latest release** designation is the only rolling pointer. The in-app updater, the
-direct download link and the release page therefore always resolve to the newest build without any
-tag ever being moved.
+Every successful build from `main` publishes a GitHub Release. Nothing is overwritten: old
+releases, tags and APK assets stay downloadable forever, and GitHub's **Latest release** designation
+is the only rolling pointer. The in-app updater, the direct download link and the release page
+therefore always resolve to the newest build without any tag ever being moved.
+
+There are two publication kinds, chosen automatically by the same job that runs every gate:
+
+| Kind | When | Tag | Asset |
+|---|---|---|---|
+| **Stable milestone** | `CHANGELOG.md` has a `## [<base version>]` section **and** no `v<base>` tag exists yet | `v2.1.0` | `Hearth-v2.1.0-android-tv.apk` |
+| **Per-run development build** | every other push to `main` | `v<base>-main.<run number>` | `Hearth-<base>-main.<run>-googletv.apk` |
+
+The milestone is published from the *same* job that ran the protocol tests, the Robolectric TV layout
+tests, lint, the APK metadata check, the signing-fingerprint check and the versionCode
+monotonicity check — the tag is created only after all of them pass. That means a merge that bumps
+`phairplay.versionName` and adds its changelog section produces the stable release directly, with no
+second dispatch and no duplicate release for the same commit. A failed milestone build leaves no
+`v<base>` tag behind, so its rerun retries the milestone rather than publishing a stray dev build.
 
 ## Download the current APK
 
@@ -15,9 +28,11 @@ tag ever being moved.
   repository metadata on 2026-10-07). Use the GitHub release page above; do not rely on a Pages URL
   until it is enabled.
 
-A release carries **exactly one file**: `Hearth-<version>-googletv.apk`, named after the
-`versionName` embedded in it (the workflow reads that back out of the built APK with `aapt`).
-Nothing else is uploaded — no `SHA256SUMS.txt`, no `version.json`. What those files used to carry
+A release carries **exactly one file**. Stable milestones use the predictable
+`Hearth-v<version>-android-tv.apk`; per-run development builds are named after the `versionName`
+embedded in them, `Hearth-<version>-googletv.apk` (the workflow reads the embedded version back out
+of the built APK with `aapt`). The in-app updater accepts both suffixes, and still refuses an
+ambiguous release that carries two compatible APKs. Nothing else is uploaded — no `SHA256SUMS.txt`, no `version.json`. What those files used to carry
 is written into the release body, which is where a human reads it and where
 `ReleaseParser.scrapeVersionCode` / `scrapeSha256` find it for the in-app updater.
 
@@ -64,8 +79,11 @@ release is what `/releases/latest` returns.
 ### Publishing an update
 
 1. Update `CHANGELOG.md` with the user-visible changes. Use `## [Unreleased]` for in-progress
-   work, or a version heading matching the release version (for example, `## [2.0.0]`).
+   work, or a version heading matching the release version (for example, `## [2.1.0]`).
 2. When starting a new release train, bump `phairplay.versionName` in `gradle.properties`.
+   **A base version with a changelog section and no `v<base>` tag becomes the stable release on the
+   next merge to `main`** — check that the notes are accurate before merging, because the release
+   body is generated from that section.
 3. Merge or push to `main`. GitHub Actions builds and publishes a new immutable release
    automatically. To publish deliberately, choose **Actions → Release → Run workflow** and select
    the `main` branch.
@@ -77,9 +95,15 @@ designation, artifact retention, rerun idempotency) and on the JVM by
 
 ### Version numbers
 
-- **Version name:** CI builds `<phairplay.versionName>-main.<run number>`; the Google TV APK
-  adds the `-googletv` flavor suffix — and that whole string becomes the release's asset file name,
-  so the file on GitHub and the file Android installs agree about which version they are.
+- **ABIs:** the APK must contain both `armeabi-v7a` and `arm64-v8a`. The release job reads the
+  `lib/<abi>/` entries out of the built APK and fails the run if either is missing, because a build
+  that silently lost 32-bit support still installs on 64-bit TVs and would otherwise go unnoticed.
+- **Version name:** a stable milestone embeds exactly `<phairplay.versionName>`; a per-run
+  development build embeds `<phairplay.versionName>-main.<run number>`. The Google TV flavor then
+  adds the `-googletv` suffix, so the milestone APK reports `2.1.0-googletv`. A development build's
+  whole string becomes its asset file name (`Hearth-2.1.0-main.26-googletv.apk`), while the
+  milestone uses the fixed `Hearth-v2.1.0-android-tv.apk`; either way the file on GitHub and the
+  installed app agree about which version they are.
 - **Version code:** a clock-based integer that is forced above the code in the release currently
   designated Latest. Android uses this number to determine whether an APK can update an installed
   app. A local `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides

@@ -46,6 +46,7 @@ class SettingsFragment : Fragment() {
     private lateinit var rowMirrorAudio: View
     private lateinit var rowStartOnBoot: View
     private lateinit var rowDebugOverlay: View
+    private lateinit var rowActivityLog: View
     private lateinit var rowForceHighRes: View
     private lateinit var rowStableFps: View
     private lateinit var textVersionValue: TextView
@@ -93,6 +94,7 @@ class SettingsFragment : Fragment() {
         rowMirrorAudio      = view.findViewById(R.id.row_mirror_audio)
         rowStartOnBoot      = view.findViewById(R.id.row_start_on_boot)
         rowDebugOverlay     = view.findViewById(R.id.row_debug_overlay)
+        rowActivityLog      = view.findViewById(R.id.row_activity_log)
         rowForceHighRes     = view.findViewById(R.id.row_force_high_res)
         rowStableFps        = view.findViewById(R.id.row_stable_fps)
         textVersionValue    = view.findViewById(R.id.text_version_value)
@@ -119,6 +121,7 @@ class SettingsFragment : Fragment() {
         configureToggleRow(rowDebugOverlay, R.string.setting_debug_overlay,      R.string.setting_debug_overlay_subtitle)
         configureToggleRow(rowForceHighRes, R.string.setting_force_high_res,      R.string.setting_force_high_res_subtitle)
         configureToggleRow(rowStableFps, R.string.setting_stable_fps,            R.string.setting_stable_fps_subtitle)
+        configureToggleRow(rowActivityLog, R.string.setting_activity_log,        R.string.setting_activity_log_subtitle)
         configureToggleRow(rowAutoCheckUpdates,    R.string.setting_auto_check_updates,
             R.string.setting_auto_check_updates_subtitle)
         configureToggleRow(rowAutoDownloadUpdates, R.string.setting_auto_download_updates,
@@ -131,9 +134,16 @@ class SettingsFragment : Fragment() {
         )
     }
 
+    /**
+     * Labels a Settings row. Toggle rows and action rows use different child ids, so both are
+     * probed: a wrong lookup would silently render an empty row instead of failing loudly.
+     */
     private fun configureToggleRow(row: View, labelRes: Int, subtitleRes: Int) {
-        row.findViewById<TextView>(R.id.text_setting_label)?.setText(labelRes)
+        val label = row.findViewById<TextView>(R.id.text_setting_label)
+            ?: row.findViewById(R.id.text_action_row_label)
+        label?.setText(labelRes)
         val subtitle = row.findViewById<TextView>(R.id.text_setting_subtitle)
+            ?: row.findViewById(R.id.text_action_row_subtitle)
         if (subtitleRes != 0) {
             subtitle?.setText(subtitleRes)
             subtitle?.visibility = View.VISIBLE
@@ -173,6 +183,9 @@ class SettingsFragment : Fragment() {
 
     private fun setupListeners() {
         rowDisplayName.setOnClickListener { showDisplayNameDialog() }
+        // Diagnostics live here, not on the playback screen: the overlay stays a compact readout
+        // and the full history stays one D-pad press away from Settings.
+        rowActivityLog.setOnClickListener { ActivityLogDialog.show(requireContext()) }
 
         setToggleListener(rowAirPlay)      { enabled -> saveAndRestart { it.copy(airPlayEnabled = enabled) } }
         setToggleListener(rowMirrorAudio)  { enabled -> saveAndRestart { it.copy(mirrorAudioEnabled = enabled) } }

@@ -6,14 +6,18 @@ import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.Surface
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
+import com.phairplay.R
 import com.phairplay.airplay.StreamStats
 import com.phairplay.util.Logger
+import kotlin.math.max
 
 /**
  * StreamingScreen — Full-screen view that displays the AirPlay video stream.
@@ -31,12 +35,19 @@ import com.phairplay.util.Logger
  * laid out. [getSurface] returns null if called before the Surface is ready.
  * [VideoDecoder.initialize] must not be called until [getSurface] returns non-null.
  *
- * Example:
- *   val streamingScreen = StreamingScreen(context)
- *   container.addView(streamingScreen)
- *   // Later, when surface is ready:
- *   val surface = streamingScreen.getSurface()
- *   videoDecoder.initialize(spsBytes, ppsBytes, width, height)
+ * DEBUG OVERLAY (2.1.0)
+ * ---------------------
+ * The optional HUD is anchored to the **top-left of the TV safe area** (5% overscan margin, with a
+ * 24dp floor) and is only laid out while Settings → "Debug overlay" is on. It is deliberately not
+ * focusable and hidden from accessibility services: a D-pad press must never land on the HUD
+ * instead of a control, and a screen reader must not announce a value that changes every second.
+ *
+ * Its text comes from [StreamStats.summary], which labels the *presented* frame rate separately
+ * from the sender cadence and from RX packet throughput. 2.0 rendered `rx=…/s` and called it FPS;
+ * that number never claimed a frame had reached the screen.
+ *
+ * [REFRESH_MS] is 1 s: a HUD that repaints four times a second churns the main thread for no
+ * benefit, and none of these counters are meaningful at sub-second resolution.
  */
 class StreamingScreen @JvmOverloads constructor(
     context: Context,
@@ -52,33 +63,36 @@ class StreamingScreen @JvmOverloads constructor(
 
     // Optional debug HUD (Settings → "Debug overlay"), drawn on top of the video.
     private val debugView = TextView(context).apply {
-        setTextColor(Color.parseColor("#FF00FF66"))
-        setBackgroundColor(Color.parseColor("#C8000000"))
-        textSize = 14f
+        setTextColor(Color.parseColor("#FFD9F5E2"))
+        background = AppCompatResources.getDrawable(context, R.drawable.debug_overlay_background)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
         typeface = Typeface.MONOSPACE
-        setPadding(32, 20, 32, 20)
+        setPadding(dp(16), dp(12), dp(16), dp(12))
+        setLineSpacing(dp(2).toFloat(), 1f)
+        includeFontPadding = false
         visibility = GONE
+        // The HUD is a readout, never a control: no focus, no clicks, no accessibility node.
+        isFocusable = false
+        isFocusableInTouchMode = false
+        isClickable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         // SurfaceView is composited in its own layer *below* the window, so a sibling normally
         // draws above it — but on some TV stacks (and after a decoder re-configure) the video
         // layer ends up in front. An explicit elevation wins in every case.
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            elevation = 1000f
-        }
+        elevation = 1000f
     }
     // Last applied surface size, so we only re-layout on an actual change (rotation/resolution switch).
     private var lastSurfaceW = Int.MIN_VALUE
     private var lastSurfaceH = Int.MIN_VALUE
 
+    /** Last text handed to the HUD; re-assigning identical text still dirties the view. */
+    private var lastOverlayText: String? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
         override fun run() {
             applyAspectFit()
-            if (StreamStats.overlayEnabled) {
-                debugView.visibility = VISIBLE
-                debugView.text = StreamStats.summary()
-            } else if (debugView.visibility != GONE) {
-                debugView.visibility = GONE
-            }
+            updateOverlay()
             handler.postDelayed(this, REFRESH_MS)
         }
     }
@@ -95,12 +109,11 @@ class StreamingScreen @JvmOverloads constructor(
             LayoutParams.MATCH_PARENT
         ).apply { gravity = Gravity.CENTER })
 
-        // Debug HUD overlay, top-left, above the video surface.
+        // Debug HUD overlay, top-left of the safe area, above the video surface.
         addView(debugView, LayoutParams(
             LayoutParams.WRAP_CONTENT,
             LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 40; leftMargin = 40 })
-        debugView.bringToFront()
+        ).apply { gravity = Gravity.TOP or Gravity.START })
 
         // Register a callback to track when the Surface is created/destroyed
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
@@ -161,17 +174,89 @@ class StreamingScreen @JvmOverloads constructor(
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        applySafeAreaMargins(w, h)
+        applyAspectFit()
+    }
+
+    /**
+     * Anchors the HUD inside the TV safe area.
+     *
+     * WHY NOT A FIXED 40px: 2.0 used a 40px offset, which is ~10mm on a 720p panel (inside the
+     * bezel on some sets, clipped on others) but a less than 1% margin on a 4K panel. A
+     * proportional margin with a dp floor is legible at 720p, 1080p and 4K without landing in the
+     * overscan region.
+     */
+    private fun applySafeAreaMargins(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        val left = max(dp(24), (width * SAFE_AREA_FRACTION).toInt())
+        val top = max(dp(24), (height * SAFE_AREA_FRACTION).toInt())
+        val params = debugView.layoutParams as LayoutParams
+        val available = (width - left * 2).coerceAtLeast(dp(240))
+        if (params.leftMargin == left && params.topMargin == top && debugView.maxWidth == available) {
+            return
+        }
+        params.leftMargin = left
+        params.topMargin = top
+        debugView.layoutParams = params
+        // A long hardware decoder name must wrap, not run off the right edge of the screen.
+        debugView.maxWidth = available
+    }
+
+    /** Shows/updates/hides the HUD. Cheap when disabled: at most a visibility check per second. */
+    private fun updateOverlay() {
+        if (!StreamStats.overlayEnabled) {
+            if (debugView.visibility != GONE) {
+                debugView.visibility = GONE
+                lastOverlayText = null
+            }
+            return
+        }
+        if (debugView.visibility != VISIBLE) {
+            debugView.visibility = VISIBLE
+            // SurfaceView lives in its own layer; re-assert the HUD above it on every show so a
+            // decoder re-configure mid-session cannot bury the readout behind the video.
+            debugView.bringToFront()
+        }
+        val text = StreamStats.summary()
+        if (text != lastOverlayText) {
+            debugView.text = text
+            lastOverlayText = text
+        }
+    }
+
+    private fun updateDisplayRefreshRate() {
+        // Reported as "panel Hz" by the summary. It is a display capability, never an fps:
+        // a 60 Hz panel says nothing about how many frames were presented.
+        StreamStats.displayRefreshHz = try {
+            display?.refreshRate ?: 0f
+        } catch (_: Exception) {
+            0f
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        updateDisplayRefreshRate()
+        applySafeAreaMargins(width, height)
         handler.post(tick)                 // drive aspect-fit + debug HUD
     }
 
     override fun onDetachedFromWindow() {
         handler.removeCallbacks(tick)
+        lastOverlayText = null
         super.onDetachedFromWindow()
     }
 
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
     companion object {
-        private const val REFRESH_MS = 200L
+        /** HUD refresh period. 1 Hz is the frequency at which these counters are meaningful. */
+        private const val REFRESH_MS = 1_000L
+
+        /** Broadcast-style safe area: keep the HUD out of the overscan region on every panel. */
+        private const val SAFE_AREA_FRACTION = 0.05f
     }
 }

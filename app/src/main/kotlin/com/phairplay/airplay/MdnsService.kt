@@ -8,6 +8,8 @@ import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
 import android.net.nsd.NsdServiceInfo
 import com.phairplay.service.ProtocolState
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
 import com.phairplay.util.NetworkUtils
@@ -470,6 +472,8 @@ class MdnsService(
         if (!bypassCooldown && now - lastAdvertisedAt < READVERTISE_COOLDOWN_MS) return
         lastAdvertisedAt = now
         Logger.i("mDNS: $reason — re-advertising on the current network")
+        // Network loss/recovery is a recoverable degradation of discovery.
+        ActivityLog.record(Severity.WARNING, "discovery", "Network changed — re-advertising", details = reason)
         val name = requestedName
         airPlayListener?.let { runCatching { nsdManager.unregisterService(it) } }
         raopListener?.let { runCatching { nsdManager.unregisterService(it) } }
@@ -502,6 +506,11 @@ class MdnsService(
                 // NsdManager may append " (2)" to resolve name conflicts.
                 // Log the actual name so we can debug picker-visibility issues.
                 Logger.i("mDNS registered: $serviceLabel as '${serviceInfo.serviceName}'")
+                ActivityLog.record(
+                    Severity.INFO, "discovery",
+                    "Discovery advertising started as '${serviceInfo.serviceName}'",
+                    details = serviceLabel,
+                )
                 onRegisteredName?.invoke(serviceInfo.serviceName)
                 lastAdvertisedAt = System.currentTimeMillis()
                 onSuccess()
@@ -518,6 +527,13 @@ class MdnsService(
                     onSuccess()
                 } else {
                     Logger.e("mDNS registration FAILED for $serviceLabel, errorCode=$errorCode")
+                    // ERROR: discovery failed, but the receiver/service is still alive and Restart
+                    // can retry. Not CRITICAL — nothing has crashed.
+                    ActivityLog.record(
+                        Severity.ERROR, "discovery",
+                        "Discovery registration failed",
+                        details = "$serviceLabel errorCode=$errorCode",
+                    )
                     onFailure()
                 }
             }

@@ -3,20 +3,25 @@ package com.phairplay.ui
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.SwitchCompat
 import com.phairplay.R
 import com.phairplay.airplay.NowPlayingInfo
+import com.phairplay.airplay.StreamStats
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -140,6 +145,16 @@ class HearthUiTest {
             row.addFocusables(focusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)
             assertEquals("Each Settings row should expose exactly one focus target", 1, focusables.size)
         }
+        // The activity-log row opens a dialog rather than toggling a value: it must still expose a
+        // single D-pad target and must not be mistaken for a switch row.
+        val activityRow = root.findViewById<View>(R.id.row_activity_log)
+        activityRow.label(R.id.text_action_row_label, "Activity log")
+        activityRow.findViewById<TextView>(R.id.text_action_row_subtitle).text =
+            "Chronological receiver, casting and decoder events with severity."
+        val activityFocusables = ArrayList<View>()
+        activityRow.addFocusables(activityFocusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)
+        assertEquals("The activity row should expose exactly one focus target", 1, activityFocusables.size)
+
         root.findViewById<View>(R.id.row_display_name).requestFocusFromTouch()
         render(root, "settings-wine")
         val row = root.findViewById<View>(R.id.row_force_high_res)
@@ -151,6 +166,117 @@ class HearthUiTest {
                 "text=${textLayout?.height}px",
             subtitle.height >= (textLayout?.height ?: 0)
         )
+    }
+
+    /**
+     * Regression for the two unexplained blocks in the 2.0 screenshots.
+     *
+     * Home's "Stop casting" icon button rendered `ic_stop` (a full-bleed solid rectangle) and
+     * Settings' Device Name row rendered `ic_chevron_right` (another solid rectangle), so both
+     * looked like stray brown/beige squares. They are vectors now: transparent at the corners and
+     * visibly drawn in the middle. This measures the drawables themselves, so it fails if either
+     * reverts to a filled shape.
+     */
+    @Test fun homeAndSettingsAffordanceGlyphsAreNotSolidBlocks() {
+        val activity = host()
+        val size = 48
+        listOf(
+            R.drawable.ic_stop to "Stop casting",
+            R.drawable.ic_chevron_right to "Settings chevron",
+            R.drawable.ic_airplay to "AirPlay mark",
+        ).forEach { (res, name) ->
+            val drawable = AppCompatResources.getDrawable(activity, res)
+            assertNotNull("$name drawable should resolve", drawable)
+            drawable!!.setBounds(0, 0, size, size)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            drawable.draw(Canvas(bitmap))
+
+            listOf(0 to 0, size - 1 to 0, 0 to size - 1, size - 1 to size - 1).forEach { (x, y) ->
+                assertEquals(
+                    "$name must not be a full-bleed block: corner ($x,$y) should be transparent",
+                    0,
+                    Color.alpha(bitmap.getPixel(x, y)),
+                )
+            }
+            var drawn = 0
+            for (x in 0 until size) for (y in 0 until size) {
+                if (Color.alpha(bitmap.getPixel(x, y)) != 0) drawn++
+            }
+            assertTrue("$name should still draw a visible glyph (drawn=$drawn)", drawn > size)
+            bitmap.recycle()
+        }
+    }
+
+    /**
+     * The debug HUD, measured on a 1080p television layout.
+     *
+     * Checks the three things 2.0 got wrong and that no screenshot can prove on its own: it sits
+     * inside the safe area (not at a fixed 40px offset), it never becomes a focus/accessibility
+     * target, and its numbers are labelled by what they measure — an unmeasured frame rate says
+     * `N/A` instead of `0`, and the payload rate is never printed as an fps.
+     */
+    @Test fun debugOverlayStaysInTheSafeAreaAndLabelsWhatItMeasures() {
+        val activity = host()
+        val screen = StreamingScreen(activity)
+        activity.setContentView(screen)
+        StreamStats.overlayEnabled = true
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        try {
+            val width = 1920
+            val height = 1080
+            screen.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+            )
+            screen.layout(0, 0, width, height)
+            // The HUD refreshes at 1 Hz; advance the main looper past one tick.
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1_200))
+
+            val hud = screen.getChildAt(1) as TextView
+            assertEquals("The overlay should be visible while enabled", View.VISIBLE, hud.visibility)
+
+            val params = hud.layoutParams as FrameLayout.LayoutParams
+            // The container is laid out by the activity at the TV surface size, so the expected
+            // margins are derived the same way StreamingScreen derives them (5% of the actual
+            // size, floored at 24dp) rather than hard-coding one resolution.
+            val density = activity.resources.displayMetrics.density
+            val floor = (24 * density).toInt()
+            val expectedLeft = maxOf(floor, (screen.width * 0.05f).toInt())
+            val expectedTop = maxOf(floor, (screen.height * 0.05f).toInt())
+            assertTrue("the screen should be laid out, was ${screen.width}x${screen.height}", screen.width >= 320)
+            assertEquals("left margin should follow the 5% safe area", expectedLeft, params.leftMargin)
+            assertEquals("top margin should follow the 5% safe area", expectedTop, params.topMargin)
+            assertTrue("the overlay must not be flush with the screen edge", params.leftMargin > 0 && params.topMargin > 0)
+            assertTrue(
+                "the overlay must stay in the top-left quadrant, was (${params.leftMargin},${params.topMargin})",
+                params.leftMargin < screen.width / 2 && params.topMargin < screen.height / 2,
+            )
+            // A long decoder name must wrap instead of running off the right edge.
+            assertTrue(
+                "the overlay must be width-capped (maxWidth=${hud.maxWidth})",
+                hud.maxWidth in 1..(screen.width - params.leftMargin * 2),
+            )
+
+            assertFalse("the overlay must never take D-pad focus", hud.isFocusable)
+            assertFalse("the overlay must never take touch focus", hud.isFocusableInTouchMode)
+            assertEquals(
+                "the overlay must not be announced by accessibility services",
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO,
+                hud.importantForAccessibility,
+            )
+
+            val text = hud.text.toString()
+            assertTrue("RENDER should be labelled: $text", text.contains("RENDER"))
+            assertTrue("SOURCE should be labelled: $text", text.contains("SOURCE"))
+            assertTrue("RX should be labelled: $text", text.contains("RX "))
+            assertTrue("RX should carry packet rate units: $text", text.contains("pkt/s"))
+            assertTrue("an unmeasured frame rate must read N/A: $text", text.contains("RENDER  N/A"))
+            assertFalse("the payload rate must never be printed as rx=<n>/s fps: $text", text.contains("rx="))
+            assertFalse("no fabricated 60 fps claim: $text", text.contains("fps=60"))
+        } finally {
+            StreamStats.endSession()
+            StreamStats.overlayEnabled = false
+        }
     }
 
     @Test fun nowPlayingFitsTelevisionAndHandlesMissingMetadata() {

@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AirPlay protocol status mark -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <size android:width="32dp" android:height="32dp" />
-    <solid android:color="@color/protocol_airplay" />
-</shape>
+<!--
+    ic_airplay.xml — AirPlay protocol mark.
+
+    WHY THIS IS A VECTOR AND NOT A SHAPE: this used to be a filled oval, i.e. another coloured
+    blob with no meaning at 10 feet. It is the AirPlay card icon and the now-playing artwork
+    placeholder, so it now reads as an actual AirPlay target: a screen outline with the standard
+    triangle below it. The call site may tint it (NowPlayingScreen does), which is why the fill is
+    a single colour rather than a multicolour logo.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="@color/protocol_airplay"
+        android:fillType="evenOdd"
+        android:pathData="M3,3h18a2,2 0 0 1 2,2v11a2,2 0 0 1 -2,2h-3.1l2.6,3.5h-3.2l-2.6,-3.5h-5.4l-2.6,3.5H3.5L6.1,18H3a2,2 0 0 1 -2,-2V5a2,2 0 0 1 2,-2zM3.5,5.5v10h17v-10h-17z" />
+</vector>
