@@ -1,6 +1,8 @@
 package com.phairplay
 
 import android.app.Application
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.settings.SettingsRepository
 import com.phairplay.update.UpdateWorkScheduler
 import com.phairplay.util.Logger
@@ -28,9 +30,30 @@ class PhairPlayApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        initDiagnostics()
         initLogging()
         installUrlVideoBackend()
         syncAutomaticUpdateWork()
+    }
+
+    /**
+     * Restores the bounded activity history and records this process start.
+     *
+     * WHY BEFORE LOGGING: [ActivityLog.init] reloads the previous run's history from disk, so a
+     * receiver that crashed is still diagnosable after the TV restarts. DEBUG entries (including
+     * per-request AirPlay trace lines) are only retained in debuggable builds — a released Hearth
+     * must not fill its bound with request chatter.
+     */
+    private fun initDiagnostics() {
+        ActivityLog.debugEnabled = BuildConfig.DEBUG
+        ActivityLog.init(applicationContext)
+        ActivityLog.record(
+            Severity.INFO,
+            "app",
+            "Hearth started",
+            details = "version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) " +
+                "android ${android.os.Build.VERSION.SDK_INT}",
+        )
     }
 
     /** Load the existing user preference and persist the durable hourly schedule outside the service. */

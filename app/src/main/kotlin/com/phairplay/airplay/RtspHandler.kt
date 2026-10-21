@@ -620,12 +620,15 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         message: String,
         kind: AirPlayTrace.Kind = AirPlayTrace.Kind.INFO,
         role: String = currentRole.name,
+        /** Overrides the kind's default severity; used where a request was actually refused. */
+        severity: com.phairplay.diagnostics.Severity? = null,
     ) = AirPlayTrace.record(
         message = message,
         sessionId = sessionToken?.sessionId,
         connectionId = traceConnectionId,
         role = role,
         kind = kind,
+        severity = severity,
     )
 
     /** One-line description of an SDP session for the connection log. */
@@ -951,6 +954,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             trace(
                 "URL video /play rejected: scheme=$scheme requires unsupported sender-mediated transport",
                 kind = AirPlayTrace.Kind.FAILURE,
+                severity = com.phairplay.diagnostics.Severity.ERROR,
             )
             // 400 Bad Request, not 501: this is the answer 1.8.1/1.8.2 senders already get for a
             // location this receiver cannot play, and the regression suite pins it. The trace line
@@ -962,6 +966,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             trace(
                 "URL video /play rejected: invalid request (${parsed.reason.take(96)})",
                 kind = AirPlayTrace.Kind.FAILURE,
+                severity = com.phairplay.diagnostics.Severity.ERROR,
             )
             RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
@@ -987,6 +992,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             trace(
                 "Sender-mediated /play (${parsed.scheme}) rejected: no FCUP bridge host in this build",
                 kind = AirPlayTrace.Kind.FAILURE,
+                severity = com.phairplay.diagnostics.Severity.ERROR,
             )
             reportPlaybackState(AirPlayPlaybackState.FAILED, "play-negotiation:no FCUP bridge host")
             return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())

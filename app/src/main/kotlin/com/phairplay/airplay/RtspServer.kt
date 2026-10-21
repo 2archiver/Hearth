@@ -1,5 +1,7 @@
 package com.phairplay.airplay
 
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +88,15 @@ class RtspServer(
                 if (running) {
                     Logger.e("RTSP server could not bind port $port", e)
                     AirPlayTrace.record("RTSP port $port could not be opened (${e.message})")
+                    // CRITICAL: the receiver cannot accept a single sender until the port is free.
+                    // This is the one AirPlay failure that requires the user to act (stop whatever
+                    // else holds 7000, or Restart) rather than just waiting.
+                    ActivityLog.record(
+                        Severity.CRITICAL, "receiver",
+                        "AirPlay port $port could not be opened",
+                        details = "RTSP listeners that cannot bind never accept a sender",
+                        cause = e,
+                    )
                 }
                 return@launch
             }
@@ -97,7 +108,10 @@ class RtspServer(
                 val client = try {
                     socket.accept()
                 } catch (e: IOException) {
-                    if (running) Logger.w("RTSP accept failed: ${e.message}")
+                    if (running) {
+                        Logger.w("RTSP accept failed: ${e.message}")
+                        ActivityLog.record(Severity.WARNING, "receiver", "Accepting a sender connection failed", cause = e)
+                    }
                     break
                 }
                 if (!running) {
@@ -106,6 +120,8 @@ class RtspServer(
                 }
                 Logger.i("RTSP connection from ${client.inetAddress.hostAddress}")
                 AirPlayTrace.record("Connection from ${describe(client)}")
+                // No address in the activity log: the export must stay free of IPs.
+                ActivityLog.record(Severity.INFO, "airplay", "Sender connected to the receiver")
 
                 // Cap the fan-out. A sender needs a handful of sockets; anything beyond that is a
                 // client that has gone wrong, so retire the oldest connection instead of refusing
@@ -126,6 +142,7 @@ class RtspServer(
                         connection.serve()
                     } catch (e: Exception) {
                         Logger.w("RTSP connection ended with an error: ${e.message}")
+                        ActivityLog.record(Severity.WARNING, "airplay", "Sender connection ended with an error", cause = e)
                     } finally {
                         live.remove(connection)
                     }

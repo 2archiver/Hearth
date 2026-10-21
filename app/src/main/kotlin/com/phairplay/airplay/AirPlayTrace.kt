@@ -1,5 +1,7 @@
 package com.phairplay.airplay
 
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +21,26 @@ import java.util.TimeZone
  * exported report.
  */
 object AirPlayTrace {
-    enum class Kind { INFO, REQUEST, FAILURE, LIFECYCLE }
+    enum class Kind {
+        INFO,
+        REQUEST,
+        FAILURE,
+        LIFECYCLE;
+
+        /**
+         * Severity an entry gets when its call site does not name one.
+         *
+         * REQUEST is DEBUG because one HTTP request per line is diagnostics noise in a released
+         * build. FAILURE defaults to WARNING — recoverable — because the receiver keeps running
+         * after most of them; a caller that knows the operation actually failed passes
+         * [Severity.ERROR] (or CRITICAL) explicitly.
+         */
+        fun defaultSeverity(): Severity = when (this) {
+            INFO, LIFECYCLE -> Severity.INFO
+            REQUEST -> Severity.DEBUG
+            FAILURE -> Severity.WARNING
+        }
+    }
 
     /** Immutable diagnostic entry. [atElapsedMillis] is monotonic milliseconds since boot. */
     data class Entry(
@@ -31,6 +52,10 @@ object AirPlayTrace {
         val role: String? = null,
         val kind: Kind = Kind.INFO,
         val associationEvidence: String? = null,
+        /** User-facing severity; mirrors into [ActivityLog]. */
+        val severity: Severity = kind.defaultSeverity(),
+        /** Subsystem token shown by the activity view. */
+        val subsystem: String = "airplay",
     ) {
         fun timeLabel(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(atMillis))
     }
@@ -48,6 +73,9 @@ object AirPlayTrace {
         role: String? = null,
         kind: Kind = Kind.INFO,
         associationEvidence: String? = null,
+        severity: Severity? = null,
+        subsystem: String = "airplay",
+        details: String? = null,
     ) {
         val entry = Entry(
             atMillis = System.currentTimeMillis(),
@@ -58,6 +86,8 @@ object AirPlayTrace {
             role = role?.takeIf { SAFE_ROLE.matches(it) },
             kind = kind,
             associationEvidence = associationEvidence?.takeIf { SAFE_EVIDENCE.matches(it) },
+            severity = severity ?: kind.defaultSeverity(),
+            subsystem = subsystem,
         )
         synchronized(buffer) {
             buffer.addLast(entry)
@@ -66,6 +96,9 @@ object AirPlayTrace {
         }
         // Call sites must provide safe summaries; exported diagnostics are independently redacted.
         Logger.d("AirPlay trace: ${redact(entry.message)}")
+        // The activity view is the user-facing history; the trace stays the protocol record.
+        // REQUEST entries are DEBUG and therefore only stored when debug logging is enabled.
+        ActivityLog.record(entry.severity, entry.subsystem, entry.message, details = details)
     }
 
     /** Convenience for request handlers; endpoint is already normalized and query-free. */
@@ -130,7 +163,7 @@ object AirPlayTrace {
                     entry.associationEvidence?.let { "association=$it" },
                 ).joinToString(" ")
                 appendLine(
-                    "${entry.timeLabel()} +${elapsed}ms ${entry.kind}" +
+                    "${entry.timeLabel()} +${elapsed}ms ${entry.severity.name}/${entry.kind}" +
                         (if (context.isEmpty()) "" else " [$context]") +
                         " ${redact(entry.message)}"
                 )

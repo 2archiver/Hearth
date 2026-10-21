@@ -3,11 +3,13 @@ package com.phairplay.ui
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.SwitchCompat
 import com.phairplay.R
 import com.phairplay.airplay.NowPlayingInfo
@@ -140,6 +142,16 @@ class HearthUiTest {
             row.addFocusables(focusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)
             assertEquals("Each Settings row should expose exactly one focus target", 1, focusables.size)
         }
+        // The activity-log row opens a dialog rather than toggling a value: it must still expose a
+        // single D-pad target and must not be mistaken for a switch row.
+        val activityRow = root.findViewById<View>(R.id.row_activity_log)
+        activityRow.label(R.id.text_setting_label, "Activity log")
+        activityRow.findViewById<TextView>(R.id.text_setting_subtitle).text =
+            "Chronological receiver, casting and decoder events with severity."
+        val activityFocusables = ArrayList<View>()
+        activityRow.addFocusables(activityFocusables, View.FOCUS_FORWARD, View.FOCUSABLES_ALL)
+        assertEquals("The activity row should expose exactly one focus target", 1, activityFocusables.size)
+
         root.findViewById<View>(R.id.row_display_name).requestFocusFromTouch()
         render(root, "settings-wine")
         val row = root.findViewById<View>(R.id.row_force_high_res)
@@ -151,6 +163,45 @@ class HearthUiTest {
                 "text=${textLayout?.height}px",
             subtitle.height >= (textLayout?.height ?: 0)
         )
+    }
+
+    /**
+     * Regression for the two unexplained blocks in the 2.0 screenshots.
+     *
+     * Home's "Stop casting" icon button rendered `ic_stop` (a full-bleed solid rectangle) and
+     * Settings' Device Name row rendered `ic_chevron_right` (another solid rectangle), so both
+     * looked like stray brown/beige squares. They are vectors now: transparent at the corners and
+     * visibly drawn in the middle. This measures the drawables themselves, so it fails if either
+     * reverts to a filled shape.
+     */
+    @Test fun homeAndSettingsAffordanceGlyphsAreNotSolidBlocks() {
+        val activity = host()
+        val size = 48
+        listOf(
+            R.drawable.ic_stop to "Stop casting",
+            R.drawable.ic_chevron_right to "Settings chevron",
+            R.drawable.ic_airplay to "AirPlay mark",
+        ).forEach { (res, name) ->
+            val drawable = AppCompatResources.getDrawable(activity, res)
+            assertNotNull("$name drawable should resolve", drawable)
+            drawable!!.setBounds(0, 0, size, size)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            drawable.draw(Canvas(bitmap))
+
+            listOf(0 to 0, size - 1 to 0, 0 to size - 1, size - 1 to size - 1).forEach { (x, y) ->
+                assertEquals(
+                    "$name must not be a full-bleed block: corner ($x,$y) should be transparent",
+                    0,
+                    Color.alpha(bitmap.getPixel(x, y)),
+                )
+            }
+            var drawn = 0
+            for (x in 0 until size) for (y in 0 until size) {
+                if (Color.alpha(bitmap.getPixel(x, y)) != 0) drawn++
+            }
+            assertTrue("$name should still draw a visible glyph (drawn=$drawn)", drawn > size)
+            bitmap.recycle()
+        }
     }
 
     @Test fun nowPlayingFitsTelevisionAndHandlesMissingMetadata() {

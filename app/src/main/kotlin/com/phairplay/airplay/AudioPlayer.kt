@@ -3,6 +3,8 @@ package com.phairplay.airplay
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -92,7 +94,11 @@ class AudioPlayer {
         if (codec == AudioCodec.ALAC) {
             alac = runCatching {
                 com.phairplay.airplay.handshake.AlacDecoder(sampleRate, channels, alacFramesPerPacket)
-            }.onFailure { Logger.e("AudioPlayer: ALAC decoder init failed", it) }.getOrNull()
+            }.onFailure {
+                Logger.e("AudioPlayer: ALAC decoder init failed", it)
+                // ERROR: this audio operation failed. The receiver stays up for video/photo paths.
+                ActivityLog.record(Severity.ERROR, "audio", "Audio decoder could not start", cause = it)
+            }.getOrNull()
         }
 
         if (aesKey != null || aesIv != null) {
@@ -314,6 +320,11 @@ class AudioPlayer {
         val rate = decodeSuccesses.toDouble() / decodeAttempts
         if (rate < DECODE_HEALTH_MIN_RATE) {
             muted = true
+            ActivityLog.record(
+                Severity.WARNING, "audio",
+                "Audio decoding degraded",
+                details = "ALAC decoded $decodeSuccesses/$decodeAttempts frames",
+            )
             Logger.w("Audio muted: ALAC decoded only $decodeSuccesses/$decodeAttempts frames — " +
                      "stream key looks wrong (likely an unsupported FairPlay v2 mode)")
         } else {

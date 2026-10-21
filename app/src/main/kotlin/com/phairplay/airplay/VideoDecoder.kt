@@ -5,6 +5,8 @@ import android.media.MediaFormat
 import android.view.Surface
 import com.phairplay.airplay.handshake.MirrorPresentationAction
 import com.phairplay.airplay.handshake.MirrorPresentationPolicy
+import com.phairplay.diagnostics.ActivityLog
+import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
 
 /**
@@ -116,7 +118,12 @@ class VideoDecoder(
         // Create the hardware H.264 decoder.
         // "video/avc" is the MIME type for H.264. Android will pick the best
         // available hardware decoder for this format.
-        mediaCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        mediaCodec = codec
+        // Publish the real codec name for the overlay / activity log. "decoder: ready" alone hid
+        // which implementation (hardware OMX/Codec2 vs software) was actually in use, which is
+        // the first thing to check when frame pacing is poor on a specific TV.
+        StreamStats.decoderName = describeCodec(codec)
 
         // Configure the decoder:
         // - format: what the input will look like (H.264, width, height, SPS/PPS)
@@ -182,6 +189,12 @@ class VideoDecoder(
         } catch (e: IllegalStateException) {
             // MediaCodec is now in the error state and cannot recover — flag for recreation.
             Logger.e("VideoDecoder entered error state — will recreate", e)
+            ActivityLog.record(
+                Severity.ERROR, "decoder",
+                "Video decoder entered an error state",
+                details = "Mirroring will rebuild the codec and resume at the next IDR",
+                cause = e,
+            )
             isHealthy = false
             false
         } catch (e: Exception) {
@@ -216,6 +229,9 @@ class VideoDecoder(
                     // Existing mirroring and legacy video render immediately unless Stable FPS was
                     // latched at this mirror session's start.
                     codec.releaseOutputBuffer(outputBufferIndex, true)
+                    // Counted here, not at the RTP reader: this is the frame actually handed to
+                    // the display Surface, so "RENDER fps" cannot be inflated by packets.
+                    StreamStats.noteFramePresented()
                 } else {
                     val targetNanos = presentationTargetNanos(originNanos, bufferInfo.presentationTimeUs)
                     val decision = MirrorPresentationPolicy.decide(
@@ -231,14 +247,27 @@ class VideoDecoder(
                         MirrorPresentationAction.SCHEDULE -> {
                             codec.releaseOutputBuffer(outputBufferIndex, decision.renderTimeNanos ?: targetNanos)
                             StreamStats.noteMirrorPresentationScheduled()
+                            StreamStats.noteFramePresented()
                         }
-                        MirrorPresentationAction.RENDER_NOW ->
+                        MirrorPresentationAction.RENDER_NOW -> {
                             codec.releaseOutputBuffer(outputBufferIndex, true)
+                            StreamStats.noteFramePresented()
+                        }
                     }
                 }
             }
             outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
         }
+    }
+
+    /** Codec name plus hardware/software hint, bounded so it fits one overlay line. */
+    private fun describeCodec(codec: MediaCodec): String = try {
+        val name = codec.name ?: "unknown decoder"
+        val hardware = if (codec.info.isHardwareAccelerated) "hw" else "sw"
+        "${name.take(40)} ($hardware)"
+    } catch (e: Exception) {
+        // Never let cosmetic telemetry break playback startup.
+        "decoder (unknown)"
     }
 
     private fun presentationTargetNanos(originNanos: Long, presentationTimeUs: Long): Long = try {
