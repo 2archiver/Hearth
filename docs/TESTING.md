@@ -54,7 +54,9 @@ adb devices
 
 GitHub Actions runs the same checks on `main`:
 
-- `JVM protocol tests`: fast protocol/parser/media-unit coverage through `:test-runner:test`
+- `JVM protocol tests`: fast protocol/parser/media-unit coverage through `:test-runner:test`,
+  including `StreamStatsTest` (rendered vs sender-PTS vs RX telemetry, p50/p95, `N/A`) and
+  `ActivityLogTest` (bounded ring, severity/subsystem filters, redaction, persistence, debounce)
 - `Android lint & debug APKs`: Android lint, both debug APKs, and `HearthUiTest`
   (`:app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest'`), which inflates the
   real TV layouts under Robolectric's native graphics mode and uploads rendered PNGs to

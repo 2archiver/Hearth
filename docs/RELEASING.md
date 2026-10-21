@@ -10,7 +10,7 @@ There are two publication kinds, chosen automatically by the same job that runs 
 | Kind | When | Tag | Asset |
 |---|---|---|---|
 | **Stable milestone** | `CHANGELOG.md` has a `## [<base version>]` section **and** no `v<base>` tag exists yet | `v2.1.0` | `Hearth-v2.1.0-android-tv.apk` |
-| **Per-run development build** | every other push to `main` | `v<base>-main.<run number>` | `Hearth-<base>-main.<run>.apk` |
+| **Per-run development build** | every other push to `main` | `v<base>-main.<run number>` | `Hearth-<base>-main.<run>-googletv.apk` |
 
 The milestone is published from the *same* job that ran the protocol tests, the Robolectric TV layout
 tests, lint, the APK metadata check, the signing-fingerprint check and the versionCode
@@ -95,9 +95,15 @@ designation, artifact retention, rerun idempotency) and on the JVM by
 
 ### Version numbers
 
-- **Version name:** CI builds `<phairplay.versionName>-main.<run number>`; the Google TV APK
-  adds the `-googletv` flavor suffix — and that whole string becomes the release's asset file name,
-  so the file on GitHub and the file Android installs agree about which version they are.
+- **ABIs:** the APK must contain both `armeabi-v7a` and `arm64-v8a`. The release job reads the
+  `lib/<abi>/` entries out of the built APK and fails the run if either is missing, because a build
+  that silently lost 32-bit support still installs on 64-bit TVs and would otherwise go unnoticed.
+- **Version name:** a stable milestone embeds exactly `<phairplay.versionName>`; a per-run
+  development build embeds `<phairplay.versionName>-main.<run number>`. The Google TV flavor then
+  adds the `-googletv` suffix, so the milestone APK reports `2.1.0-googletv`. A development build's
+  whole string becomes its asset file name (`Hearth-2.1.0-main.26-googletv.apk`), while the
+  milestone uses the fixed `Hearth-v2.1.0-android-tv.apk`; either way the file on GitHub and the
+  installed app agree about which version they are.
 - **Version code:** a clock-based integer that is forced above the code in the release currently
   designated Latest. Android uses this number to determine whether an APK can update an installed
   app. A local `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides

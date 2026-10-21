@@ -236,16 +236,26 @@ class HearthUiTest {
             assertEquals("The overlay should be visible while enabled", View.VISIBLE, hud.visibility)
 
             val params = hud.layoutParams as FrameLayout.LayoutParams
-            // 5% of 1920 = 96dp at mdpi, well above the 24dp floor; 5% of 1080 = 54.
-            assertEquals("left margin should follow the 5% safe area", 96, params.leftMargin)
-            assertEquals("top margin should follow the 5% safe area", 54, params.topMargin)
+            // The container is laid out by the activity at the TV surface size, so the expected
+            // margins are derived the same way StreamingScreen derives them (5% of the actual
+            // size, floored at 24dp) rather than hard-coding one resolution.
+            val density = activity.resources.displayMetrics.density
+            val floor = (24 * density).toInt()
+            val expectedLeft = maxOf(floor, (screen.width * 0.05f).toInt())
+            val expectedTop = maxOf(floor, (screen.height * 0.05f).toInt())
+            assertTrue("the screen should be laid out, was ${screen.width}x${screen.height}", screen.width >= 320)
+            assertEquals("left margin should follow the 5% safe area", expectedLeft, params.leftMargin)
+            assertEquals("top margin should follow the 5% safe area", expectedTop, params.topMargin)
             assertTrue("the overlay must not be flush with the screen edge", params.leftMargin > 0 && params.topMargin > 0)
             assertTrue(
                 "the overlay must stay in the top-left quadrant, was (${params.leftMargin},${params.topMargin})",
-                params.leftMargin < width / 2 && params.topMargin < height / 2,
+                params.leftMargin < screen.width / 2 && params.topMargin < screen.height / 2,
             )
             // A long decoder name must wrap instead of running off the right edge.
-            assertTrue("the overlay must be width-capped", hud.maxWidth in 1..(width - params.leftMargin * 2))
+            assertTrue(
+                "the overlay must be width-capped (maxWidth=${hud.maxWidth})",
+                hud.maxWidth in 1..(screen.width - params.leftMargin * 2),
+            )
 
             assertFalse("the overlay must never take D-pad focus", hud.isFocusable)
             assertFalse("the overlay must never take touch focus", hud.isFocusableInTouchMode)
