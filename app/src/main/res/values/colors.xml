@@ -17,7 +17,14 @@
     <color name="status_running">#A4D8B2</color>
     <color name="status_stopped">#FFA69E</color>
     <color name="status_disabled">#B99DA9</color>
+    <!-- Disabled control surface + label. Distinct from the window background so an
+         unavailable button still reads as a control rather than a hole in the screen. -->
+    <color name="background_surface_unavailable">#1C1218</color>
+    <color name="text_disabled">#9A7F8B</color>
     <color name="status_transitioning">#F2CE8F</color>
+    <!-- Unrecoverable receiver failure. Always paired with the word CRIT in the UI; colour is
+         never the only signal. -->
+    <color name="status_critical">#FF7A7A</color>
     <color name="protocol_airplay">#F2A4BB</color>
     <color name="protocol_apple_casting">#E4C29B</color>
     <color name="nav_panel_background">#191216</color>

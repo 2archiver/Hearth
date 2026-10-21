@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <size android:width="24dp" android:height="24dp" />
-    <solid android:color="@color/accent_blue" />
-</shape>
+<!--
+    ic_restart.xml — Restart action (notification action icon).
+
+    Single-colour like every notification icon (Android tints it), so it is a plain circular
+    arrow rather than a filled oval. The oval was a placeholder that told a user nothing.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,5V2L7,6.5L12,11V8a5,5 0 1 1 -5,5H4a8,8 0 1 0 8,-8z" />
+</vector>

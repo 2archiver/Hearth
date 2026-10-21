@@ -116,6 +116,11 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp" />
 
+        <include layout="@layout/settings_action_row"
+            android:id="@+id/row_activity_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_debug_overlay"
             android:layout_width="match_parent"

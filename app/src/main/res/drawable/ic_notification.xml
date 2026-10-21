@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Notification small icon (white, single-color vector) -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <size android:width="24dp" android:height="24dp" />
-    <solid android:color="@android:color/white" />
-</shape>
+<!--
+    Notification small icon — the Hearth flame in a single white colour.
+
+    Notification icons are alpha masks, so this must stay one flat colour with no background.
+    (It used to be a plain oval, which Android rendered as an anonymous white dot.)
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="36"
+    android:viewportHeight="36">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M19,2 C22,10 29,12 29,21 C29,28 24,33 18,33 C11,33 7,28 7,22 C7,16 11,12 14,9 C13,16 15,18 17,19 C21,15 22,10 19,2 Z" />
+</vector>
