@@ -21,6 +21,8 @@ The updater-side parsing of these releases is covered by the JVM tests in
 from __future__ import annotations
 
 import re
+import os
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -197,6 +199,31 @@ class RerunIdempotencyTest(unittest.TestCase):
 
     def test_run_number_keeps_release_names_unique_across_runs(self):
         self.assertIn("${GITHUB_RUN_NUMBER}", self.text)
+
+
+class ReleaseLookupResponseTest(unittest.TestCase):
+    def lookup(self, response, exit_code):
+        text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        end = text.index('          if [[ -n "$existing_id" ]]; then')
+        start = list(re.finditer(r"(?m)^          existing_id=", text[:end]))[-1].start()
+        lookup = text[start:end]
+        script = (
+            "set -euo pipefail\n"
+            "REPO=test/hearth\nTAG=v2.0.0-main.23\n"
+            f"gh() {{ printf '%s' '{response}'; return {exit_code}; }}\n"
+            + lookup + '\nprintf "%s" "$existing_id"\n'
+        )
+        result = subprocess.run(
+            [os.environ.get("HEARTH_TEST_BASH", "bash"), "-c", script],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout
+
+    def test_missing_release_error_body_is_not_a_release_id(self):
+        self.assertEqual(self.lookup('{"message":"Not Found","status":"404"}', 1), "")
+
+    def test_existing_release_id_is_preserved(self):
+        self.assertEqual(self.lookup("401548003", 0), "401548003")
 
 
 if __name__ == "__main__":
