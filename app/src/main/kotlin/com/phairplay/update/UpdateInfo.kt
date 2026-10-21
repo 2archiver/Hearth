@@ -307,8 +307,10 @@ object ReleaseParser {
     //   Hearth-v2.1.0-android-tv.apk        → 2.1.0           (stable milestone)
     //   Hearth-1.5.0.apk                    → 1.5.0
     //   PhairPlay-googletv.apk              → null            (fixed legacy name carries no version)
+    // The version must begin with a digit: without that, `Hearth-android-tv.apk` would report the
+    // flavour suffix "android-tv" as its version and the updater would compare against nonsense.
     private val ASSET_VERSION_REGEX =
-        Regex("""^(?:Hearth|PhairPlay)-v?(.+?)(?:-googletv|-android-tv)?\.apk$""", RegexOption.IGNORE_CASE)
+        Regex("""^(?:Hearth|PhairPlay)-v?(\d[^/]*?)(?:-googletv|-android-tv)?\.apk$""", RegexOption.IGNORE_CASE)
 
     private fun parseAssets(array: JSONArray?): List<ReleaseAsset> {
         if (array == null) return emptyList()

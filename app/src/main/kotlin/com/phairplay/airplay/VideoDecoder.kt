@@ -263,7 +263,8 @@ class VideoDecoder(
     /** Codec name plus hardware/software hint, bounded so it fits one overlay line. */
     private fun describeCodec(codec: MediaCodec): String = try {
         val name = codec.name ?: "unknown decoder"
-        val hardware = if (codec.info.isHardwareAccelerated) "hw" else "sw"
+        // MediaCodec#getCodecInfo() (API 21) is the Kotlin `codecInfo` property; `isHardwareAccelerated` is API 29, which is this app's minSdk.
+        val hardware = if (codec.codecInfo.isHardwareAccelerated) "hw" else "sw"
         "${name.take(40)} ($hardware)"
     } catch (e: Exception) {
         // Never let cosmetic telemetry break playback startup.

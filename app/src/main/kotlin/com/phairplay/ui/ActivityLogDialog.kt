@@ -14,7 +14,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.AccessibilityDelegateCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.phairplay.BuildConfig
 import com.phairplay.R
 import com.phairplay.diagnostics.ActivityEntry
@@ -108,8 +110,8 @@ object ActivityLogDialog {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(8), 0, dp(8))
         }
-        val copyButton = actionButton(context, R.string.activity_log_copy, dp)
-        val clearButton = actionButton(context, R.string.activity_log_clear, dp)
+        val copyButton = actionButton(context, R.string.activity_log_copy)
+        val clearButton = actionButton(context, R.string.activity_log_clear)
         actionRow.addView(copyButton)
         actionRow.addView(clearButton)
         actionRow.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
@@ -244,8 +246,11 @@ object ActivityLogDialog {
             ViewCompat.setStateDescription(container, context.getString(R.string.activity_log_details_hint))
         }
 
-        ViewCompat.setAccessibilityDelegate(container, object : View.AccessibilityDelegate() {
-            override fun onInitializeAccessibilityNodeInfo(host: View, info: android.view.accessibility.AccessibilityNodeInfo) {
+        // The delegate is AccessibilityDelegateCompat (not the framework class) because that is
+        // what ViewCompat#setAccessibilityDelegate accepts. The node text is the entry summary so a
+        // screen reader announces what happened instead of a bare container.
+        ViewCompat.setAccessibilityDelegate(container, object : AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
                 super.onInitializeAccessibilityNodeInfo(host, info)
                 info.text = entry.summaryLine()
             }
@@ -253,8 +258,11 @@ object ActivityLogDialog {
         return container
     }
 
-    private fun actionButton(context: Context, labelRes: Int, dp: (Int) -> Int): Button =
-        Button(context).apply {
+    private fun actionButton(context: Context, labelRes: Int): Button {
+        // Density is resolved here so the caller never has to pass a `dp` reference around.
+        val density = context.resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).toInt()
+        return Button(context).apply {
             setText(labelRes)
             isFocusable = true
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -267,6 +275,7 @@ object ActivityLogDialog {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginEnd = dp(8) }
         }
+    }
 
     private fun severityColor(severity: Severity): Int = when (severity) {
         Severity.DEBUG -> R.color.text_tertiary

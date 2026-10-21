@@ -80,8 +80,9 @@ class ActivityLogTest {
         assertEquals(3, ActivityLog.entries(minSeverity = Severity.WARNING).size)
         assertEquals(2, ActivityLog.entries(minSeverity = Severity.ERROR).size)
         assertEquals(1, ActivityLog.entries(subsystem = "decoder").size)
+        // "receiver" has an INFO start and a CRITICAL port failure; the WARNING filter keeps one.
         assertEquals(
-            2,
+            1,
             ActivityLog.entries(minSeverity = Severity.WARNING, subsystem = "receiver").size,
         )
         assertEquals(listOf("airplay", "decoder", "receiver"), ActivityLog.subsystems())
