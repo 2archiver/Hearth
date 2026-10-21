@@ -75,17 +75,19 @@ active audio, video, mirroring or a displayed still image; the user can install 
 
 - Regression tests were added for updater cadence/retry/rate limiting and single flight; receiver
   Stop/cleanup ownership; reverse-channel correlation and PTTH/FCUP handling; audio-only HLS
-  rejection; loopback URL/redirect policy; and Photos actions/cache isolation/eviction. **None of the
-  Gradle tests have been run in this checkout** unless a later validation entry is added below.
-- Attempted `./gradlew test`, `./gradlew :test-runner:test`, `./gradlew lint`, and
-  `./gradlew assembleGoogletvRelease`. Each exited before Gradle started with:
-  `JAVA_HOME is not set and no 'java' command could be found in your PATH.` The earlier attempt to
-  install OpenJDK was also blocked because the environment could not connect to the configured Debian
-  package repositories. No Kotlin tests ran, lint did not run, and no APK was produced. Do not report
-  the build or tests as passed.
+  rejection; loopback URL/redirect policy; and Photos actions/cache isolation/eviction.
+- Local attempts to run `./gradlew test`, `./gradlew :test-runner:test`, `./gradlew lint`, and
+  `./gradlew assembleGoogletvRelease` stopped before Gradle with
+  `JAVA_HOME is not set and no 'java' command could be found in your PATH.` The earlier OpenJDK
+  install attempt was blocked by unreachable Debian package repositories. Therefore Kotlin tests,
+  lint and the release APK task could not be run locally.
+- Remote PR CI passed `:test-runner:test`, Google TV Android lint, debug APK assembly, and
+  `HearthUiTest` on the final updater-policy code. CI uploaded the installable Google TV debug APK as
+  the `debug-apk-googletv` artifact; it is a debug build, not the requested release-variant build.
+  `assembleGoogletvRelease` was not run, so no release APK is claimed.
 - Offline checks passed: `git diff --check`, XML parsing for 32 Android resource/manifest files,
   version-catalog TOML parsing, workflow shell/YAML validation, and the four release-notes helper
-  tests. These do not replace Kotlin compilation, Android lint, or the Android build.
+  tests. These checks do not replace hardware acceptance.
 
 ## Required device acceptance before claiming fixes
 
