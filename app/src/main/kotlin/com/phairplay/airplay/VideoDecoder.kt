@@ -2,7 +2,10 @@ package com.phairplay.airplay
 
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.Handler
+import android.os.HandlerThread
 import android.view.Surface
+import com.phairplay.airplay.handshake.MirrorPlayoutClock
 import com.phairplay.airplay.handshake.MirrorPresentationAction
 import com.phairplay.airplay.handshake.MirrorPresentationPolicy
 import com.phairplay.diagnostics.ActivityLog
@@ -41,7 +44,9 @@ class VideoDecoder(
 ) {
 
     // The underlying hardware decoder — null until initialize() is called
-    private var mediaCodec: MediaCodec? = null
+    @Volatile private var mediaCodec: MediaCodec? = null
+    private var frameCallbackThread: HandlerThread? = null
+    private val playoutClock = MirrorPlayoutClock()
 
     // Track whether the decoder has been initialized (to prevent double-init)
     @Volatile
@@ -131,6 +136,12 @@ class VideoDecoder(
         // - crypto: null (we handle decryption before this point, if needed)
         // - flags: 0 (0 = decoder mode; CONFIGURE_FLAG_ENCODE would be for encoding)
         mediaCodec!!.configure(format, outputSurface, null, 0)
+        // Count actual Surface presentations, not release calls (which may be batched or dropped).
+        val callbacks = HandlerThread("HearthFrameStats").also { it.start() }
+        frameCallbackThread = callbacks
+        codec.setOnFrameRenderedListener({ activeCodec, _, renderNanos ->
+            if (mediaCodec === activeCodec) StreamStats.noteFramePresented(renderNanos)
+        }, Handler(callbacks.looper))
         mediaCodec!!.start()
 
         isInitialized = true
@@ -203,6 +214,18 @@ class VideoDecoder(
         }
     }
 
+    /** Drain even when the sender is idle so the final decoded frame cannot wait for another packet. */
+    fun drainOutput() {
+        val codec = mediaCodec ?: return
+        if (!isHealthy) return
+        try {
+            releaseOutputBuffers(codec)
+        } catch (error: Exception) {
+            isHealthy = false
+            Logger.e("Video output drain failed; rebuild at the next IDR", error)
+        }
+    }
+
     /**
      * Releases any decoded output buffers back to MediaCodec and renders them to the Surface.
      *
@@ -229,15 +252,15 @@ class VideoDecoder(
                     // Existing mirroring and legacy video render immediately unless Stable FPS was
                     // latched at this mirror session's start.
                     codec.releaseOutputBuffer(outputBufferIndex, true)
-                    // Counted here, not at the RTP reader: this is the frame actually handed to
-                    // the display Surface, so "RENDER fps" cannot be inflated by packets.
-                    StreamStats.noteFramePresented()
                 } else {
-                    val targetNanos = presentationTargetNanos(originNanos, bufferInfo.presentationTimeUs)
+                    val nowNanos = System.nanoTime()
+                    val targetNanos = playoutClock.targetTimeNanos(bufferInfo.presentationTimeUs, nowNanos)
                     val decision = MirrorPresentationPolicy.decide(
                         enabled = true,
                         targetTimeNanos = targetNanos,
-                        nowNanos = System.nanoTime(),
+                        nowNanos = nowNanos,
+                        maxLeadNanos = MirrorPlayoutClock.MAX_LEAD_NANOS,
+                        maxLatenessNanos = 45_000_000L,
                     )
                     when (decision.action) {
                         MirrorPresentationAction.DROP_STALE -> {
@@ -247,11 +270,9 @@ class VideoDecoder(
                         MirrorPresentationAction.SCHEDULE -> {
                             codec.releaseOutputBuffer(outputBufferIndex, decision.renderTimeNanos ?: targetNanos)
                             StreamStats.noteMirrorPresentationScheduled()
-                            StreamStats.noteFramePresented()
                         }
                         MirrorPresentationAction.RENDER_NOW -> {
                             codec.releaseOutputBuffer(outputBufferIndex, true)
-                            StreamStats.noteFramePresented()
                         }
                     }
                 }
@@ -269,12 +290,6 @@ class VideoDecoder(
     } catch (e: Exception) {
         // Never let cosmetic telemetry break playback startup.
         "decoder (unknown)"
-    }
-
-    private fun presentationTargetNanos(originNanos: Long, presentationTimeUs: Long): Long = try {
-        Math.addExact(originNanos, Math.multiplyExact(presentationTimeUs.coerceAtLeast(0L), 1_000L))
-    } catch (_: ArithmeticException) {
-        Long.MAX_VALUE
     }
 
     /** Reads the decoder's true display size (honouring the crop rectangle) for StreamingScreen. */
@@ -305,12 +320,19 @@ class VideoDecoder(
     fun release() {
         Logger.d("Releasing VideoDecoder")
         try {
-            mediaCodec?.stop()
-            mediaCodec?.release()
+            val codec = mediaCodec
+            mediaCodec = null // Ignore callbacks queued by the old codec.
+            try {
+                codec?.stop()
+            } finally {
+                codec?.release()
+            }
         } catch (e: Exception) {
             Logger.e("Error releasing MediaCodec (non-fatal)", e)
         } finally {
             mediaCodec = null
+            frameCallbackThread?.quitSafely()
+            frameCallbackThread = null
             isInitialized = false
         }
     }

@@ -387,11 +387,33 @@ object StreamStats {
      *  - unavailable telemetry says so in words (`sync N/A`) instead of omitting the row, so a
      *    reader cannot mistake the absence for a zero.
      */
-    fun summary(nowMillis: Long = System.currentTimeMillis()): String {
+    fun summary(
+        nowMillis: Long = System.currentTimeMillis(),
+        nowNanos: Long = System.nanoTime(),
+    ): String {
+        val recentFps = synchronized(sampleLock) {
+            if (lastPresentedNanos != WINDOW_CLOSED &&
+                nowNanos - lastPresentedNanos in 0L..2_000_000_000L) presentedFps else 0.0
+        }
+        return buildString {
+            append("Hearth 2.2 · ").append(fps(recentFps))
+            if (source.isEmpty()) {
+                append("\nWaiting for a stream")
+            } else {
+                append("\n").append(videoRes.ifEmpty { "Connecting…" })
+                if (sessionStartedAtMillis != 0L) {
+                    append(" · ").append(formatClock((nowMillis - sessionStartedAtMillis) / 1000.0))
+                }
+                if (videoAwaitingIdr) append("\nRecovering video…")
+            }
+        }
+    }
+
+    fun diagnosticsSummary(nowMillis: Long = System.currentTimeMillis()): String {
         val text = StringBuilder()
         val active = source
         val state = receiverState
-        text.append("HEARTH 2.1")
+        text.append("HEARTH 2.2")
         if (active.isNotEmpty()) text.append(" · ").append(active)
         if (displayRefreshHz > 0f) text.append(" · panel ").append(oneDecimal(displayRefreshHz.toDouble())).append(" Hz")
         if (sessionStartedAtMillis != 0L) {
