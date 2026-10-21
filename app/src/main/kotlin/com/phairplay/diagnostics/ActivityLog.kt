@@ -259,16 +259,6 @@ object ActivityLog {
     /**
      * Queues an immediate write without blocking the caller.
      *
-     * Used by shutdown paths (service destruction): the main thread must not wait on disk I/O,
-     * and the write is coalesced with any debounce already in flight.
-     */
-    fun flushAsync() {
-        scheduleFlush(immediate = true)
-    }
-
-    /**
-     * Queues an immediate write without blocking the caller.
-     *
      * Shutdown paths run on the main thread, so they must never wait for disk I/O; the write is
      * still coalesced with whatever the debounce already scheduled.
      */
