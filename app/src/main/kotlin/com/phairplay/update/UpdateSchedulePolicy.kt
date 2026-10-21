@@ -18,6 +18,9 @@ data class UpdateScheduleStatus(
     fun nextEligibleAtMillis(nowMillis: Long): Long {
         val cadenceAt = when {
             legacyTimestampOnly && lastCheckMillis > 0L -> safeAdd(lastCheckMillis, UpdatePreferences.CHECK_INTERVAL_MS)
+            // A stored server/retry deadline is authoritative. The generic retry interval
+            // only supplies a fallback for an interrupted attempt without a deadline.
+            retryAfterMillis > 0L -> retryAfterMillis
             // A newer in-flight, interrupted, or failed attempt supersedes an older success.
             // Otherwise the hourly-success cadence could hide the shorter retry deadline.
             lastAttemptMillis > lastSuccessMillis && lastAttemptMillis > 0L ->
