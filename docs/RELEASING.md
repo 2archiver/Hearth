@@ -1,56 +1,90 @@
 # Releasing Hearth (Google TV)
 
-Hearth has **one current GitHub release**, tagged `latest`. A successful
-build from `main` updates it in place, and GitHub marks that same release as **Latest**. The
-in-app updater, direct download link, and release page therefore point to the same APK. Older
-numbered releases are kept as history; new builds do not create competing release entries.
+Every successful build from `main` publishes its **own immutable GitHub Release** under its own
+version tag. Nothing is overwritten: old releases, tags and APK assets stay downloadable forever,
+and GitHub's **Latest release** designation is the only rolling pointer. The in-app updater, the
+direct download link and the release page therefore always resolve to the newest build without any
+tag ever being moved.
 
 ## Download the current APK
 
-- **The release (one asset, the APK):** <https://github.com/2archiver/Hearth/releases/latest>
-- **Release title, update notes, version, checksum and build details:** <https://github.com/2archiver/Hearth/releases/tag/latest>
-- **Optional download page:** GitHub Pages is not enabled for `2archiver/Hearth` (checked via repository metadata on 2026-10-07). Use the GitHub release page above; do not rely on a Pages URL until it is enabled.
+- **The current release (GitHub resolves this to the newest build):** <https://github.com/2archiver/Hearth/releases/latest>
+- **A specific immutable release:** `https://github.com/2archiver/Hearth/releases/tag/v<version>` —
+  for example `v2.0.0-main.23`.
+- **Optional download page:** GitHub Pages is not enabled for `2archiver/Hearth` (checked via
+  repository metadata on 2026-10-07). Use the GitHub release page above; do not rely on a Pages URL
+  until it is enabled.
 
 A release carries **exactly one file**: `Hearth-<version>-googletv.apk`, named after the
 `versionName` embedded in it (the workflow reads that back out of the built APK with `aapt`).
 Nothing else is uploaded — no `SHA256SUMS.txt`, no `version.json`. What those files used to carry
-is now written into the release body, which is where a human reads it and where
+is written into the release body, which is where a human reads it and where
 `ReleaseParser.scrapeVersionCode` / `scrapeSha256` find it for the in-app updater.
 
 Why one file: a release with three assets invites a TV to download the wrong one, and an
 un-versioned `Hearth-googletv.apk` cannot tell you which build it is once it lands in the
 Downloads folder. Both problems disappear when the file name *is* the version and it is alone.
 
+## Immutable release names
+
+| Thing | Value for run 23 of the 2.0.0 train |
+|---|---|
+| Base version (`phairplay.versionName`) | `2.0.0` |
+| Embedded APK version / asset name | `2.0.0-main.23-googletv` / `Hearth-2.0.0-main.23-googletv.apk` |
+| Git tag and GitHub Release | `v2.0.0-main.23` |
+| Direct APK URL | `https://github.com/2archiver/Hearth/releases/download/v2.0.0-main.23/Hearth-2.0.0-main.23-googletv.apk` |
+
+The workflow run number is stable across reruns of the same run, so a rerun rebuilds the *same*
+release instead of minting a second one — that is what makes reruns idempotent.
+
 ## How publishing works
 
 `.github/workflows/release.yml` runs on pushes to `main` and manual runs selected on `main`.
-It builds, verifies, and publishes the APK only when that commit is still the current tip of
-`main`. A fixed concurrency group prevents two builds from racing over the `latest` tag.
+After the APK builds and every verification gate passes, it:
 
-The workflow moves the `latest` tag to the current commit, deletes every asset the release already
-has, and publishes the single version-named APK. It uses the version read from the built APK for the
-file name and the title, and marks the release as GitHub's **Latest**. Notes show
-commit titles since the previous build plus the matching `CHANGELOG.md` summary. Older releases
-are left untouched as history.
+1. Derives `version`, the immutable `tag` (`v<version>`) and a monotonic `versionCode`.
+2. Creates the tag with a normal, non-forced push **only if it does not already exist**. There is
+   no force-push and no moving tag anywhere in the repository.
+3. Creates a GitHub Release for that tag with the single version-named APK, or — on rerun — finds
+   the existing release and skips an upload that is already present. Releases and assets are never
+   deleted, pruned or overwritten; an unexpected same-named asset with a different size fails the
+   run loudly instead of replacing history.
+4. Marks the release GitHub **Latest** only when the run's commit is still the tip of `main`. A
+   queued older run still publishes its immutable release, but without taking the Latest
+   designation. A fixed concurrency group (`release-publish`, no in-progress cancellation)
+   serializes publishing so the designation cannot race.
+5. Also uploads the signed APK and `build.log` as a workflow artifact (30-day retention). Artifacts
+   are separate from GitHub Releases: the retention policy never touches published release assets.
+
+The historical release tagged `latest` (the 1.9.3 build) is deliberately **left untouched** as a
+downloadable historical artifact. It is no longer the updater's source of truth: no workflow
+publishes to a tag named `latest` anymore, and GitHub's Latest designation on the newest immutable
+release is what `/releases/latest` returns.
 
 ### Publishing an update
 
 1. Update `CHANGELOG.md` with the user-visible changes. Use `## [Unreleased]` for in-progress
-   work, or a version heading matching the release version (for example, `## [1.6]`).
+   work, or a version heading matching the release version (for example, `## [2.0.0]`).
 2. When starting a new release train, bump `phairplay.versionName` in `gradle.properties`.
-3. Merge or push to `main`. GitHub Actions builds and publishes the current APK automatically.
+3. Merge or push to `main`. GitHub Actions builds and publishes a new immutable release
+   automatically. To publish deliberately, choose **Actions → Release → Run workflow** and select
+   the `main` branch.
 
-No release tag or manual release editing is needed. To run the workflow manually, choose
-**Actions → Release → Run workflow** and select the `main` branch.
+No manual tag or release editing is needed. The contract is enforced offline by
+`tools/test_release_workflow.py` (no destructive release commands, immutable naming, Latest
+designation, artifact retention, rerun idempotency) and on the JVM by
+`app/src/test/kotlin/com/phairplay/update/ImmutableReleaseTest.kt`.
 
 ### Version numbers
 
 - **Version name:** CI builds `<phairplay.versionName>-main.<run number>`; the Google TV APK
   adds the `-googletv` flavor suffix — and that whole string becomes the release's asset file name,
   so the file on GitHub and the file Android installs agree about which version they are.
-- **Version code:** a clock-based integer that is forced above the code in the current release.
-  Android uses this number to determine whether an APK can update an installed app. A local
-  `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides it.
+- **Version code:** a clock-based integer that is forced above the code in the release currently
+  designated Latest. Android uses this number to determine whether an APK can update an installed
+  app. A local `./gradlew` build derives it from the clock; `-Pphairplay.versionCode=…` overrides
+  it. A rerun of the release that already owns the Latest designation is exempt from the gate
+  rather than failed against its own code.
 
 ## Signing: why updates install in place
 
@@ -122,10 +156,12 @@ Gradle properties `phairplay.keystorePath`, `phairplay.keystoreType`, `phairplay
 ## The download page
 
 `site/index.html` is a static page with one prominent **Download latest APK** button, Downloader/ADB
-install steps, and a current-version summary. It reads the current release from GitHub in the
-browser; older release links are tucked into a collapsed history section. Before the GitHub API responds—or if it is unavailable—the button opens the current GitHub release
-page. Once the API responds, the page uses the actual compatible asset URL returned for that
-release; it does not invent a fixed APK filename.
+install steps, and a current-version summary. It reads the current release from GitHub's
+`/releases/latest` endpoint in the browser and lists the immutable releases in a collapsed history
+section; older release links stay valid because their tags are never moved. Before the GitHub API
+responds — or if it is unavailable — the button opens the current GitHub release page. Once the API
+responds, the page uses the actual compatible asset URL returned for that release; it does not
+invent a fixed APK filename.
 
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The
 `Releases page` workflow passes `enablement: true`, so a run from `main` flips that switch for
@@ -143,28 +179,29 @@ Set `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` to sign wi
 otherwise the committed community key is used. Omit the `-P` flags to use the base version from
 `gradle.properties` and a clock-derived versionCode.
 
-## What the release workflow publishes
+## What each release publishes
 
 One asset, named after the version read back out of the built APK:
 
 ```
-Hearth-1.5.0-main.131-googletv.apk
+Hearth-2.0.0-main.23-googletv.apk
 ```
 
 and a release body that carries everything the side files used to:
 
 ```markdown
-- **Version:** `1.5.0-main.131-googletv` · `versionCode 1449351`
-- **Size:** 24.9 MB · **SHA-256:** `…64 hex…`
+- **Version:** `2.0.0-main.23-googletv` · `versionCode 21021542`
+- **Size:** 13.2 MB · **SHA-256:** `…64 hex…`
 ```
 
 That is the whole contract with the in-app updater (`update/ReleaseParser`): one request to
-`/releases/latest`, the version name from the asset file name, the code and digest scraped from the
-body. Releases published before this change also had `version.json` and `SHA256SUMS.txt`, and those
-parsers are still in place, so an old release resolves too — but nothing publishes them, and the
-publish step deletes every pre-existing asset so a re-run of an old release cannot leave them
-behind.
+`/releases/latest` (the release GitHub designates newest), the version name from the asset file
+name, the code and digest scraped from the body, and the asset's own immutable
+`/releases/download/v<version>/…` URL. Releases published before the one-asset change also had
+`version.json` and `SHA256SUMS.txt`, and those parsers are still in place, so an old release
+resolves too — but nothing publishes them.
 
 Before publishing, the workflow verifies the APK's embedded version name and code, checks the
 signing certificate with `apksigner verify`, and refuses any build whose `versionCode` is not
-higher than the published APK.
+higher than the release currently designated Latest (except an idempotent rerun of that release
+itself).

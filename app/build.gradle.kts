@@ -151,8 +151,10 @@ android {
         minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
         // Version source of truth: phairplay.versionName in gradle.properties. CI adds the
-        // workflow run number, publishes one `latest` release, and reads the final APK metadata
-        // back before publishing. The versionCode fallback increases with each local build.
+        // workflow run number, publishes one immutable per-build release tagged
+        // v<versionName>-main.<run number> and marked GitHub Latest, and reads the final APK
+        // metadata back before publishing. The versionCode fallback increases with each local
+        // build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
         versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.0.0")

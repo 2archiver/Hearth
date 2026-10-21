@@ -21,7 +21,7 @@ data class UpdateInfo(
     val versionName: String,
     /** Monotonic integer version. Compared against the installed BuildConfig.VERSION_CODE. */
     val versionCode: Int,
-    /** Release tag, e.g. `latest` or `v1.4.0`. */
+    /** Release tag, e.g. the immutable `v2.0.0-main.23` (historical releases may use `latest`). */
     val tagName: String,
     /** Web page for the release, opened by "view release notes". */
     val htmlUrl: String,

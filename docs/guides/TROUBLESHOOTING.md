@@ -276,13 +276,15 @@ before installing it. A different-key APK is never passed to Android's installer
 **`INSTALL_FAILED_VERSION_DOWNGRADE`**
 - You are installing an older APK over a newer one. Every build published by CI has a higher
   versionCode than the one before it, so this means the file is old — re-download from the
-  [current `latest` release](https://github.com/2archiver/Hearth/releases/tag/latest).
-- Do not force a downgrade or uninstall to work around it. Download the current version-named APK from the release page and check the installed/published version codes first.
+  [current release](https://github.com/2archiver/Hearth/releases/latest), which GitHub resolves
+  to the newest immutable build.
+- Do not force a downgrade or uninstall to work around it. Download the current version-named APK from the release page and check the installed/published version codes first. Older immutable releases stay available under their own `v<version>` tags if you deliberately need to roll back.
 
 **The download link returns 404**
-- The release is created by GitHub Actions on the first push to `main` after
-  `.github/workflows/release.yml` lands. Check **Actions → Release**; if it has not run yet, grab
-  the `debug-apk-googletv` artifact from the newest **Actions → CI** run instead.
+- Each release is created by GitHub Actions under its own immutable `v<version>-main.<run>` tag
+  on the first successful Release run for a build. Check **Actions → Release**; if it has not run
+  or finished yet, grab the `release-apk-googletv-*` workflow artifact (or the
+  `debug-apk-googletv` artifact from the newest **Actions → CI** run) instead.
 
 ---
 

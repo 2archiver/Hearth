@@ -1,13 +1,22 @@
-# Publishes one canonical release: the newest successful build from main.
-# The APK asset is named from the embedded versionName; the GitHub release title uses that same
-# value, and its notes come from CHANGELOG.md (or recent commits).
+# Publishes one IMMUTABLE GitHub Release per successful build from main.
 #
-# Direct download (the single asset, named after its version):
-#   https://github.com/<owner>/<repo>/releases/download/latest/Hearth-<version>-googletv.apk
-# There is deliberately exactly ONE asset per release. The version name, version code and the
-# APK's SHA-256 are written into the release body, which is what the in-app updater reads.
-# The same release is marked as GitHub's "Latest", so the in-app updater and the
-# GitHub Releases page always point to the same build.
+# Every run builds the Google TV APK, verifies it, and publishes it under its own
+# versioned tag and its own GitHub Release:
+#
+#   version (embedded): 2.0.0-main.<run_number>-googletv
+#   git tag / release:  v2.0.0-main.<run_number>
+#   sole asset:         Hearth-2.0.0-main.<run_number>-googletv.apk
+#   direct download:    https://github.com/<owner>/<repo>/releases/download/v2.0.0-main.<run_number>/Hearth-2.0.0-main.<run_number>-googletv.apk
+#
+# Nothing here is mutable history:
+#   * tags are created once and pushed normally — there is NO force-push and NO moving tag;
+#   * releases and assets are never deleted, pruned or overwritten in place — a rerun finds the
+#     release it already owns and skips the upload instead of replacing it;
+#   * the only rolling pointer is GitHub's own "Latest release" designation
+#     (make_latest), which the in-app updater reads through GET /releases/latest.
+#
+# The historical release tagged `latest` (1.9.3) is intentionally left untouched: it stays
+# downloadable forever, but it is no longer the updater's source of truth.
 
 name: Release
 
@@ -19,14 +28,16 @@ on:
 permissions:
   contents: write
 
-# Pushes and manual runs all update the same tag and release; never let them overlap.
+# Serialize publishing so two runs can never race over a tag or the Latest designation.
+# A queued older run still publishes its own immutable release, but only the current tip
+# of main is allowed to take the Latest designation (see the freshness step).
 concurrency:
-  group: release-latest
+  group: release-publish
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Build & publish the latest Google TV APK
+    name: Build & publish an immutable Google TV APK release
     runs-on: ubuntu-latest
 
     env:
@@ -36,17 +47,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Remember the currently published commit
-        id: previous
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          previous_sha=$(gh api "repos/$REPO/commits/latest" --jq '.sha' 2>/dev/null || true)
-          echo "sha=$previous_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Derive the APK version and update code
+      - name: Derive the APK version, immutable tag and update code
         id: meta
         env:
           GH_TOKEN: ${{ github.token }}
@@ -65,30 +66,53 @@ jobs:
             exit 1
           fi
 
+          # One build version per workflow run. GITHUB_RUN_NUMBER is stable across reruns of
+          # the same run, so a rerun rebuilds the SAME immutable release instead of minting a
+          # new one — that is what makes reruns idempotent.
+          version="${base}-main.${GITHUB_RUN_NUMBER}"
+          tag="v${version}"
+
           # Every build is newer than the previous APK, including two runs in the same minute.
           # This numeric code is what Android uses to decide whether an APK can update an install.
           code=$(( $(date -u +%s) / 60 - 28401120 ))
-          previous_body=$(gh api "repos/$REPO/releases/tags/latest" --jq '.body // ""' 2>/dev/null || true)
-          previous_code=$(printf '%s\n' "$previous_body" \
-            | grep -oE 'versionCode[[:space:]]+`?[0-9]+' \
-            | grep -oE '[0-9]+' | tail -1 || true)
-          if [[ -n "$previous_code" ]] && (( code <= previous_code )); then
+
+          # The rolling pointer is GitHub's Latest *designation*, queried through the standard
+          # /releases/latest endpoint — never a git tag named "latest".
+          previous_tag=""
+          previous_code=""
+          previous_commit=""
+          if latest_body=$(gh api "repos/$REPO/releases/latest" --jq '.body // ""' 2>/dev/null); then
+            previous_tag=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name // ""' 2>/dev/null || true)
+            previous_code=$(printf '%s\n' "$latest_body" \
+              | grep -oE 'versionCode[[:space:]]+`?[0-9]+' \
+              | grep -oE '[0-9]+' | tail -1 || true)
+            if [[ -n "$previous_tag" && "$previous_tag" != "$tag" ]]; then
+              # The commits endpoint resolves both lightweight and annotated tags to a SHA,
+              # unlike targetCommitish (which is just the branch name).
+              previous_commit=$(gh api "repos/$REPO/commits/$previous_tag" \
+                --jq '.sha' 2>/dev/null || true)
+            fi
+          fi
+          if [[ -n "$previous_code" && "$previous_tag" != "$tag" ]] && (( code <= previous_code )); then
             code=$((previous_code + 1))
           fi
 
-          version="${base}-main.${GITHUB_RUN_NUMBER}"
           {
             echo "version=$version"
+            echo "tag=$tag"
             echo "code=$code"
+            echo "previous_tag=$previous_tag"
+            echo "previous_commit=$previous_commit"
           } >> "$GITHUB_OUTPUT"
 
           {
-            echo "### Building the latest release"
+            echo "### Building an immutable release"
             echo
             echo "| | |"
             echo "|---|---|"
             echo "| Source | \`main\` · \`${GITHUB_SHA:0:7}\` |"
             echo "| Build version | \`$version\` |"
+            echo "| Immutable tag / release | \`$tag\` |"
             echo "| Android versionCode | \`$code\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -159,7 +183,7 @@ jobs:
           fi
           echo "Verified release updater target: 2archiver/Hearth" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify APK metadata and collect release assets
+      - name: Verify APK metadata and collect release asset
         id: assets
         env:
           VERSION: ${{ steps.meta.outputs.version }}
@@ -196,13 +220,9 @@ jobs:
             exit 1
           fi
 
-          # "One release, one asset": the ONLY thing published is the version-named APK.
-          # SHA256SUMS.txt and version.json used to be uploaded next to it so the in-app updater
-          # could verify what it downloaded — but two extra assets made the release look like a
-          # pile of build byproducts, and a browser/TV downloader that grabbed the wrong one had
-          # nothing telling it which was which. The checksum and the version code now live in the
-          # release body instead, which is where a person reads them anyway and where
-          # update/ReleaseParser can still scrape them.
+          # One immutable release, one asset: the ONLY thing published is the version-named APK.
+          # Its SHA-256 and versionCode are written into the release body below, which is where
+          # a person reads them and where update/ReleaseParser scrapes them.
           apk_name="Hearth-${apk_version}.apk"
           mkdir -p dist
           cp "$src" "dist/$apk_name"
@@ -215,6 +235,7 @@ jobs:
             echo "version_name=$apk_version"
             echo "version_code=$apk_code"
             echo "sha256=$apk_sha256"
+            echo "size_bytes=$apk_size"
             echo "size_mb=$size_mb"
           } >> "$GITHUB_OUTPUT"
           {
@@ -250,24 +271,32 @@ jobs:
             exit 1
           fi
 
-      - name: Confirm the version code is newer than the published APK
+      - name: Confirm the version code is newer than the currently designated Latest release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
           CODE: ${{ steps.assets.outputs.version_code }}
         shell: bash
         run: |
           set -euo pipefail
-          previous_body=$(gh api "repos/$REPO/releases/tags/latest" --jq '.body // ""' 2>/dev/null || true)
-          previous_code=$(printf '%s\n' "$previous_body" \
+          latest_tag=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name // ""' 2>/dev/null || true)
+          if [[ -n "$latest_tag" && "$latest_tag" == "$TAG" ]]; then
+            # A rerun of the run that already owns this release: the gate below compares the
+            # release against itself, so it is skipped rather than failed.
+            echo "Rerun of $TAG: the release already exists and keeps its versionCode."
+            exit 0
+          fi
+          latest_body=$(gh api "repos/$REPO/releases/latest" --jq '.body // ""' 2>/dev/null || true)
+          previous_code=$(printf '%s\n' "$latest_body" \
             | grep -oE 'versionCode[[:space:]]+`?[0-9]+' \
             | grep -oE '[0-9]+' | tail -1 || true)
           if [[ -n "$previous_code" ]] && (( CODE <= previous_code )); then
-            echo "::error::versionCode $CODE must be higher than the currently published $previous_code."
+            echo "::error::versionCode $CODE must be higher than the currently designated Latest release ($previous_code)."
             exit 1
           fi
           echo "The built APK can update the currently published version."
 
-      - name: Make sure this is still the newest main commit
+      - name: Decide whether this build is still the tip of main
         id: freshness
         env:
           GH_TOKEN: ${{ github.token }}
@@ -277,40 +306,63 @@ jobs:
           main_sha=$(gh api "repos/$REPO/commits/main" --jq '.sha')
           if [[ "$main_sha" == "$GITHUB_SHA" ]]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
-            echo "This build is the current tip of main; publishing it as latest."
+            echo "This build is the current tip of main; its release will take the Latest designation."
           else
             echo "current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::A newer commit is already on main. Skipping this stale build; the queued run will publish the current commit."
+            echo "::notice::A newer commit is already on main. The immutable release is still published for this commit, but it will not take the Latest designation."
           fi
 
-      - name: Point the latest tag at this commit
-        if: steps.freshness.outputs.current == 'true'
+      # Workflow artifacts are separate from GitHub Releases: this never deletes or replaces a
+      # release asset, and retention-days only governs the artifact, not the published release.
+      - name: Upload the signed APK as a workflow artifact
+        if: always() && steps.assets.conclusion == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-googletv-${{ steps.meta.outputs.version }}
+          path: |
+            dist/*.apk
+            build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Create the immutable version tag
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f latest "$GITHUB_SHA"
-          git push --force origin refs/tags/latest
+          # Unique per run number; a normal push that refuses to overwrite anything.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists (rerun). Keeping the existing tag and its commit."
+          else
+            git tag -a "$TAG" "$GITHUB_SHA" -m "Hearth $VERSION"
+            git push origin "refs/tags/$TAG"
+          fi
 
-      - name: Publish the single latest release
-        if: steps.freshness.outputs.current == 'true'
+      - name: Publish the immutable release (idempotent)
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIOUS_SHA: ${{ steps.previous.outputs.sha }}
+          PREVIOUS_COMMIT: ${{ steps.meta.outputs.previous_commit }}
+          TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.assets.outputs.version_name }}
           CODE: ${{ steps.assets.outputs.version_code }}
           APK_SHA256: ${{ steps.assets.outputs.sha256 }}
+          APK_SIZE_BYTES: ${{ steps.assets.outputs.size_bytes }}
           APK_SIZE_MB: ${{ steps.assets.outputs.size_mb }}
           APK_NAME: ${{ steps.assets.outputs.apk_name }}
+          IS_CURRENT: ${{ steps.freshness.outputs.current }}
         shell: bash
         run: |
           set -euo pipefail
 
           python3 tools/extract_release_notes.py CHANGELOG.md "$VERSION" > dist/changelog-notes.md
           : > dist/changes-since-last-build.md
-          if [[ -n "${PREVIOUS_SHA:-}" && "$PREVIOUS_SHA" != "$GITHUB_SHA" ]]; then
-            gh api "repos/$REPO/compare/${PREVIOUS_SHA}...${GITHUB_SHA}" \
+          if [[ -n "${PREVIOUS_COMMIT:-}" && "$PREVIOUS_COMMIT" != "$GITHUB_SHA" ]]; then
+            gh api "repos/$REPO/compare/${PREVIOUS_COMMIT}...${GITHUB_SHA}" \
               --jq '.commits[]? | "- " + (.commit.message | split("\n")[0])' \
               > dist/changes-since-last-build.md || true
           fi
@@ -321,12 +373,12 @@ jobs:
 
           short_sha="${GITHUB_SHA:0:7}"
           title="Hearth ${VERSION} for Google TV"
-          apk_url="https://github.com/${REPO}/releases/download/latest/${APK_NAME}"
+          apk_url="https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}"
           {
             echo "# What's new in this build"
             if [[ -s dist/changes-since-last-build.md ]]; then
               echo
-              echo "## Changes since the previous build"
+              echo "## Changes since the previous release"
               echo
               cat dist/changes-since-last-build.md
             fi
@@ -340,7 +392,7 @@ jobs:
 
           ## Download and update
 
-          **Download the APK**: [${APK_NAME}](${apk_url}) — the release carries this one file and nothing else.
+          **Download the APK**: [${APK_NAME}](${apk_url}) — this release carries this one file and nothing else.
 
           - **Version:** \`${VERSION}\` · \`versionCode ${CODE}\`
           - **Size:** ${APK_SIZE_MB} MB · **SHA-256:** \`${APK_SHA256}\`
@@ -358,31 +410,45 @@ jobs:
           EOF
           } > dist/release-notes.md
 
-          if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
-            release_id=$(gh api "repos/$REPO/releases/tags/latest" --jq '.id')
-            # Delete every asset the release already has, not just the stale APKs: SHA256SUMS.txt
-            # and version.json are sitting on older releases and must not survive here, or "one
-            # file per release" is true only for releases published after this change.
-            while IFS= read -r asset_id; do
-              [[ -z "$asset_id" ]] || gh api --method DELETE "repos/$REPO/releases/assets/$asset_id"
-            done < <(gh api "repos/$REPO/releases/$release_id" --jq '.assets[].id')
-            gh release upload latest dist/"$APK_NAME" --repo "$REPO" --clobber
-            gh release edit latest --repo "$REPO" --title "$title" \
-              --notes-file dist/release-notes.md --latest
-            echo "Updated the current release."
+          existing_id=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null || true)
+          if [[ -n "$existing_id" ]]; then
+            # Rerun: the release already exists. Never delete or replace its asset — if the same
+            # file name is already present with the same size, the upload is simply skipped.
+            existing_size=$(gh api "repos/$REPO/releases/$existing_id" \
+              --jq ".assets[] | select(.name == \"$APK_NAME\") | .size" 2>/dev/null | head -1 || true)
+            if [[ -n "$existing_size" ]]; then
+              if [[ "$existing_size" != "$APK_SIZE_BYTES" ]]; then
+                echo "::error::Release $TAG already contains $APK_NAME with a different size ($existing_size != $APK_SIZE_BYTES). Refusing to overwrite a published artifact; investigate manually."
+                exit 1
+              fi
+              echo "Release $TAG already carries $APK_NAME with the expected size; skipping upload."
+            else
+              gh release upload "$TAG" "dist/$APK_NAME" --repo "$REPO"
+            fi
+            gh release edit "$TAG" --repo "$REPO" --title "$title" --notes-file dist/release-notes.md
           else
-            gh release create latest \
-              dist/"$APK_NAME" \
+            gh release create "$TAG" \
+              "dist/$APK_NAME" \
               --repo "$REPO" --title "$title" --notes-file dist/release-notes.md \
-              --target "$GITHUB_SHA" --verify-tag --latest
-            echo "Created the current release."
+              --target "$GITHUB_SHA" --verify-tag
+            existing_id=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id')
+          fi
+
+          # GitHub's Latest designation is the only rolling pointer. No git tag is moved.
+          if [[ "$IS_CURRENT" == "true" ]]; then
+            gh api -X PATCH "repos/$REPO/releases/$existing_id" -f make_latest=true >/dev/null
+            echo "Marked $TAG as GitHub's Latest release."
+          else
+            gh api -X PATCH "repos/$REPO/releases/$existing_id" -f make_latest=false >/dev/null
+            echo "Published $TAG without taking the Latest designation (a newer main commit exists)."
           fi
 
           {
             echo
-            echo "## Published current release"
+            echo "## Published immutable release"
             echo
-            echo "- [Release notes](https://github.com/${REPO}/releases/tag/latest)"
+            echo "- Tag: \`$TAG\` (never moved or rewritten)"
+            echo "- [Release notes](https://github.com/${REPO}/releases/tag/${TAG})"
             echo "- [Download the APK](${apk_url})"
           } >> "$GITHUB_STEP_SUMMARY"
 

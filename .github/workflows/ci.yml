@@ -35,6 +35,7 @@ jobs:
       - name: Validate release automation
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 tools/test_extract_release_notes.py
+          PYTHONDONTWRITEBYTECODE=1 python3 tools/test_release_workflow.py
           python3 tools/check-workflows.py .github/workflows/*.yml
 
       - name: Set up JDK 17
