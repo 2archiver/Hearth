@@ -419,7 +419,12 @@ jobs:
           EOF
           } > dist/release-notes.md
 
-          existing_id=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null || true)
+          # gh api prints the error JSON on stdout even when it exits nonzero (404).
+          # Only use the response as a release ID when the request succeeds.
+          existing_id=""
+          if release_id=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null); then
+            existing_id="$release_id"
+          fi
           if [[ -n "$existing_id" ]]; then
             # Rerun: the release already exists. Never delete or replace its asset — if the same
             # file name is already present with the same size, the upload is simply skipped.
