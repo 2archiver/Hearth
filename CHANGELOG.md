@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] — frame pacing, severity-based diagnostics, UI polish and a stable APK release
+
+Hearth 2.1.0 is a stability, diagnostics and release-engineering release. It does **not** claim that
+YouTube video casting is fixed: YouTube remained audio-only in 2.0, the video path is still
+unverified on hardware, and that limitation is tracked separately in
+[docs/CASTING-2.1.md](docs/CASTING-2.1.md).
+
+### Fixed
+- **Home:** the unexplained solid brown square between Start and Stop receiver was the
+  "Stop casting" icon button rendering `ic_stop`, which was a full-bleed solid rectangle. It is now
+  a stop glyph in a 24dp icon box. `ic_airplay` (a plain oval) and `ic_restart`/`ic_notification`
+  were the same class of placeholder and are now real glyphs.
+- **Settings:** the unexplained beige square beside the device name was `ic_chevron_right`, another
+  solid rectangle. It is now a chevron; the row keeps its single D-pad focus target, its
+  accessibility label and its rename dialog.
+- **Disabled controls:** an unavailable button used to fill with the window background, which read
+  as a missing square. It now keeps an outlined surface and a dimmed label, so Start/Stop/Restart
+  states are legible at 720p, 1080p and 4K.
+- **Debug overlay honesty:** 2.0 printed the RTP payload rate as `rx=60/s` under a "FPS" heading.
+  Payload throughput is not a frame rate. The overlay now reports **RENDER** (frames handed to the
+  Surface), **SOURCE** (cadence derived from the sender's presentation timestamps) and **RX**
+  (kbps + packet/s) as separate, labelled measurements, and prints `N/A` rather than `0` when a
+  value has not been measured.
+- **Debug overlay placement:** anchored to the top-left of the TV safe area (5% overscan margin,
+  24dp floor) instead of a fixed 40px offset, refreshed at 1 Hz instead of 5 Hz, and never
+  focusable or announced by accessibility services.
+
+### Added
+- **Activity log with severities** (Home → Activity, Settings → Advanced → Activity log):
+  chronological entries with local time, subsystem, a readable description and optional
+  expandable technical detail; filters at Warnings/Errors and above; sanitised copy/export;
+  clear; a 300-entry bounded ring buffer that survives a restart via debounced asynchronous
+  writes (ERROR/CRITICAL flush immediately).
+- **Severity definitions, applied consistently:** DEBUG (optional detail), INFO (designed
+  outcomes, including a user-requested Stop), WARNING (recoverable degradation: decoder rebuild,
+  reconnect, network change), ERROR (a failed operation the receiver survives), CRITICAL
+  (unrecoverable receiver failure such as the AirPlay port being unavailable). WARNING and
+  CRITICAL are distinguishable by their text, not only by colour.
+- **Instrumentation without per-frame noise:** receiver start/stop/restart, discovery
+  registration/failure, sender connect/disconnect, mirroring start, decoder fallback, audio
+  degradation and URL-video failures now record bounded events. Exports pass through the same
+  redaction as the AirPlay trace (URLs, IPs, MACs, tokens, identifiers).
+
+### Changed
+- **Stable FPS** stays an optional, default-off setting for the next mirroring session. It caps
+  the offered mirror at 1080p (or the panel/decoder ceiling) and paces presentation from the
+  sender's validated timestamps. It never duplicates frames to synthesise 60 fps, never alters
+  audio, and never changes a 24/25/30 fps source's cadence.
+- Presented-frame timing (p50/p95 interval), source cadence and RX throughput are measured with a
+  bounded 1-second window and fixed-size interval ring — no per-frame allocation or logging.
+- **No preference key was renamed.** Every 2.0 setting keeps its DataStore key and default
+  (Stable FPS off, overlay off, mirror audio on, auto-check/download on), and a missing key still
+  falls back to the documented default.
+
+### Release engineering
+- `versionName` is **2.1.0**; `versionCode` remains clock/CI-derived and is raised above the
+  currently published APK before publishing.
+- New **stable milestone** publication: when `CHANGELOG.md` has a section for the base version and
+  no `v<version>` tag exists yet, the validated release job publishes tag `v2.1.0` with the single
+  asset `Hearth-v2.1.0-android-tv.apk`. Every other main build keeps publishing its own immutable
+  `v<version>-main.<run>` development release. No tag is moved, no release or asset is deleted.
+- The in-app updater accepts both the stable `-android-tv.apk` and the existing `-googletv.apk`
+  names (and still rejects an ambiguous release with two compatible APKs).
+- ABIs are unchanged: `armeabi-v7a` and `arm64-v8a`. Application ID
+  `com.phairplay.googletv` and the community/release signing key lineage are unchanged, so 2.1.0
+  installs over 2.0 in place when signed with the same key.
+
 ## [2.0.0] — optional Stable FPS and AirPlay casting reliability
 
 - Add a persisted, default-off Stable FPS preference for the next mirroring session only. Bound the

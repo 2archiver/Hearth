@@ -157,7 +157,7 @@ android {
         // build.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
-        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.0.0")
+        versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.1.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")
