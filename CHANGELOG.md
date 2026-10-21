@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [docs/UPSTREAM-REVIEW-2.0.md](docs/UPSTREAM-REVIEW-2.0.md).
 - Keep the application ID, signing lineage, supported ARM ABIs and monotonic versionCode policy.
   This PR is not a release; no candidate APK could be produced in the current toolchain.
+- Publish each successful main build as its own **immutable** GitHub Release tagged
+  `v<version>-main.<run number>` (for example `v2.0.0-main.23`) with one version-named APK,
+  instead of force-pushing a mutable `latest` tag and deleting the previous release's assets.
+  Releases, tags and assets are never deleted or overwritten; GitHub's Latest-release
+  designation is the only rolling pointer the in-app updater reads through `/releases/latest`.
+  Reruns are idempotent, a retained workflow artifact is uploaded alongside each build, and the
+  historical 1.9.3 `latest` release remains downloadable.
 
 ### Validation status
 - Attempted every Gradle command listed in `docs/TESTING.md` (unit tests, filtered `RtspHandlerTest`,

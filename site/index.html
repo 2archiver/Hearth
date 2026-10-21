@@ -90,7 +90,7 @@
 
   <section class="download" aria-labelledby="download-heading">
     <div>
-      <h2 id="download-heading">Download Hearth <span id="version">1.9.2</span></h2>
+      <h2 id="download-heading">Download Hearth <span id="version">2.0.0</span></h2>
       <a id="dl-btn" class="btn" href="https://github.com/2archiver/Hearth/releases/latest">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
         <span>Download APK</span>
@@ -100,29 +100,29 @@
       <span class="file">Hearth-&lt;version&gt;-googletv.apk</span> file.</p>
     </div>
     <div class="meta">
-      <p><strong id="release-name">Hearth 1.9.2 for Google TV</strong></p>
+      <p><strong id="release-name">Hearth 2.0.0 for Google TV</strong></p>
       <p><span class="file" id="asset-name">Hearth-&lt;version&gt;-googletv.apk</span></p>
-      <p id="dl-meta" role="status" aria-live="polite">Version 1.9.2 · latest published build</p>
+      <p id="dl-meta" role="status" aria-live="polite">Version 2.0.0 · latest published build</p>
       <details class="sha" id="sha-block" hidden>
         <summary>SHA-256 checksum</summary>
         <code id="dl-sha"></code>
       </details>
       <p class="subtle">Google TV / Android TV OS 10+ · tested on a Google TV 4K on Ethernet (Android TV OS 14)</p>
-      <a id="release-page" class="release-link" href="https://github.com/2archiver/Hearth/releases/tag/latest">Full release notes on GitHub →</a>
+      <a id="release-page" class="release-link" href="https://github.com/2archiver/Hearth/releases/latest">Full release notes on GitHub →</a>
     </div>
   </section>
 
   <section aria-labelledby="update-heading">
-    <h2 id="update-heading">What's new in <span id="new-version">1.9.2</span></h2>
+    <h2 id="update-heading">What's new in <span id="new-version">2.0.0</span></h2>
     <div class="card">
-      <!-- GitHub release notes replace this 1.9.2 fallback after the API responds. -->
+      <!-- GitHub release notes replace this 2.0.0 fallback after the API responds. -->
       <ul id="update-highlights">
-        <li>Handle bounded PTTH replies on the sender-mediated reverse channel and avoid racing FCUP writes ahead of the upgrade response.</li>
-        <li>Report video as playing only after a rendered first frame; expose URL-free failure stages for setup, decoding, protection and first-frame failures.</li>
-        <li>Keep the TV UI and protocol diagnostics bounded and redact media URLs and credentials.</li>
-        <li>Apple YouTube-app AirPlay video has not been verified on a real TV; audio routing or screen mirroring is not proof of video playback.</li>
+        <li>Optional, default-off Stable FPS for screen mirroring, applied at the next mirroring session without restarting active casting; no fixed 60 fps is promised.</li>
+        <li>Extensionless and signed HLS links resolve through a bounded, redirect-guarded probe, with sensitive headers stripped across origins.</li>
+        <li>Gallery, Photos video, mirroring, YouTube and Rumble paths stay separate; real-device results are recorded honestly, with untested paths marked NOT TESTED.</li>
+        <li>Every build is now its own immutable GitHub release under a version tag, so older APKs stay downloadable and the updater follows GitHub's Latest designation.</li>
       </ul>
-      <p><a href="https://github.com/2archiver/Hearth/releases/tag/latest">Read the full release notes on GitHub</a></p>
+      <p><a href="https://github.com/2archiver/Hearth/releases/latest">Read the full release notes on GitHub</a></p>
     </div>
   </section>
 
@@ -172,7 +172,7 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
   <footer>
     <p><a href="https://ko-fi.com/2archiver">Support Hearth on Ko-fi</a> · Optional support for free, open-source software.</p>
     <a href="https://github.com/2archiver/Hearth">Source on GitHub</a>
-    <a href="https://github.com/2archiver/Hearth/releases/tag/latest">Release notes</a>
+    <a href="https://github.com/2archiver/Hearth/releases/latest">Release notes</a>
     <a href="https://github.com/2archiver/Hearth/blob/main/CHANGELOG.md">Full changelog</a>
     <span>Apache-2.0 · No ads, no analytics.</span>
   </footer>
@@ -182,12 +182,20 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
 (function () {
   "use strict";
   var REPO = "2archiver/Hearth";
-  var RELEASE_PAGE = "https://github.com/" + REPO + "/releases/tag/latest";
-  // The release's one asset is named after its version, so there is no stable *file* URL to
-  // hard-code. Everything without JavaScript points at the release page, which always resolves to
-  // the current release and offers exactly one file; the direct .apk URL below is filled in from
-  // the API once it answers.
+  var RELEASE_PAGE = "https://github.com/" + REPO + "/releases/latest";
+  // Each release is immutable and version-tagged, so there is no stable *file* URL to hard-code.
+  // Everything without JavaScript points at the /releases/latest page, which GitHub always
+  // resolves to the release carrying its Latest designation and offers exactly one file; the
+  // direct .apk URL below is filled in from the API once it answers.
   var $ = function (id) { return document.getElementById(id); };
+
+  function githubJson(url) {
+    return fetch(url, { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("GitHub returned " + response.status);
+        return response.json();
+      });
+  }
 
   // "Hearth 1.8.0-main.13-googletv for Google TV" and the tag "v1.4.0" both mean "1.8.0" / "1.4.0"
   // to a reader. Showing the build suffix everywhere is what made the page look like it was
@@ -234,9 +242,9 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
     });
   }
 
-  // The rolling `latest` release keeps the published_at of the very first build it ever held, so
-  // that date can be months behind the APK it now carries. The date a reader cares about is the
-  // day *this* file was uploaded, so take the newest of the three timestamps GitHub reports.
+  // A release's published_at can lag the day its APK asset was uploaded (reruns edit notes in
+  // place). The date a reader cares about is the day *this* file was uploaded, so take the newest
+  // of the three timestamps GitHub reports.
   function buildDate(release, asset) {
     var stamps = [release.published_at, release.created_at, asset && asset.created_at]
       .filter(Boolean)
@@ -343,17 +351,30 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
     $("releases").appendChild(row);
   }
 
-  fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=20", {
-    headers: { Accept: "application/vnd.github+json" }
-  })
-    .then(function (response) {
-      if (!response.ok) throw new Error("GitHub returned " + response.status);
-      return response.json();
-    })
+  githubJson("https://api.github.com/repos/" + REPO + "/releases?per_page=20")
     .then(function (releases) {
       releases = releases.filter(function (release) { return !release.draft && pickAsset(release); });
-      var current = releases.filter(function (release) { return release.tag_name === "latest"; })[0] ||
-        releases.filter(function (release) { return !release.prerelease; })[0];
+      // GitHub's Latest designation (the same release /releases/latest returns to the in-app
+      // updater) decides the current build. If that endpoint is unavailable, fall back to the
+      // newest non-prerelease in the list. A tag literally named "latest" is treated as an
+      // ordinary historical release, not as the rolling pointer.
+      return githubJson("https://api.github.com/repos/" + REPO + "/releases/latest")
+        .then(function (latest) {
+          var current = releases.filter(function (release) {
+            return release.tag_name === latest.tag_name;
+          })[0] || releases.filter(function (release) { return !release.prerelease; })[0];
+          return { releases: releases, current: current };
+        })
+        .catch(function () {
+          return {
+            releases: releases,
+            current: releases.filter(function (release) { return !release.prerelease; })[0]
+          };
+        });
+    })
+    .then(function (state) {
+      var releases = state.releases;
+      var current = state.current;
       if (!current) {
         $("release-name").textContent = "No release published yet";
         $("dl-meta").textContent = "The direct download will be available after the first successful build from main.";
@@ -385,7 +406,7 @@ adb install -r <span id="adb-file">Hearth-&lt;version&gt;-googletv.apk</span></p
       $("release-page").href = current.html_url || RELEASE_PAGE;
 
       var older = releases
-        .filter(function (release) { return release.tag_name !== "latest"; })
+        .filter(function (release) { return release !== current; })
         .sort(newerFirst);
       if (older.length) {
         $("releases").textContent = "";

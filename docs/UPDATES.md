@@ -8,7 +8,10 @@ Three ways, easiest first.
 
 The updater requests `https://api.github.com/repos/2archiver/Hearth/releases/latest`, compares
 numeric Android `versionCode` values, and downloads only the actual compatible Google TV APK
-asset returned by that release. It does not construct a guessed fixed-name APK URL.
+asset returned by that release. It does not construct a guessed fixed-name APK URL. Since the 2.0
+release hotfix, each build is an immutable release under its own `v<version>-main.<run number>`
+tag; GitHub's **Latest release** designation decides which one `/releases/latest` returns, so no
+git tag is ever moved and older releases remain downloadable.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
@@ -26,10 +29,10 @@ Hearth rejects the update instead of guessing when release metadata is missing, 
 ambiguous. Before it stages an APK, it checks:
 
 1. The API response identifies one `-googletv.apk` asset and provides its actual GitHub download
-   URL, positive file size, a positive `versionCode`, and a full 64-hex SHA-256 digest. The APK
-   URL must belong to the canonical Hearth release path. The current workflow puts the version
-   code and SHA-256 in the release notes; GitHub's asset record supplies the actual file URL and
-   size.
+   URL (an immutable `/releases/download/v<version>/…` path), positive file size, a positive
+   `versionCode`, and a full 64-hex SHA-256 digest. The APK URL must belong to the canonical
+   Hearth release path. The current workflow puts the version code and SHA-256 in the release
+   notes; GitHub's asset record supplies the actual file URL and size.
 2. The streamed download has the reported exact size and SHA-256. Missing or malformed checksum
    metadata is a **blocking error**; Hearth does not proceed on size-only verification.
 3. Android can read the downloaded package. Its `applicationId` must remain
