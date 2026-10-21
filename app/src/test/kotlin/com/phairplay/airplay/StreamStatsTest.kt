@@ -23,6 +23,51 @@ import org.junit.Test
 class StreamStatsTest {
 
     @Test
+    fun `compact HUD shows one fps and omits technical rows`() {
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        StreamStats.videoRes = "1920x1080"
+        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
+        val text = StreamStats.summary(nowNanos = 1_100_000_000L)
+        assertEquals(1, Regex("fps").findAll(text).count())
+        assertTrue(text.contains("1920x1080"))
+        for (label in listOf("SOURCE", "PACE", "AUDIO", "RX", "KEYS", "decoder")) {
+            assertFalse(text.contains(label))
+        }
+        assertTrue(text.lines().size <= 3)
+        StreamStats.resetStreams()
+    }
+
+    @Test
+    fun `compact HUD expires a stalled fps instead of freezing on the last rate`() {
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
+        assertTrue(StreamStats.summary(nowNanos = 4_000_000_000L).contains("N/A"))
+        StreamStats.resetStreams()
+    }
+
+    @Test
+    fun `compact HUD shows one fps and omits technical rows`() {
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        StreamStats.videoRes = "1920x1080"
+        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
+        val text = StreamStats.diagnosticsSummary(nowNanos = 1_100_000_000L)
+        assertEquals(1, Regex("fps").findAll(text).count())
+        assertTrue(text.contains("1920x1080"))
+        for (label in listOf("SOURCE", "PACE", "AUDIO", "RX", "KEYS", "decoder")) {
+            assertFalse(text.contains(label))
+        }
+        assertTrue(text.lines().size <= 3)
+    }
+
+    @Test
+    fun `compact HUD expires a stalled fps instead of freezing on the last rate`() {
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
+        assertTrue(StreamStats.diagnosticsSummary(nowNanos = 4_000_000_000L).contains("N/A"))
+        StreamStats.resetStreams()
+    }
+
+    @Test
     fun `rx payload rate and bitrate publish once the sample window closes`() {
         StreamStats.resetStreams()
         StreamStats.videoRes = "1920x1080"
@@ -142,7 +187,7 @@ class StreamStatsTest {
     fun `summary says it is idle rather than printing a row of zeroes`() {
         StreamStats.resetStreams()
         StreamStats.receiverState = "stopped"
-        val text = StreamStats.summary(0L)
+        val text = StreamStats.diagnosticsSummary(0L)
         assertTrue(text.contains("idle"))
         assertTrue(text.contains("N/A"))
         assertFalse("a zero must never stand in for an unmeasured fps", text.contains("0.0 fps"))
@@ -166,7 +211,7 @@ class StreamStatsTest {
         StreamStats.noteSourceFramePts(0L)
         for (i in 1..61) StreamStats.noteSourceFramePts(i * 16_667L)
 
-        val text = StreamStats.summary(91_000L)  // 90 s after the session began
+        val text = StreamStats.diagnosticsSummary(91_000L)  // 90 s after the session began
         assertTrue(text.contains(StreamStats.SOURCE_AIRPLAY))
         assertTrue(text.contains("1:30"))                       // uptime
         assertTrue(text.contains("1920x1080"))
@@ -188,7 +233,7 @@ class StreamStatsTest {
     fun `unavailable telemetry is labelled, not zeroed`() {
         StreamStats.resetStreams()
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
-        val text = StreamStats.summary(1_000L)
+        val text = StreamStats.diagnosticsSummary(1_000L)
         // No frame has been presented and no sender timestamp has been read.
         assertTrue(text.contains("RENDER  N/A"))
         assertTrue(text.contains("SOURCE  N/A"))
@@ -201,7 +246,7 @@ class StreamStatsTest {
         StreamStats.resetStreams()
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 0L
-        val text = StreamStats.summary(0L)
+        val text = StreamStats.diagnosticsSummary(0L)
         assertTrue(text.contains("N/A"))
         StreamStats.resetStreams()
     }
@@ -214,7 +259,7 @@ class StreamStatsTest {
         StreamStats.videoRes = "1920x1080"
         StreamStats.noteVideoPayload(4096)
 
-        val text = StreamStats.summary(1_000L)
+        val text = StreamStats.diagnosticsSummary(1_000L)
         assertTrue("the source line must say which receiver is streaming", text.contains("AirPlay"))
         assertTrue(text.contains("1920x1080"))
         StreamStats.resetStreams()
@@ -226,7 +271,7 @@ class StreamStatsTest {
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.sessionStartedAtMillis = 1_000L
         StreamStats.videoRes = "1280x720"
-        assertTrue(StreamStats.summary(3_662_000L).contains("1:01:01"))
+        assertTrue(StreamStats.diagnosticsSummary(3_662_000L).contains("1:01:01"))
         StreamStats.resetStreams()
     }
 
@@ -235,7 +280,7 @@ class StreamStatsTest {
         StreamStats.resetStreams()
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.displayRefreshHz = 60f
-        val text = StreamStats.summary(1_000L)
+        val text = StreamStats.diagnosticsSummary(1_000L)
         assertTrue(text.contains("panel 60.0 Hz"))
         // No frames were presented, so RENDER is still unavailable.
         assertTrue(text.contains("RENDER  N/A"))
