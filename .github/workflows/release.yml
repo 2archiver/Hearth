@@ -314,14 +314,23 @@ jobs:
 
       # Workflow artifacts are separate from GitHub Releases: this never deletes or replaces a
       # release asset, and retention-days only governs the artifact, not the published release.
+      # The build log is uploaded on EVERY outcome so a failed Gradle build or publication is
+      # debuggable from the run even when no APK was produced.
+      - name: Upload the build log as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-log-${{ steps.meta.outputs.version }}
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload the signed APK as a workflow artifact
         if: always() && steps.assets.conclusion == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: release-apk-googletv-${{ steps.meta.outputs.version }}
-          path: |
-            dist/*.apk
-            build.log
+          path: dist/*.apk
           if-no-files-found: ignore
           retention-days: 30
 
