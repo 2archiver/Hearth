@@ -266,13 +266,13 @@ class HearthUiTest {
             )
 
             val text = hud.text.toString()
-            assertTrue("RENDER should be labelled: $text", text.contains("RENDER"))
-            assertTrue("SOURCE should be labelled: $text", text.contains("SOURCE"))
-            assertTrue("RX should be labelled: $text", text.contains("RX "))
-            assertTrue("RX should carry packet rate units: $text", text.contains("pkt/s"))
-            assertTrue("an unmeasured frame rate must read N/A: $text", text.contains("RENDER  N/A"))
-            assertFalse("the payload rate must never be printed as rx=<n>/s fps: $text", text.contains("rx="))
-            assertFalse("no fabricated 60 fps claim: $text", text.contains("fps=60"))
+            assertTrue("one FPS field should be shown: $text", text.contains("N/A"))
+            assertTrue("compact HUD should fit within three lines: $text", text.lines().size <= 3)
+            listOf("SOURCE", "PACE", "AUDIO", "RX", "KEYS").forEach { label ->
+                assertFalse("$label should be absent from compact HUD: $text", text.contains(label))
+            }
+            assertTrue("HUD should remain small", hud.maxWidth <= (280 * density).toInt())
+            render(screen, "debug-overlay-2.2")
         } finally {
             StreamStats.endSession()
             StreamStats.overlayEnabled = false
