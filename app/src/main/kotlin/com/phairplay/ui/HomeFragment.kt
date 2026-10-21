@@ -10,7 +10,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.ImageButton
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -63,7 +62,7 @@ class HomeFragment : Fragment() {
     private lateinit var cardAppleCasting: View
     private lateinit var textConnectionLog: TextView
     private lateinit var btnStart: Button
-    private lateinit var btnStopPlayback: ImageButton
+    private lateinit var btnStopPlayback: Button
     private lateinit var btnStop: Button
     private lateinit var btnRestart: Button
     private var serviceIsRunning = false
@@ -420,6 +419,7 @@ class HomeFragment : Fragment() {
                 com.phairplay.airplay.AirPlayPlaybackState.STOPPING,
                 com.phairplay.airplay.AirPlayPlaybackState.FAILED,
             )
+        btnStopPlayback.visibility = if (serviceIsRunning && playbackActive) View.VISIBLE else View.GONE
         btnStopPlayback.isEnabled = serviceIsRunning && playbackActive &&
             airPlayPlaybackState != com.phairplay.airplay.AirPlayPlaybackState.STOPPING
         btnStopPlayback.alpha = if (btnStopPlayback.isEnabled) 1f else 0.4f

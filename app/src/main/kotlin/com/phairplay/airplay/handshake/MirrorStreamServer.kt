@@ -294,7 +294,10 @@ class MirrorStreamServer(
             while (running) {
                 val frame = frameQueue.take(QUEUE_WAIT_MILLIS)
                 publishQueueStats()
-                if (frame == null) continue
+                if (frame == null) {
+                    decoder?.drainOutput()
+                    continue
+                }
                 val config = frame.codecConfig
                 if (config != null) configureDecoder(config)
                 decodeFrame(frame)
@@ -487,7 +490,7 @@ class MirrorStreamServer(
         private const val MAX_PAYLOAD = 8 * 1024 * 1024 // 8 MB per-packet sanity cap
         private const val MAX_PENDING_CONFIG_AGE_NANOS = 1_000_000_000L
         private const val LOG_EVERY_FRAMES = 300L
-        private const val QUEUE_WAIT_MILLIS = 200L
+        private const val QUEUE_WAIT_MILLIS = 10L
         private const val SURFACE_WAIT_TRIES = 50
         private const val SURFACE_WAIT_MS = 100L
 

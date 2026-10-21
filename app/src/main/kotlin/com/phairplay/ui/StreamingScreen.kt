@@ -35,16 +35,9 @@ import kotlin.math.max
  * laid out. [getSurface] returns null if called before the Surface is ready.
  * [VideoDecoder.initialize] must not be called until [getSurface] returns non-null.
  *
- * DEBUG OVERLAY (2.1.0)
- * ---------------------
- * The optional HUD is anchored to the **top-left of the TV safe area** (5% overscan margin, with a
- * 24dp floor) and is only laid out while Settings → "Debug overlay" is on. It is deliberately not
- * focusable and hidden from accessibility services: a D-pad press must never land on the HUD
- * instead of a control, and a screen reader must not announce a value that changes every second.
- *
- * Its text comes from [StreamStats.summary], which labels the *presented* frame rate separately
- * from the sender cadence and from RX packet throughput. 2.0 rendered `rx=…/s` and called it FPS;
- * that number never claimed a frame had reached the screen.
+ * DEBUG OVERLAY (2.2.0)
+ * The optional HUD shows one measured display FPS, size and session time in the top-left safe
+ * area. It never takes D-pad focus. Detailed counters stay in StreamStats.diagnosticsSummary.
  *
  * [REFRESH_MS] is 1 s: a HUD that repaints four times a second churns the main thread for no
  * benefit, and none of these counters are meaningful at sub-second resolution.
@@ -65,9 +58,9 @@ class StreamingScreen @JvmOverloads constructor(
     private val debugView = TextView(context).apply {
         setTextColor(Color.parseColor("#FFD9F5E2"))
         background = AppCompatResources.getDrawable(context, R.drawable.debug_overlay_background)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         typeface = Typeface.MONOSPACE
-        setPadding(dp(16), dp(12), dp(16), dp(12))
+        setPadding(dp(10), dp(8), dp(10), dp(8))
         setLineSpacing(dp(2).toFloat(), 1f)
         includeFontPadding = false
         visibility = GONE
@@ -193,7 +186,7 @@ class StreamingScreen @JvmOverloads constructor(
         val left = max(dp(24), (width * SAFE_AREA_FRACTION).toInt())
         val top = max(dp(24), (height * SAFE_AREA_FRACTION).toInt())
         val params = debugView.layoutParams as LayoutParams
-        val available = (width - left * 2).coerceAtLeast(dp(240))
+        val available = (width - left * 2).coerceAtLeast(1).coerceAtMost(dp(280))
         if (params.leftMargin == left && params.topMargin == top && debugView.maxWidth == available) {
             return
         }
@@ -227,8 +220,7 @@ class StreamingScreen @JvmOverloads constructor(
     }
 
     private fun updateDisplayRefreshRate() {
-        // Reported as "panel Hz" by the summary. It is a display capability, never an fps:
-        // a 60 Hz panel says nothing about how many frames were presented.
+        // Keep panel capability available to detailed diagnostics, separate from measured FPS.
         StreamStats.displayRefreshHz = try {
             display?.refreshRate ?: 0f
         } catch (_: Exception) {

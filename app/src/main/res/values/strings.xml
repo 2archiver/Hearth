@@ -125,13 +125,13 @@
     <string name="setting_debug_overlay">Debug overlay</string>
     <!-- Deliberately names each measurement: presented frames, sender cadence and RX throughput
          are different numbers and 2.0 showed the RX one as "FPS". -->
-    <string name="setting_debug_overlay_subtitle">Top-left readout during playback: presented FPS, sender FPS, frame time p50/p95, drops, decoder, RX throughput and receiver state. Updates once a second.</string>
+    <string name="setting_debug_overlay_subtitle">Small top-left readout with one measured FPS, video size and session time. Updates once a second and stays out of the way.</string>
     <string name="setting_activity_log">Activity log</string>
     <string name="setting_activity_log_subtitle">Chronological receiver, casting and decoder events with severity. Copy a sanitised report or clear the log.</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
     <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
     <string name="setting_stable_fps">Stable FPS</string>
-    <string name="setting_stable_fps_subtitle">Next mirroring session only: cap at 1080p or lower for this panel/decoder and pace frames with the sender\'s own timestamps. It never duplicates frames to fake 60 fps, never changes a 24/25/30 fps source, and does not affect photos or AirPlay video.</string>
+    <string name="setting_stable_fps_subtitle">Smoother mirroring with a small playback buffer and a 1080p cap (or lower for your TV). Adds about 60 ms of video delay; reconnect to apply. Does not increase the sender’s frame rate.</string>
     <string name="setting_version">Version</string>
     <!-- Shown next to the version: a rename must never look like a different app. -->
     <string name="setting_renamed_note">Hearth is the new name for PhairPlay — same app, same settings, same signing key.</string>
