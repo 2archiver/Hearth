@@ -266,7 +266,17 @@ object ActivityLog {
         scheduleFlush(immediate = true)
     }
 
-    /** Waits (bounded) for a queued write to land. Used by tests and by shutdown paths. */
+    /**
+     * Queues an immediate write without blocking the caller.
+     *
+     * Shutdown paths run on the main thread, so they must never wait for disk I/O; the write is
+     * still coalesced with whatever the debounce already scheduled.
+     */
+    fun flushAsync() {
+        scheduleFlush(immediate = true)
+    }
+
+    /** Waits (bounded) for a queued write to land. Used by tests. */
     fun flushBlocking(timeoutMillis: Long = 2_000L) {
         val executor = scheduler ?: run { flushNow(); return }
         val latch = java.util.concurrent.CountDownLatch(1)
