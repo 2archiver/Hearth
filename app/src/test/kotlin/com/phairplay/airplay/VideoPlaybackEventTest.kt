@@ -18,7 +18,7 @@ class VideoPlaybackEventTest {
         coordinator.publishVideoState(token, AirPlayPlaybackState.LOADING)
         // A reverse connection can arrive after /play. A previously unsent state is retried.
         coordinator.registerReverseChannel("reverse", "sender", { frames += it; true })
-        coordinator.publishVideoState(token, AirPlayPlaybackState.LOADING)
+        coordinator.reverseChannelReady()
         coordinator.publishVideoState(token, AirPlayPlaybackState.LOADING)
         coordinator.publishVideoState(SessionToken("old", 1), AirPlayPlaybackState.PLAYING)
         coordinator.publishVideoState(token, AirPlayPlaybackState.PLAYING)

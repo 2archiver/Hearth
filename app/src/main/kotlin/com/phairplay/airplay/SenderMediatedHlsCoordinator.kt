@@ -46,6 +46,7 @@ internal class SenderMediatedHlsCoordinator(
     private var videoEventToken: SessionToken? = null
     private var videoEventSender: String? = null
     private var lastVideoEvent: Pair<String, String>? = null
+    @Volatile private var pendingVideoState: Pair<SessionToken?, AirPlayPlaybackState>? = null
 
     override fun bindVideoSession(token: SessionToken?, senderSessionId: String?) = synchronized(videoEventLock) {
         videoEventToken = token
@@ -53,11 +54,17 @@ internal class SenderMediatedHlsCoordinator(
             id.isNotBlank() && id.length <= FcupCodec.MAX_SESSION_ID_CHARS && id.all { it.code in 0x20..0x7e }
         }
         lastVideoEvent = null
+        pendingVideoState = token to AirPlayPlaybackState.LOADING
+    }
+
+    override fun reverseChannelReady() {
+        pendingVideoState?.let { (token, state) -> publishVideoState(token, state) }
     }
 
     override fun publishVideoState(token: SessionToken?, state: AirPlayPlaybackState) {
         synchronized(videoEventLock) {
-            if (token == null || token != videoEventToken || isStopped()) return
+            if (token == null || token != videoEventToken || !isSessionCurrent(token) || isStopped()) return
+            pendingVideoState = token to state
             val sender = videoEventSender ?: return
             val wireState = VideoPlaybackEvent.stateName(state) ?: return
             val offer = synchronized(lock) {

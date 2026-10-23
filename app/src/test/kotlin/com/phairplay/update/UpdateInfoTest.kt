@@ -46,7 +46,7 @@ class UpdateInfoTest {
     @Test
     fun `compact Hearth filename is accepted and supplies the version`() {
         val json = """
-          {"tag_name":"v2.4.0", "body":"versionCode 1600000", "assets":[
+          {"tag_name":"v2.4.0", "body":"versionCode 1600000; SHA-256: ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789", "assets":[
             {"name":"Hearth2.4.0.apk", "browser_download_url":"https://github.com/2archiver/Hearth/releases/download/v2.4.0/Hearth2.4.0.apk", "size":1000}
           ]}
         """.trimIndent()

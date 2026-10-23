@@ -495,6 +495,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
                     // forever; each incoming framed response restarts the socket's read timeout.
                     runCatching { socket.soTimeout = PTTH_IDLE_TIMEOUT_MS }
                     reverseUpgradeReady.countDown()
+                    hlsHost?.reverseChannelReady()
                 }
 
                 // Once a normal session exists its control channel may legitimately go quiet for

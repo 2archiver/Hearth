@@ -20,6 +20,9 @@ interface SenderMediatedHlsHost {
     /** Sends a standard video status event on that sender's upgraded reverse connection. */
     fun publishVideoState(token: SessionToken?, state: AirPlayPlaybackState) {}
 
+    /** The complete 101 response has been written; a late channel may now receive current status. */
+    fun reverseChannelReady() {}
+
     /**
      * Registers the PTTH reverse channel of [connectionId].
      *
