@@ -44,6 +44,20 @@ class UpdateInfoTest {
     """.trimIndent()
 
     @Test
+    fun `compact Hearth filename is accepted and supplies the version`() {
+        val json = """
+          {"tag_name":"v2.4.0", "body":"versionCode 1600000", "assets":[
+            {"name":"Hearth2.4.0.apk", "browser_download_url":"https://github.com/2archiver/Hearth/releases/download/v2.4.0/Hearth2.4.0.apk", "size":1000}
+          ]}
+        """.trimIndent()
+        val release = requireNotNull(ReleaseParser.parseRelease(json))
+        assertEquals("Hearth2.4.0.apk", release.apkAsset()?.name)
+        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
+        assertEquals("2.4.0", info.versionName)
+        assertEquals(1600000, info.versionCode)
+    }
+
+    @Test
     fun `parses a GitHub release and finds the APK asset`() {
         val release = ReleaseParser.parseRelease(releaseJson)
         requireNotNull(release)

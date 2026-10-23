@@ -61,6 +61,7 @@ class VideoCastingRegressionTest {
         val action = CountDownLatch(1)
         val completed = CountDownLatch(1)
         val host = mockk<SenderMediatedHlsHost>()
+        every { host.bindVideoSession(any(), any()) } returns Unit
         every { host.startSenderMediatedPlay(any()) } answers {
             preparing.countDown()
             try {

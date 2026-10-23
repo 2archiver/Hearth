@@ -14,6 +14,12 @@ package com.phairplay.airplay
  */
 interface SenderMediatedHlsHost {
 
+    /** Binds video status notifications to the exact sender session, never an IP address. */
+    fun bindVideoSession(token: SessionToken?, senderSessionId: String?) {}
+
+    /** Sends a standard video status event on that sender's upgraded reverse connection. */
+    fun publishVideoState(token: SessionToken?, state: AirPlayPlaybackState) {}
+
     /**
      * Registers the PTTH reverse channel of [connectionId].
      *

@@ -241,9 +241,9 @@ class StableMilestoneTest(unittest.TestCase):
         self.assertIn('echo "milestone=$milestone"', self.text)
 
     def test_stable_release_uses_the_predictable_asset_name(self):
-        self.assertIn('apk_name="Hearth-v${VERSION}-android-tv.apk"', self.text)
+        self.assertIn('apk_name="Hearth${apk_version%-googletv}.apk"', self.text)
         # Development builds keep their embedded-version name.
-        self.assertIn('apk_name="Hearth-${apk_version}.apk"', self.text)
+        self.assertIn('apk_name="Hearth${apk_version%-googletv}.apk"', self.text)
         # No duplicated extension and no "universal" label anywhere.
         self.assertNotIn(".apk.apk", self.text)
         self.assertNotIn("universal", self.text.lower())

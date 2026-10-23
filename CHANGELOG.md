@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] — video status, faster activity log and Hearth identity
+
+- Send standard AirPlay reverse-channel video status events, scoped to the sender session.
+- Report actual buffering and loaded/seekable ranges instead of marking every prepared stream
+  fully buffered. End a prolonged rebuffer stall with a clear network failure after 30 seconds.
+- Read overlay and diagnostic versions from the build, removing the stale hard-coded 2.2 label.
+- Virtualize activity-log rows, accelerate held D-pad scrolling and add Oldest/Newest shortcuts.
+- Remove the Stable FPS setting and its active mirroring pacing/cap selection. Higher resolution
+  and decoder recovery remain available.
+- Change Android application ID to `com.hearth.tv`; this is a separate app installation and does
+  not carry over settings or update in place from the old package. Stop the old receiver first.
+- Name release downloads `Hearth2.4.0.apk` (development builds include their embedded build version),
+  and recognize the new name in the updater while retaining legacy filename support.
+- Automated protocol and build checks do not establish iPhone/TV casting compatibility. Device
+  validation is still required for direct MP4/HLS, YouTube, stop/recast and audio handover.
+
 ## [2.3.0] — Safari and YouTube video transport fixes
 
 - Advertise the implemented video and HLS capabilities consistently in discovery and server info.

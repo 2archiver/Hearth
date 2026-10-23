@@ -7,10 +7,13 @@ import android.graphics.Typeface
 import android.os.Build
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.ListView
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -68,18 +71,25 @@ object ActivityLogDialog {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        // Virtualize the bounded log: build only visible rows rather than all 300 entries.
+        val list = ListView(context).apply {
+            divider = null
+            isSmoothScrollbarEnabled = true
+            isFastScrollEnabled = true
+            itemsCanFocus = true
             setPadding(0, dp(6), 0, dp(6))
+            setOnKeyListener { _, key, event ->
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount >= 3 &&
+                    (key == KeyEvent.KEYCODE_DPAD_DOWN || key == KeyEvent.KEYCODE_DPAD_UP) && count > 0
+                ) {
+                    val direction = if (key == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
+                    val current = selectedItemPosition.takeIf { it >= 0 } ?: firstVisiblePosition
+                    setSelection((current + direction * 5).coerceIn(0, count - 1))
+                    true
+                } else false
+            }
         }
-
-        val scroll = ScrollView(context).apply {
-            isFillViewport = true
-            addView(list, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
-        }
+        list.setOnItemClickListener { _, row, _, _ -> row.performClick() }
 
         lateinit var render: () -> Unit
 
@@ -114,6 +124,12 @@ object ActivityLogDialog {
         val clearButton = actionButton(context, R.string.activity_log_clear)
         actionRow.addView(copyButton)
         actionRow.addView(clearButton)
+        val oldestButton = actionButton(context, R.string.activity_log_oldest)
+        val newestButton = actionButton(context, R.string.activity_log_newest)
+        oldestButton.setOnClickListener { list.setSelection(0); list.requestFocus() }
+        newestButton.setOnClickListener { list.setSelection((list.count - 1).coerceAtLeast(0)); list.requestFocus() }
+        actionRow.addView(oldestButton)
+        actionRow.addView(newestButton)
         actionRow.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
         actionRow.addView(TextView(context).apply {
             setText(R.string.activity_log_sort_hint)
@@ -122,19 +138,17 @@ object ActivityLogDialog {
         })
 
         render = {
-            list.removeAllViews()
             val entries = ActivityLog.entries(minSeverity)
-            status.text = context.getString(R.string.activity_log_summary, entries.size, ActivityLog.MAX_ENTRIES)
-            if (entries.isEmpty()) {
-                list.addView(TextView(context).apply {
-                    setText(R.string.activity_log_empty)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                    setTextColor(context.getColor(R.color.text_secondary))
-                    setPadding(dp(12), dp(16), dp(12), dp(16))
-                })
-            } else {
-                entries.forEach { entry -> list.addView(entryRow(context, entry) { dp(it) }) }
+            status.text = if (entries.isEmpty()) context.getString(R.string.activity_log_empty) else
+                context.getString(R.string.activity_log_summary, entries.size, ActivityLog.MAX_ENTRIES)
+            list.adapter = object : BaseAdapter() {
+                override fun getCount() = entries.size
+                override fun getItem(position: Int) = entries[position]
+                override fun getItemId(position: Int) = position.toLong()
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    entryRow(context, entries[position]) { dp(it) }
             }
+            list.setSelection((entries.size - 1).coerceAtLeast(0))
         }
 
         copyButton.setOnClickListener {
@@ -166,7 +180,7 @@ object ActivityLogDialog {
         // Roughly half a TV screen: enough for ~8 rows, still leaves the dialog title and the
         // hardware D-pad focus ring inside the safe area.
         val listHeight = (context.resources.configuration.screenHeightDp * 0.55f).toInt().coerceAtLeast(240)
-        root.addView(scroll, LinearLayout.LayoutParams(
+        root.addView(list, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(listHeight)
         ))
@@ -182,7 +196,7 @@ object ActivityLogDialog {
         dialog.show()
         // Newest activity is at the bottom of a chronological list; show it without making the
         // user scroll through yesterday to find out what just failed.
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        list.post { list.setSelection((list.count - 1).coerceAtLeast(0)) }
         allChip.requestFocus()
     }
 
@@ -230,7 +244,7 @@ object ActivityLogDialog {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             container.addView(detailView)
-            container.isFocusable = true
+            container.isFocusable = false
             container.isClickable = true
             container.setOnClickListener {
                 val showing = detailView.visibility == View.VISIBLE

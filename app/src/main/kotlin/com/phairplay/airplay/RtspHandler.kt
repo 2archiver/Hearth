@@ -933,6 +933,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
     ) {
         is BodyParse.Success -> {
             claimSession(AirPlaySessionMode.URL_VIDEO, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
+            hlsHost?.bindVideoSession(sessionToken, request.header("X-Apple-Session-ID")?.trim())
             trace(
                 "URL video /play accepted (encoding=${parsed.encoding.name.lowercase(Locale.US)}, " +
                     "scheme=${safeMediaScheme(parsed.request.url)}, " +
@@ -995,6 +996,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         }
         val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
         claimSession(AirPlaySessionMode.SENDER_MEDIATED_HLS, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
+        hlsHost?.bindVideoSession(sessionToken, senderSessionId)
         trace(
             "Sender-mediated /play received (${parsed.encoding.name.lowercase(Locale.US)})",
             kind = AirPlayTrace.Kind.LIFECYCLE,
@@ -1125,16 +1127,22 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         val plist: Map<String, Any?> = if (info == null || !info.readyToPlay) {
             mapOf("readyToPlay" to false)
         } else {
-            val ranges = listOf(mapOf("start" to 0.0, "duration" to info.durationSec))
+            val ranges = if (info.seekable && info.durationSec > 0.0) {
+                listOf(mapOf("start" to 0.0, "duration" to info.durationSec))
+            } else emptyList()
+            val buffered = (info.bufferedPositionSec - info.positionSec).coerceAtLeast(0.0)
+            val loaded = if (buffered > 0.0) {
+                listOf(mapOf("start" to info.positionSec, "duration" to buffered))
+            } else emptyList()
             mapOf(
                 "duration" to info.durationSec,
                 "position" to info.positionSec,
                 "rate" to info.rate,
                 "readyToPlay" to true,
-                "playbackBufferEmpty" to false,
-                "playbackBufferFull" to true,
-                "playbackLikelyToKeepUp" to true,
-                "loadedTimeRanges" to ranges,
+                "playbackBufferEmpty" to info.buffering,
+                "playbackBufferFull" to false,
+                "playbackLikelyToKeepUp" to !info.buffering,
+                "loadedTimeRanges" to loaded,
                 "seekableTimeRanges" to ranges,
             )
         }

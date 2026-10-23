@@ -66,17 +66,14 @@ internal class AirPlayReceiver(
     /** Startup mirroring resolution, retained as a safe fallback for handlers without a provider. */
     private val mirrorWidth: Int = 1920,
     private val mirrorHeight: Int = 1080,
-    /** Stable FPS is latched when a new mirroring stream starts; live toggles do not mutate it. */
-    initialStableFpsEnabled: Boolean = false,
-    /** Re-evaluates the persisted Higher resolution preference plus next-session Stable FPS. */
-    private val mirrorResolutionForSession: (Boolean) -> MirrorResolution = { stable ->
+    /** Re-evaluates the Higher resolution preference for each new mirroring session. */
+    private val mirrorResolutionForSession: () -> MirrorResolution = {
         MirrorResolution.pick(
             preferHighResolution = mirrorWidth > MirrorResolution.FHD.width,
             panelWidth = mirrorWidth,
             panelHeight = mirrorHeight,
             decodeWidth = mirrorWidth,
             decodeHeight = mirrorHeight,
-            stableFpsEnabled = stable,
         )
     },
     /** Whether to accept the mirroring audio stream (experimental — see AppSettings.mirrorAudioEnabled). */
@@ -170,13 +167,9 @@ internal class AirPlayReceiver(
     /** Invalidates completion/error callbacks from a URL player replaced by a newer /play. */
     private var urlVideoGeneration = 0L
 
-    /** Updated live from DataStore, but read only when advertising/starting a new mirror session. */
-    @Volatile private var stableFpsEnabledForNextSession = initialStableFpsEnabled
-
     private data class MirrorSessionPolicySnapshot(
         val token: SessionToken,
         val resolution: MirrorResolution,
-        val stableFpsEnabled: Boolean,
     )
 
     /** Dimensions and pacing are latched for a session and survive stream-level video restarts. */
@@ -214,6 +207,14 @@ internal class AirPlayReceiver(
                 }
             },
         )
+    }
+
+    // Serial, conflated status delivery keeps socket writes off player/UI callbacks.
+    private val videoEvents = kotlinx.coroutines.channels.Channel<Pair<SessionToken?, AirPlayPlaybackState>>(
+        kotlinx.coroutines.channels.Channel.CONFLATED
+    )
+    private val videoEventJob = scope.launch {
+        for ((token, state) in videoEvents) senderMediatedHls.publishVideoState(token, state)
     }
 
     private val connectionSequence = java.util.concurrent.atomic.AtomicLong(0L)
@@ -430,15 +431,6 @@ internal class AirPlayReceiver(
     }
 
     /**
-     * Updates the persisted Stable FPS preference for the next mirroring session only. The active
-     * mirror server snapshots both this flag and its effective dimensions at SETUP time.
-     */
-    fun setStableFpsForNextSession(enabled: Boolean) {
-        stableFpsEnabledForNextSession = enabled
-        Logger.i("Stable FPS preference updated; it will apply to the next mirroring session")
-    }
-
-    /**
      * Sends a DACP transport command (see [DacpClient] constants) from the TV remote back to the
      * AirPlay sender — e.g. play/pause or skip what the Mac/iPhone is streaming. No-op if no sender
      * has advertised a DACP identity yet.
@@ -458,7 +450,7 @@ internal class AirPlayReceiver(
     }
 
     private fun effectiveMirrorResolution(): MirrorResolution =
-        mirrorResolutionForSession(stableFpsEnabledForNextSession)
+        mirrorResolutionForSession()
 
     /** Latch mirror capabilities once the protocol session is actually in mirroring mode. */
     private fun advertisedMirrorResolution(): MirrorResolution {
@@ -470,11 +462,10 @@ internal class AirPlayReceiver(
 
         // Some senders re-query /info after claiming the mirror session but before stream SETUP.
         // Latching here keeps that advertised size and the later decoder/server size identical.
-        val stable = stableFpsEnabledForNextSession
+
         return MirrorSessionPolicySnapshot(
             token = session.token,
-            resolution = mirrorResolutionForSession(stable),
-            stableFpsEnabled = stable,
+            resolution = mirrorResolutionForSession(),
         ).also { mirrorSessionPolicy = it }.resolution
     }
 
@@ -787,6 +778,7 @@ internal class AirPlayReceiver(
             role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
             kind = if (state == AirPlayPlaybackState.FAILED) AirPlayTrace.Kind.FAILURE else AirPlayTrace.Kind.LIFECYCLE,
         )
+        videoEvents.trySend(token to state)
         onUrlPlaybackStateChanged(state, failure)
     }
 
@@ -1164,11 +1156,10 @@ internal class AirPlayReceiver(
         mirrorServer?.stop()
         mirrorServer = null
         val policy = mirrorSessionPolicy?.takeIf { it.token == token } ?: run {
-            val stable = stableFpsEnabledForNextSession
+
             MirrorSessionPolicySnapshot(
                 token = token!!,
-                resolution = mirrorResolutionForSession(stable),
-                stableFpsEnabled = stable,
+                resolution = mirrorResolutionForSession(),
             ).also { mirrorSessionPolicy = it }
         }
         val mirrorResolution = policy.resolution
@@ -1179,7 +1170,6 @@ internal class AirPlayReceiver(
             surfaceProvider = videoSurfaceProvider,
             width = mirrorResolution.width,
             height = mirrorResolution.height,
-            stableFpsEnabled = policy.stableFpsEnabled,
         ).also { mirrorServer = it; it.start(scope); videoPlaying = true; emitNowPlaying() }
             .dataPort
             .also { port ->

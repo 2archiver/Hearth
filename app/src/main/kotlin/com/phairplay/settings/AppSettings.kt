@@ -79,18 +79,6 @@ data class AppSettings(
     val forceHighResolution: Boolean = true,
 
     /**
-     * When true, the next mirroring session is capped at 1080p (or lower to fit the reported panel
-     * and decoder) and uses validated sender timestamps to smooth presentation and discard stale
-     * decoded frames. This is a receiver-side pacing policy, not a locked frame-rate target or a
-     * sender negotiation. It applies only when a new mirroring stream starts; changing it never
-     * restarts active casting, changes gallery bitmaps, or affects ExoPlayer URL video.
-     *
-     * Default OFF preserves the existing 1.9.x behavior for fresh installs and missing DataStore
-     * keys. Enabling it does not alter the stored [forceHighResolution] preference.
-     */
-    val stableFpsEnabled: Boolean = false,
-
-    /**
      * When true, accept the mirroring audio stream (type 96, AAC-ELD). EXPERIMENTAL: macOS uses
      * realtime audio clock-sync (RTCP) that isn't fully implemented yet, which can make macOS tear
      * the whole mirror session down after a couple of seconds — so this defaults OFF to keep video
@@ -146,7 +134,6 @@ data class AppSettings(
         panelHeight = panelHeight,
         decodeWidth = decodeWidth,
         decodeHeight = decodeHeight,
-        stableFpsEnabled = stableFpsEnabled,
     )
 
     /**

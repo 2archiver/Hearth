@@ -83,6 +83,30 @@ class HearthUiTest {
         bitmap.recycle()
     }
 
+    @Test fun activityLogVirtualizesFullHistoryAndOffersJumpControls() {
+        val activity = host()
+        com.phairplay.diagnostics.ActivityLog.init(activity)
+        com.phairplay.diagnostics.ActivityLog.clear()
+        repeat(300) { n -> com.phairplay.diagnostics.ActivityLog.record(
+            com.phairplay.diagnostics.Severity.INFO, "test", "Sample event $n"
+        ) }
+        ActivityLogDialog.show(activity)
+        val dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog()
+        val root = dialog.window!!.decorView
+        render(root, "activity-log-2.4")
+        fun descendants(view: View): List<View> = listOf(view) +
+            if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
+            else emptyList()
+        val views = descendants(root)
+        val list = views.filterIsInstance<android.widget.ListView>().single()
+        assertEquals(300, list.adapter.count)
+        assertTrue("History should create only visible rows", list.childCount < list.adapter.count)
+        assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Newest" })
+        assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Oldest" })
+        dialog.dismiss()
+        com.phairplay.diagnostics.ActivityLog.clear()
+    }
+
     @Test fun homeRendersAndRemoteCanReachBothCardsAndControls() {
         val activity = host()
         val root = shell(activity, R.layout.fragment_home)

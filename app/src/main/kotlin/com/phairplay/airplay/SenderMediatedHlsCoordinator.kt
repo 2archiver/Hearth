@@ -42,6 +42,38 @@ internal class SenderMediatedHlsCoordinator(
     private val playLock = Any()
     private val reverseOffers = LinkedHashMap<String, ReverseOffer>()
 
+    private val videoEventLock = Any()
+    private var videoEventToken: SessionToken? = null
+    private var videoEventSender: String? = null
+    private var lastVideoEvent: Pair<String, String>? = null
+
+    override fun bindVideoSession(token: SessionToken?, senderSessionId: String?) = synchronized(videoEventLock) {
+        videoEventToken = token
+        videoEventSender = senderSessionId?.takeIf { id ->
+            id.isNotBlank() && id.length <= FcupCodec.MAX_SESSION_ID_CHARS && id.all { it.code in 0x20..0x7e }
+        }
+        lastVideoEvent = null
+    }
+
+    override fun publishVideoState(token: SessionToken?, state: AirPlayPlaybackState) {
+        synchronized(videoEventLock) {
+            if (token == null || token != videoEventToken || isStopped()) return
+            val sender = videoEventSender ?: return
+            val wireState = VideoPlaybackEvent.stateName(state) ?: return
+            val offer = synchronized(lock) {
+                reverseOffers.values.filter { it.senderSessionId == sender }.singleOrNull()
+            } ?: return
+            val key = offer.connectionId to wireState
+            if (lastVideoEvent == key) return
+            val frame = VideoPlaybackEvent.frame(sender, wireState)
+            if (runCatching { offer.writer(frame) }.getOrDefault(false)) {
+                lastVideoEvent = key
+                AirPlayTrace.record("Video status event sent: $wireState", sessionId = token.sessionId,
+                    connectionId = offer.connectionId, role = AirPlayConnectionRole.REVERSE_EVENT.name)
+            }
+        }
+    }
+
     /** Rotating signal captured under [lock], so an offer arriving during /play cannot be missed. */
     private var reverseOffersChanged = CountDownLatch(1)
 

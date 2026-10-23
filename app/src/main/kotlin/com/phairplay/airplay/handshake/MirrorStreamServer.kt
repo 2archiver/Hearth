@@ -23,8 +23,8 @@ import java.net.Socket
  * silently evict config ordering. Encoded loss always resumes at a configured IDR.
  *
  * The network reader and decoder consumer remain separate. The handoff is bounded independently by
- * frame count, total bytes and queued age; Stable FPS adds bounded timestamp-based presentation and
- * stale decoded-frame dropping, without a fixed frame-rate target or sleeps.
+ * frame count, total bytes and queued age. Decoded output is presented immediately;
+ * encoded loss still waits for a configured recovery frame.
  */
 class MirrorStreamServer(
     private val aesKey: ByteArray,
@@ -33,7 +33,6 @@ class MirrorStreamServer(
     private val surfaceProvider: () -> Surface?,
     private val width: Int = 1920,
     private val height: Int = 1080,
-    private val stableFpsEnabled: Boolean = false,
 ) {
     private data class PendingConfig(
         val config: MirrorCodecConfig,
@@ -46,13 +45,7 @@ class MirrorStreamServer(
     @Volatile private var cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
     private val serverSocket = ServerSocket(0) // OS-assigned free port
     private val timestampMapper = MirrorTimestampMapper()
-    private val frameQueue = BoundedMirrorFrameQueue(
-        maxAgeNanos = if (stableFpsEnabled) {
-            BoundedMirrorFrameQueue.STABLE_FPS_MAX_AGE_NANOS
-        } else {
-            BoundedMirrorFrameQueue.DEFAULT_MAX_AGE_NANOS
-        },
-    )
+    private val frameQueue = BoundedMirrorFrameQueue()
 
     @Volatile private var running = false
     @Volatile private var client: Socket? = null
@@ -80,7 +73,7 @@ class MirrorStreamServer(
 
     fun start(scope: CoroutineScope) {
         running = true
-        StreamStats.configureMirrorPacing(stableFpsEnabled, width, height)
+        StreamStats.configureMirrorPacing(false, width, height)
         publishQueueStats()
         scope.launch(Dispatchers.IO) { runReader() }
         scope.launch(Dispatchers.IO) { runDecoder() }
@@ -100,7 +93,7 @@ class MirrorStreamServer(
         try {
             Logger.i(
                 "MirrorStreamServer listening on data port $dataPort " +
-                    "(stableFps=$stableFpsEnabled, advertised=${width}x$height)",
+                    "(advertised=${width}x$height)",
             )
             var connections = 0
             while (running && !serverSocket.isClosed) {
@@ -232,7 +225,7 @@ class MirrorStreamServer(
             Logger.i(
                 "Mirror stats: rx=$receivedFrames encodedDrop=${after.droppedFrames} " +
                     "queue=${after.frames}/${after.bytes}B/${after.oldestAgeMillis}ms " +
-                    "stableFps=$stableFpsEnabled pts=${sample.source.name.lowercase()}",
+                    "pts=${sample.source.name.lowercase()}",
             )
         }
     }
@@ -348,12 +341,11 @@ class MirrorStreamServer(
         val origin = timestampMapper.presentationOriginNanos
         decoder = VideoDecoder(
             outputSurface = surface,
-            stableMirrorPacing = stableFpsEnabled,
             mirrorPresentationOriginNanos = origin,
         ).also {
             it.initialize(startCode + config.sps, startCode + config.pps, width, height)
         }
-        StreamStats.configureMirrorPacing(stableFpsEnabled, width, height)
+        StreamStats.configureMirrorPacing(false, width, height)
         StreamStats.videoDecoderReady = true
         Logger.i("Mirror decoder rebuilt for surface (SPS=${config.sps.size}B PPS=${config.pps.size}B)")
         // Decoder fallback is a degradation a user can see (a brief freeze); it is not a crash.
@@ -409,7 +401,7 @@ class MirrorStreamServer(
             ActivityLog.record(
                 Severity.INFO, "mirror",
                 "Mirroring video started",
-                details = "stableFps=$stableFpsEnabled",
+                details = "immediate presentation",
             )
         }
         val accepted = currentDecoder.decodeNalUnit(frame.annexB, frame.presentationTimeUs)

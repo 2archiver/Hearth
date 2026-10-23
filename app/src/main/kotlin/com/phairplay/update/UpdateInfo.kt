@@ -103,7 +103,8 @@ data class Release(
         if (!flavor.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return null
         val suffixes = listOf("-$flavor.apk", "-android-tv.apk")
         val compatible = assets.filter { asset ->
-            suffixes.any { asset.name.endsWith(it, ignoreCase = true) }
+            suffixes.any { asset.name.endsWith(it, ignoreCase = true) } ||
+                asset.name.matches(Regex("""^Hearth\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?\.apk$""", RegexOption.IGNORE_CASE))
         }
         return compatible.singleOrNull()
     }
@@ -310,7 +311,7 @@ object ReleaseParser {
     // The version must begin with a digit: without that, `Hearth-android-tv.apk` would report the
     // flavour suffix "android-tv" as its version and the updater would compare against nonsense.
     private val ASSET_VERSION_REGEX =
-        Regex("""^(?:Hearth|PhairPlay)-v?(\d[^/]*?)(?:-googletv|-android-tv)?\.apk$""", RegexOption.IGNORE_CASE)
+        Regex("""^(?:Hearth-?|PhairPlay-)v?(\d[^/]*?)(?:-googletv|-android-tv)?\.apk$""", RegexOption.IGNORE_CASE)
 
     private fun parseAssets(array: JSONArray?): List<ReleaseAsset> {
         if (array == null) return emptyList()

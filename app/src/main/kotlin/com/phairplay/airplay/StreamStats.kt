@@ -396,7 +396,7 @@ object StreamStats {
                 nowNanos - lastPresentedNanos in 0L..2_000_000_000L) presentedFps else 0.0
         }
         return buildString {
-            append("Hearth 2.2 · ").append(fps(recentFps))
+            append("Hearth ").append(com.phairplay.BuildConfig.VERSION_NAME.substringBefore("-main.").substringBefore("-googletv")).append(" · ").append(fps(recentFps))
             if (source.isEmpty()) {
                 append("\nWaiting for a stream")
             } else {
@@ -413,7 +413,7 @@ object StreamStats {
         val text = StringBuilder()
         val active = source
         val state = receiverState
-        text.append("HEARTH 2.2")
+        text.append("HEARTH ").append(com.phairplay.BuildConfig.VERSION_NAME.substringBefore("-main.").substringBefore("-googletv"))
         if (active.isNotEmpty()) text.append(" · ").append(active)
         if (displayRefreshHz > 0f) text.append(" · panel ").append(oneDecimal(displayRefreshHz.toDouble())).append(" Hz")
         if (sessionStartedAtMillis != 0L) {

@@ -408,6 +408,10 @@ internal class ExoUrlVideoBackend(
     override fun pause() = player.pause()
 
     override val isPlaying: Boolean get() = player.isPlaying
+    override val isBuffering: Boolean get() = player.playbackState == Player.STATE_BUFFERING
+    override val bufferedPositionMs: Int
+        get() = player.bufferedPosition.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    override val isSeekable: Boolean get() = player.isCurrentMediaItemSeekable
 
     override val durationMs: Int
         get() {

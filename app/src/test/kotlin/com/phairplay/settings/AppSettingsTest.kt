@@ -75,7 +75,6 @@ class AppSettingsTest {
         assertFalse("start on boot stays opt-in", defaults.startOnBoot)
         assertFalse("debug overlay stays off", defaults.showDebugOverlay)
         assertTrue("higher resolution stays on", defaults.forceHighResolution)
-        assertFalse("Stable FPS stays an opt-in next-session policy", defaults.stableFpsEnabled)
         assertTrue("mirror audio stays on", defaults.mirrorAudioEnabled)
         assertTrue("automatic update checks stay on", defaults.autoCheckForUpdates)
         assertTrue("automatic downloads stay on", defaults.autoDownloadUpdates)

@@ -130,8 +130,6 @@
     <string name="setting_activity_log_subtitle">Chronological receiver, casting and decoder events with severity. Copy a sanitised report or clear the log.</string>
     <string name="setting_force_high_res">Higher resolution (up to 4K)</string>
     <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
-    <string name="setting_stable_fps">Stable FPS</string>
-    <string name="setting_stable_fps_subtitle">Smoother mirroring with a small playback buffer and a 1080p cap (or lower for your TV). Adds about 60 ms of video delay; reconnect to apply. Does not increase the sender’s frame rate.</string>
     <string name="setting_version">Version</string>
     <!-- Shown next to the version: a rename must never look like a different app. -->
     <string name="setting_renamed_note">Hearth is the new name for PhairPlay — same app, same settings, same signing key.</string>
@@ -299,4 +297,6 @@
     <string name="update_permission_unavailable">This TV did not open the permission screen. Go to Settings → Apps → Special app access → Install unknown apps → Hearth and allow it, then choose Install now.</string>
     <string name="update_install_nothing_staged">That download is already installed or no longer available, so there is nothing to install.</string>
     <string name="update_install_verification_failed">The downloaded update failed verification and was deleted. Download it again.</string>
+    <string name="activity_log_oldest">Oldest</string>
+    <string name="activity_log_newest">Newest</string>
 </resources>

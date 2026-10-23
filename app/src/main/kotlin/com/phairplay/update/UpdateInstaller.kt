@@ -212,7 +212,7 @@ class UpdateInstaller(private val context: Context) {
     }
 
     companion object {
-        private const val SESSION_NAME = "phairplay-update.apk"
+        private const val SESSION_NAME = "Hearth.apk"
     }
 }
 

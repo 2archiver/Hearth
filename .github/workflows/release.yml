@@ -260,9 +260,9 @@ jobs:
           read -r apk_package apk_code apk_version <<< "$metadata"
 
           expected_version="${VERSION}-googletv"
-          if [[ "$apk_package" != "com.phairplay.googletv" || \
+          if [[ "$apk_package" != "com.hearth.tv" || \
                 "$apk_version" != "$expected_version" || "$apk_code" != "$CODE" ]]; then
-            echo "::error::APK metadata ($apk_package / $apk_version / $apk_code) did not match the preserved package and requested build (com.phairplay.googletv / $expected_version / $CODE)."
+            echo "::error::APK metadata ($apk_package / $apk_version / $apk_code) did not match the preserved package and requested build (com.hearth.tv / $expected_version / $CODE)."
             exit 1
           fi
 
@@ -288,11 +288,7 @@ jobs:
           # Stable releases use the predictable Android TV name from the release brief; per-run
           # development builds keep the embedded-version name (this one APK serves both ARM ABIs,
           # but it is never advertised as a catch-all build).
-          if [[ "${IS_MILESTONE:-false}" == "true" ]]; then
-            apk_name="Hearth-v${VERSION}-android-tv.apk"
-          else
-            apk_name="Hearth-${apk_version}.apk"
-          fi
+          apk_name="Hearth${apk_version%-googletv}.apk"
           mkdir -p dist
           cp "$src" "dist/$apk_name"
           apk_sha256=$(sha256sum "dist/$apk_name" | cut -d' ' -f1)

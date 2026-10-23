@@ -9,6 +9,24 @@ import org.junit.Test
 
 class UrlVideoPlaybackControllerTest {
     @Test
+    fun `a rebuffer stall reports loading then a bounded network failure`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.m3u8", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.firePrepared()
+        fixture.scheduler.runCurrent()
+        backend.fireFirstFrame()
+        fixture.scheduler.runCurrent()
+        backend.isBuffering = true
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertTrue(fixture.controller.info()!!.buffering)
+        fixture.scheduler.advanceBy(30_000)
+        assertTrue(backend.released)
+        assertNull(fixture.controller.info())
+    }
+
+    @Test
     fun `seconds seek and a late surface start video only after preparation and attachment`() {
         var surface: UrlVideoSurface? = null
         val fixture = Fixture { surface }
@@ -526,6 +544,7 @@ class UrlVideoPlaybackControllerTest {
         val muteCalls = mutableListOf<Boolean>()
         var muted = true
             private set
+        override var isBuffering: Boolean = false
         override val isPlaying: Boolean get() = playing
         override val durationMs: Int = 90_000
         override val positionMs: Int = 12_000

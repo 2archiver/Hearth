@@ -11,6 +11,9 @@ data class PlaybackInfo(
     val positionSec: Double,
     val rate: Double,
     val readyToPlay: Boolean,
+    val buffering: Boolean = false,
+    val bufferedPositionSec: Double = durationSec,
+    val seekable: Boolean = true,
 )
 
 /**

@@ -48,7 +48,6 @@ class SettingsFragment : Fragment() {
     private lateinit var rowDebugOverlay: View
     private lateinit var rowActivityLog: View
     private lateinit var rowForceHighRes: View
-    private lateinit var rowStableFps: View
     private lateinit var textVersionValue: TextView
     private lateinit var rowAutoCheckUpdates: View
     private lateinit var rowAutoDownloadUpdates: View
@@ -96,7 +95,6 @@ class SettingsFragment : Fragment() {
         rowDebugOverlay     = view.findViewById(R.id.row_debug_overlay)
         rowActivityLog      = view.findViewById(R.id.row_activity_log)
         rowForceHighRes     = view.findViewById(R.id.row_force_high_res)
-        rowStableFps        = view.findViewById(R.id.row_stable_fps)
         textVersionValue    = view.findViewById(R.id.text_version_value)
         rowAutoCheckUpdates  = view.findViewById(R.id.row_auto_check_updates)
         rowAutoDownloadUpdates = view.findViewById(R.id.row_auto_download_updates)
@@ -120,7 +118,6 @@ class SettingsFragment : Fragment() {
         configureToggleRow(rowStartOnBoot,  R.string.setting_start_on_boot,      0)
         configureToggleRow(rowDebugOverlay, R.string.setting_debug_overlay,      R.string.setting_debug_overlay_subtitle)
         configureToggleRow(rowForceHighRes, R.string.setting_force_high_res,      R.string.setting_force_high_res_subtitle)
-        configureToggleRow(rowStableFps, R.string.setting_stable_fps,            R.string.setting_stable_fps_subtitle)
         configureToggleRow(rowActivityLog, R.string.setting_activity_log,        R.string.setting_activity_log_subtitle)
         configureToggleRow(rowAutoCheckUpdates,    R.string.setting_auto_check_updates,
             R.string.setting_auto_check_updates_subtitle)
@@ -167,7 +164,6 @@ class SettingsFragment : Fragment() {
         setToggle(rowStartOnBoot,  settings.startOnBoot)
         setToggle(rowDebugOverlay, settings.showDebugOverlay)
         setToggle(rowForceHighRes, settings.forceHighResolution)
-        setToggle(rowStableFps, settings.stableFpsEnabled)
         setToggle(rowAutoCheckUpdates,    settings.autoCheckForUpdates)
         setToggle(rowAutoDownloadUpdates, settings.autoDownloadUpdates)
         setToggle(rowAutoInstallUpdates,  settings.autoInstallUpdates)
@@ -192,8 +188,6 @@ class SettingsFragment : Fragment() {
         setToggleListener(rowStartOnBoot)  { enabled -> save { it.copy(startOnBoot = enabled) } }
         setToggleListener(rowDebugOverlay) { enabled -> save { it.copy(showDebugOverlay = enabled) } }
         setToggleListener(rowForceHighRes) { enabled -> saveAndRestart { it.copy(forceHighResolution = enabled) } }
-        // Stable FPS is a persisted next-mirroring-session policy; never restart an active cast.
-        setToggleListener(rowStableFps) { enabled -> save { it.copy(stableFpsEnabled = enabled) } }
         setToggleListener(rowAutoCheckUpdates)    { enabled -> save { it.copy(autoCheckForUpdates = enabled) } }
         setToggleListener(rowAutoDownloadUpdates) { enabled -> save { it.copy(autoDownloadUpdates = enabled) } }
         setToggleListener(rowAutoInstallUpdates)  { enabled -> save { it.copy(autoInstallUpdates = enabled) } }

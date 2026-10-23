@@ -71,8 +71,6 @@
         <include layout="@layout/settings_toggle_row"
             android:id="@+id/row_force_high_res" />
 
-        <include layout="@layout/settings_toggle_row"
-            android:id="@+id/row_stable_fps" />
 
         <include layout="@layout/settings_section_header"
             android:id="@+id/header_protocols"

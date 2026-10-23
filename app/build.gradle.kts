@@ -3,7 +3,7 @@
 // Hearth ships for Google TV only (Android TV OS 10+; developed and tested against
 // Google TV 4K running Android TV OS 14, wired to Ethernet as well as on Wi-Fi).
 // The single "googletv" product flavor is kept so Gradle task names (assembleGoogletvRelease, ...)
-// and the applicationId stay stable.
+// remain stable; 2.4 uses the Hearth package identity.
 //
 // Shared code lives in src/main/. Google TV specific overrides live in src/googletv/.
 
@@ -191,7 +191,7 @@ android {
     productFlavors {
         create("googletv") {
             dimension = "platform"
-            applicationId = "com.phairplay.googletv"
+            applicationId = "com.hearth.tv"
             minSdk = 29        // Google TV requires Android 10+
             versionNameSuffix = "-googletv"
         }

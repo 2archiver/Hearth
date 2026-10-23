@@ -53,6 +53,9 @@ internal interface UrlVideoBackend {
     fun start()
     fun pause()
     val isPlaying: Boolean
+    val isBuffering: Boolean get() = false
+    val bufferedPositionMs: Int get() = positionMs
+    val isSeekable: Boolean get() = true
     val durationMs: Int
     val positionMs: Int
     fun release()
@@ -153,6 +156,7 @@ internal class UrlVideoPlaybackController(
     private var attachedSurface: UrlVideoSurface? = null
     private var deadlineMillis = 0L
     private var playbackStartMillis = 0L
+    private var bufferingStartedAtMillis: Long? = null
     private var lastReportedState: AirPlayPlaybackState? = null
 
     @Volatile
@@ -169,6 +173,13 @@ internal class UrlVideoPlaybackController(
                 }
 
                 if (prepared) {
+                    if (current.isBuffering && desiredRate > 0f && firstFrameRendered) {
+                        val since = bufferingStartedAtMillis ?: clockMillis().also { bufferingStartedAtMillis = it }
+                        if (clockMillis() - since >= 30_000L) {
+                            fail(current, "buffering timeout")
+                            return@runCatching
+                        }
+                    } else bufferingStartedAtMillis = null
                     if (surface != null && desiredRate > 0f) {
                         if (!current.isPlaying) current.start()
                         if (!started) trace("URL video: playback started at ${elapsedPlaybackMillis()}ms")
@@ -182,6 +193,7 @@ internal class UrlVideoPlaybackController(
                         when {
                             desiredRate <= 0f -> AirPlayPlaybackState.PAUSED
                             surface == null -> AirPlayPlaybackState.LOADING
+                            current.isBuffering -> AirPlayPlaybackState.LOADING
                             audioOnly -> AirPlayPlaybackState.AUDIO_ONLY
                             firstFrameRendered -> AirPlayPlaybackState.PLAYING
                             // Started, but nothing has been drawn yet: still loading, and the
@@ -194,6 +206,9 @@ internal class UrlVideoPlaybackController(
                         positionSec = current.positionMs.coerceAtLeast(0) / 1000.0,
                         rate = if (current.isPlaying) 1.0 else 0.0,
                         readyToPlay = surface != null,
+                        buffering = current.isBuffering,
+                        bufferedPositionSec = current.bufferedPositionMs.coerceAtLeast(0) / 1000.0,
+                        seekable = current.isSeekable,
                     )
                 }
 
@@ -234,6 +249,7 @@ internal class UrlVideoPlaybackController(
         preparedAtMillis = null
         mediaOwnsAudio = null
         playbackStartMillis = clockMillis()
+        bufferingStartedAtMillis = null
         deadlineMillis = playbackStartMillis + timeoutMillis
         playbackSnapshot = PlaybackInfo(0.0, 0.0, 0.0, readyToPlay = false)
         reportState(AirPlayPlaybackState.LOADING)
@@ -445,6 +461,7 @@ internal class UrlVideoPlaybackController(
             "player-preparation:player did not become ready or acquire a valid surface"
         "first frame timeout" ->
             "first-frame:player was prepared, but no video frame reached the display"
+        "buffering timeout" -> "network:media remained stalled for 30 seconds"
         "setup" -> "player-setup:video player could not be started"
         "playback state" -> "playback:media playback failed"
         "seek", "initial seek" -> "seek:seek failed"
