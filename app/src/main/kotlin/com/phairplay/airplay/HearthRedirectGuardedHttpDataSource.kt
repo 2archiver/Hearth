@@ -66,7 +66,6 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
         } catch (_: Exception) {
             throw IOException("direct media URL is invalid")
         }
-        val originalScheme = originalUri.scheme?.lowercase(Locale.ROOT)
         MediaRedirectPolicy.rejectionReason(originalUri)?.let { reason ->
             throw IOException("direct media URL blocked: $reason")
         }
@@ -122,7 +121,7 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                     } catch (_: Exception) {
                         throw IOException("direct media redirect target is invalid")
                     }
-                    MediaRedirectPolicy.rejectionReason(redirectedUri, originalScheme)?.let { reason ->
+                    MediaRedirectPolicy.rejectionReason(redirectedUri, url.protocol)?.let { reason ->
                         throw IOException("direct media redirect blocked: $reason")
                     }
                     if (!sameOrigin(url, redirectedUrl)) {

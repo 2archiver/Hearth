@@ -78,7 +78,7 @@ class LocalMediaAddressPolicyTest {
     }
 
     @Test
-    fun `cross protocol and credential redirects are rejected`() {
+    fun `TLS downgrade and credential redirects are rejected`() {
         assertEquals(
             "cross-protocol media redirect is blocked",
             MediaRedirectPolicy.rejectionReason(
@@ -90,6 +90,13 @@ class LocalMediaAddressPolicyTest {
             "media URL credentials are blocked",
             MediaRedirectPolicy.rejectionReason(URI("https://user:secret@media.example/movie.m3u8"))
         )
+    }
+
+    @Test
+    fun `sender HTTP endpoint may upgrade to a TLS CDN`() {
+        assertNull(MediaRedirectPolicy.rejectionReason(
+            URI("https://media.example/movie.m3u8"), originalScheme = "http"
+        ))
     }
 
     @Test

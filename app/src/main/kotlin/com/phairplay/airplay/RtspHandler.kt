@@ -200,6 +200,7 @@ open class RtspHandler(
     private val ptthResponseReader = PtthResponseReader()
 
     private val stopReported = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var senderPlayWorker: Thread? = null
 
     /** Why this connection is closing — reported with the session stop (diagnostics). */
     @Volatile
@@ -602,6 +603,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             hlsHost?.releaseReverseChannel(traceConnectionId)
         }
         closed = true
+        senderPlayWorker?.interrupt()
         val hadSession = sessionToken != null || isSessionActive()
         runCatching { client?.close() }
         client = null
@@ -704,6 +706,13 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         // DACP values are used by the remote-control client, but are never written to diagnostics.
         request.header("Active-Remote")?.let { onRemoteControlInfo(request.header("DACP-ID"), it) }
         val endpoint = normalizedEndpoint(request.uri)
+        // Safari may poll and control playback on another HTTP connection. Only an exact
+        // sender session id may join it; an address or an unmatched probe never claims playback.
+        if (sessionToken == null && endpoint in setOf("/playback-info", "/scrub", "/rate", "/stop") &&
+            request.method.uppercase(Locale.US) in setOf("GET", "POST")
+        ) {
+            associateSession(AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
+        }
         if (request.method.equals("POST", true) && endpoint == "/reverse") {
             associateSession(AirPlayConnectionRole.REVERSE_EVENT)
         } else if ((request.method.equals("PUT", true) || request.method.equals("DELETE", true)) &&
@@ -981,6 +990,9 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
      * otherwise would leave the sender believing video is on its way. No capability bit is flipped.
      */
     private fun handleSenderMediatedPlay(request: RtspRequest, parsed: BodyParse.SenderMediated): RtspResponse {
+        if (senderPlayWorker?.isAlive == true) {
+            return RtspResponse(409, "Conflict", protocol = request.responseProtocol())
+        }
         val senderSessionId = request.header("X-Apple-Session-ID")?.trim()?.takeIf { it.isNotEmpty() }
         claimSession(AirPlaySessionMode.SENDER_MEDIATED_HLS, AirPlayConnectionRole.DIRECT_VIDEO_CONTROL)
         trace(
@@ -997,16 +1009,43 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             reportPlaybackState(AirPlayPlaybackState.FAILED, "play-negotiation:no FCUP bridge host")
             return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
         }
-        val result = host.startSenderMediatedPlay(
-            SenderMediatedPlayRequest(
-                connectionId = traceConnectionId,
-                senderSessionId = senderSessionId,
-                location = parsed.request.url,
-                startSeconds = parsed.request.start,
-                seconds = parsed.request.seconds,
-                token = sessionToken,
-            )
+        val play = SenderMediatedPlayRequest(
+            connectionId = traceConnectionId,
+            senderSessionId = senderSessionId,
+            location = parsed.request.url,
+            startSeconds = parsed.request.start,
+            seconds = parsed.request.seconds,
+            token = sessionToken,
         )
+        if (socket != null) {
+            // Never wait for FCUP in the socket reader. YouTube may send /action on this same
+            // control connection after /play is acknowledged. Blocking here prevents reading
+            // that answer and turns a valid playlist exchange into a 15-second timeout.
+            val worker = Thread({
+                try {
+                    val result = host.startSenderMediatedPlay(play)
+                    if (!closed && sessionToken == play.token) {
+                        senderMediatedPlayResponse(request, parsed, result)
+                    }
+                } catch (_: Exception) {
+                    if (!closed && sessionToken == play.token) {
+                        reportPlaybackState(AirPlayPlaybackState.FAILED, "manifest:sender-mediated preparation failed")
+                    }
+                }
+            }, "Hearth-HLS-prepare").apply { isDaemon = true }
+            senderPlayWorker = worker
+            worker.start()
+            trace("Sender-mediated /play acknowledged; playlist preparation pending", kind = AirPlayTrace.Kind.LIFECYCLE)
+            return RtspResponse(200, "OK", protocol = request.responseProtocol())
+        }
+        return senderMediatedPlayResponse(request, parsed, host.startSenderMediatedPlay(play))
+    }
+
+    private fun senderMediatedPlayResponse(
+        request: RtspRequest,
+        parsed: BodyParse.SenderMediated,
+        result: SenderMediatedPlayResult,
+    ): RtspResponse {
         return if (result.accepted) {
             trace(
                 "Sender-mediated /play accepted (${parsed.encoding.name.lowercase(Locale.US)}, " +
@@ -1060,7 +1099,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
     /** GET /scrub — current position + duration as text/parameters. */
     private fun handleScrubGet(request: RtspRequest): RtspResponse {
         val info = onPlaybackInfoSession?.invoke(sessionToken) ?: onPlaybackInfo()
-        val body = "duration: %.6f\r\nposition: %.6f\r\n".format(info?.durationSec ?: 0.0, info?.positionSec ?: 0.0)
+        val body = String.format(Locale.US, "duration: %.6f\r\nposition: %.6f\r\n", info?.durationSec ?: 0.0, info?.positionSec ?: 0.0)
         return RtspResponse(200, "OK", body = body, contentType = "text/parameters", protocol = request.responseProtocol())
     }
 

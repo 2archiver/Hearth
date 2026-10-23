@@ -25,8 +25,8 @@ import com.phairplay.util.NetworkUtils
  *
  *  - **Feature bit 27 — `SupportsLegacyPairing`.** UxPlay turns this bit on precisely because
  *    "legacy pairing" is what it offers (`dnssdint.h`), and turns it off to force Apple's
- *    HomeKit path. It is ON here, and the rest of the bitmask is kept to the same value the
- *    working open-source receivers advertise: `0x5A7FFEE6`.
+ *    HomeKit path. It is ON here, and the legacy-pairing base profile is preserved, with Video (bit 0) and
+ *    VideoHTTPLiveStreams (bit 4) enabled for Hearth's direct MP4/HLS player.
  *  - **The model.** `AppleTV5,3` is an AirPlay **2** Apple TV — a device that pairs with
  *    HomeKit and runs an encrypted control channel. A sender that sees it expects `pair-setup`
  *    in the HomeKit dialect, and a receiver that answers 400 never gets a session. Hearth
@@ -37,9 +37,9 @@ import com.phairplay.util.NetworkUtils
  * publish it as a **hex string** in the TXT record, and iOS reads it while browsing. It is the
  * pairing *bits*, not the key, that select the dialect.
  *
- * Values are deliberately identical to UxPlay's legacy profile (model `AppleTV3,2`, srcvers
- * `220.68`, `flags 0x4`, features `0x5A7FFEE6`) because that combination is the one with
- * millions of real-device hours behind it.
+ * Model, source version and pairing flags retain the UxPlay legacy profile. Unlike its
+ * mirror-only discovery mask, Hearth advertises the direct-video and HLS paths it implements.
+ * This capability correction still needs Safari/iPhone and Android TV device validation.
  */
 object AirPlayIdentity {
 
@@ -59,15 +59,15 @@ object AirPlayIdentity {
     const val VERSION = 2L
 
     /**
-     * AirPlay feature bitmask, low 32 bits. Bit 27 (`SupportsLegacyPairing`) is ON; bits 0, 4, 8
-     * and 12 are OFF, exactly as the proven legacy-pairing receivers advertise them. Video-URL
-     * playback (`POST /play`) does not need those bits — the sender only offers it after
-     * `GET /server-info`, which is served separately.
+     * Legacy pairing profile plus Video (bit 0) and VideoHTTPLiveStreams (bit 4).
+     * 2.2 left both off even though /play implements progressive MP4 and HLS. Keep discovery,
+     * GET /info and GET /server-info consistent so Safari can negotiate that path.
+     * No HomeKit, HEVC or additional DRM capability is added by this change.
      */
-    const val FEATURES = 0x5A7FFEE6L
+    const val FEATURES = 0x5A7FFEF7L
 
     /** Same value as the TXT record, in the `0x…` form senders parse out of mDNS. */
-    const val FEATURES_TXT = "0x5A7FFEE6"
+    const val FEATURES_TXT = "0x5A7FFEF7"
 
     /**
      * `statusFlags` — 0x44 = AudioLink (0x04) + SupportsAirPlayFromCloud (0x40).

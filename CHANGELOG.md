@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] — Safari and YouTube video transport fixes
+
+- Advertise the implemented video and HLS capabilities consistently in discovery and server info.
+- Keep the YouTube control reader available while sender-mediated HLS prepares, so a playlist
+  reply on the same connection can satisfy the reverse-channel request instead of timing out.
+  One preparation worker per connection; repeated requests while preparing receive 409.
+- Associate secondary playback-info, scrub, rate and stop connections by exact Apple session ID.
+- Permit HTTP-to-HTTPS media redirects while retaining TLS downgrade, credential and host checks.
+- Use dot-decimal scrub responses under every system locale; enable decoder initialization fallback.
+- Review current UxPlay video handlers and FCUP framing; retain the existing Android media stack.
+- Add casting regressions and a Safari/YouTube acceptance checklist in `docs/CASTING-2.3.md`.
+- Real iPhone/TV casting remains unverified until the device checklist passes. These are transport
+  fixes, not a claim that every website, DRM stream or YouTube sender now works.
+
 ## [2.2.0] — a smaller HUD and buffered mirroring
 
 - Compact top-left debug overlay with one measured display FPS, resolution and session time.

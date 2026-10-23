@@ -17,7 +17,9 @@ internal object MediaRedirectPolicy {
         val scheme = candidate.scheme?.lowercase(Locale.ROOT)
             ?: return "media URL has no scheme"
         if (scheme != "http" && scheme != "https") return "unsupported media URL scheme"
-        if (originalScheme != null && scheme != originalScheme.lowercase(Locale.ROOT)) {
+        // A LAN HTTP media endpoint may hand off to a TLS CDN. Never permit the reverse:
+        // credentials and protected transport must not be downgraded by a redirect.
+        if (originalScheme.equals("https", ignoreCase = true) && scheme == "http") {
             return "cross-protocol media redirect is blocked"
         }
         if (candidate.rawUserInfo != null) return "media URL credentials are blocked"
