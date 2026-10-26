@@ -24,9 +24,6 @@ second dispatch and no duplicate release for the same commit. A failed milestone
 - **The current release (GitHub resolves this to the newest build):** <https://github.com/2archiver/Hearth/releases/latest>
 - **A specific immutable release:** `https://github.com/2archiver/Hearth/releases/tag/v<version>` —
   for example `v2.0.0-main.23`.
-- **Optional download page:** GitHub Pages is not enabled for `2archiver/Hearth` (checked via
-  repository metadata on 2026-10-07). Use the GitHub release page above; do not rely on a Pages URL
-  until it is enabled.
 
 A release carries **exactly one file**. Stable milestones use the predictable
 `Hearth-v<version>-android-tv.apk`; per-run development builds are named after the `versionName`
@@ -177,20 +174,13 @@ Keep your `.jks`/`.p12` backed up — lose it and you can never publish an in-pl
 Gradle properties `phairplay.keystorePath`, `phairplay.keystoreType`, `phairplay.keystorePassword`,
 `phairplay.keyAlias`, `phairplay.keyPassword` do the same thing without environment variables.
 
-## The download page
+## Downloads and updates
 
-`site/index.html` is a static page with one prominent **Download latest APK** button, Downloader/ADB
-install steps, and a current-version summary. It reads the current release from GitHub's
-`/releases/latest` endpoint in the browser and lists the immutable releases in a collapsed history
-section; older release links stay valid because their tags are never moved. Before the GitHub API
-responds — or if it is unavailable — the button opens the current GitHub release page. Once the API
-responds, the page uses the actual compatible asset URL returned for that release; it does not
-invent a fixed APK filename.
+GitHub Releases is the download page. There is no separate website or Pages deployment workflow.
+The in-app updater reads GitHub's `/releases/latest` API directly and downloads the APK asset;
+its operation does not depend on a website or a scheduled workflow.
 
-One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The
-`Releases page` workflow passes `enablement: true`, so a run from `main` flips that switch for
-you; if the token lacks the right, set it by hand once. **The APK download does not depend on
-Pages at all** — the release links above work regardless.
+The temporary scheduler probe has been removed. The remaining workflows are CI, Lint and Release.
 
 ## Local release build
 

@@ -27,7 +27,7 @@ The runner-up and the full shortlist (Mira, Perch, Foyer, Aviary, Tessera) are p
 | Release asset name | `Hearth-<version>-googletv.apk` |
 | Release title | `Hearth <version> for Google TV` |
 | Gradle root project | `Hearth` |
-| Download page (`site/`), README, docs, workflows, tools | Hearth |
+| README, docs, workflows, tools | Hearth |
 
 ## What deliberately did **not** change
 
