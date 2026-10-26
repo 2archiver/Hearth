@@ -2,6 +2,7 @@ package com.phairplay.airplay
 
 import com.phairplay.airplay.VideoDecoder.Companion.SpsBitReader
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -91,6 +92,27 @@ class VideoDecoderSpsTest {
         // se(v): k=2 (even) → -(2/2) = -1
         val reader = SpsBitReader(byteArrayOf(0x60), startOffset = 0)
         assertEquals(-1, reader.readSe())
+    }
+
+    private fun encodedUe(value: Int): ByteArray {
+        val code = (value.toLong() + 1).toString(2)
+        val bits = "0".repeat(code.length - 1) + code
+        return bits.padEnd((bits.length + 7) / 8 * 8, '0')
+            .chunked(8).map { it.toInt(2).toByte() }.toByteArray()
+    }
+
+    @Test fun `SPS Golomb budget accepts boundary and rejects larger values`() {
+        assertEquals(65535, SpsBitReader(encodedUe(65535), 0).readUe())
+        for (value in listOf(65536, Int.MAX_VALUE)) {
+            assertThrows(ArithmeticException::class.java) {
+                SpsBitReader(encodedUe(value), 0).readUe()
+            }
+        }
+    }
+
+    @Test fun `oversized SPS field falls back without dimension arithmetic overflow`() {
+        val header = byteArrayOf(0x67, 66, 0, 31)
+        assertNull(VideoDecoder.parseSpsResolution(header + encodedUe(Int.MAX_VALUE)))
     }
 
     // ─── parseSpsResolution boundary conditions ───────────────────────────────

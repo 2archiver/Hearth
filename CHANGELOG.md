@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shorten release titles to `Hearth 2.5.0`, without the Google TV suffix or repeated platform label.
 - Adapt PhairPlay's fragmented H.264 memory safeguard: cap a reassembled FU-A NAL at 8 MiB,
   discard an overflowing unit before appending, and recover at the next start fragment.
+- Adapt upstream SPS parsing overflow protection, bounding Exp-Golomb values before dimension
+  arithmetic and loop counts; verify against the actual Android decoder parser as well as JVM tests.
 - Avoid discovery registration churn from initial and repeated network callbacks. Wait for a usable
   IPv4 address, coalesce link changes on the main thread and preserve quick reconnection recovery.
   Ignore callbacks from superseded mDNS registrations and cancel pending refreshes when stopped.

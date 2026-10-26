@@ -7,6 +7,7 @@ commit `c7330f0`. Hearth's starting point was `d79ac6a` (2.4.0).
 | Upstream change | Decision for Hearth |
 | --- | --- |
 | FU-A reassembly bound, `7b5122a` | Adapt the 8 MiB bound in Hearth's existing depacketizer, keeping Hearth's STAP-A support and persistent RTSP reader. Test exact-boundary completion, overflowing completion, endless fragments and subsequent recovery. Source: Apache-2.0 PhairPlay `RtpInterleaved.kt`. |
+| SPS Exp-Golomb overflow, `cc555b9` | Adapt Long arithmetic and the 65535 value bound in production and the JVM stub. Add boundary/overflow regressions and run the production parser tests in Android CI and the release gate, too. |
 | Safe bitmap decoding, `ff993e2` | Hearth already reads image dimensions and samples before allocation through `BoundedBitmap`. Keep that path, including support for photos larger than the display; upstream rejects oversized source dimensions. Address the remaining main-thread artwork decode and recycle replaced artwork instead. |
 | Network recovery, `1384548` and `347ff97` | Hearth already watches the default network and retries failed mDNS. Apply the useful principle of avoiding initial/duplicate registration churn. Keep DHCP/address-change recovery rather than importing a second network observer or the upstream DLNA restart path. |
 | Resource diagnostics, `b1e511f` | Useful for observing CPU/RAM but does not itself accelerate playback. Do not add continuous polling or a second diagnostics UI in this release. |

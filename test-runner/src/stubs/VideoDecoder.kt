@@ -160,8 +160,10 @@ class VideoDecoder(
                 while (readBit() == 0) {
                     if (++leadingZeros > 31) throw ArithmeticException("ue(v) overflow")
                 }
-                return if (leadingZeros == 0) 0
-                else (1 shl leadingZeros) - 1 + readBits(leadingZeros)
+                // Long arithmetic prevents wraparound; the bound also limits dimensions and loops.
+                val value = (1L shl leadingZeros) - 1L + readBits(leadingZeros).toLong()
+                if (value > 0xFFFFL) throw ArithmeticException("ue(v) exceeds SPS budget")
+                return value.toInt()
             }
 
             fun readSe(): Int {
