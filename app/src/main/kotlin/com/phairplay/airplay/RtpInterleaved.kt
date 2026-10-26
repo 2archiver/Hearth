@@ -76,6 +76,9 @@ object RtpInterleaved {
      */
     private const val MAX_RTP_FRAME_BYTES = 2 * 1024 * 1024  // 2 MB
 
+    // Bound the entire fragmented NAL, not just each individual RTP packet.
+    internal const val MAX_FUA_BYTES = 8 * 1024 * 1024
+
     /** Room to push back exactly one byte: the '$' a re-sync found belongs to the outer loop. */
     private const val PUSHBACK_BYTES = 1
 
@@ -353,8 +356,13 @@ object RtpInterleaved {
 
         // Append the fragment data (skip FU indicator byte + FU header byte)
         val fragmentStart = payloadOffset + 2
-        if (fragmentStart < rtpFrame.size) {
-            accumulator.write(rtpFrame, fragmentStart, rtpFrame.size - fragmentStart)
+        val fragmentBytes = (rtpFrame.size - fragmentStart).coerceAtLeast(0)
+        if (fragmentBytes > MAX_FUA_BYTES - accumulator.size()) {
+            Logger.w("RtpInterleaved: fragmented NAL exceeds $MAX_FUA_BYTES bytes — discarding")
+            return null
+        }
+        if (fragmentBytes > 0) {
+            accumulator.write(rtpFrame, fragmentStart, fragmentBytes)
         }
 
         return if (isEnd) {

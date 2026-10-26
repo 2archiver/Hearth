@@ -447,7 +447,7 @@ jobs:
           fi
 
           short_sha="${GITHUB_SHA:0:7}"
-          title="Hearth ${VERSION} for Google TV"
+          title="Hearth ${VERSION%-googletv}"
           apk_url="https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}"
           {
             echo "# What's new in this build"

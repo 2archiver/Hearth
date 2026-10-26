@@ -2,6 +2,8 @@ package com.phairplay.ui
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
@@ -14,6 +16,16 @@ import android.widget.TextView
 import com.phairplay.R
 import com.phairplay.airplay.NowPlayingInfo
 import com.phairplay.util.Logger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * NowPlayingScreen — full-screen card shown while AirPlay audio plays without video (system audio
@@ -31,6 +43,11 @@ class NowPlayingScreen @JvmOverloads constructor(
 ) : FrameLayout(context, attrs, defStyleAttr) {
 
     private var lastArtwork: ByteArray? = null
+    private val decodeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    internal var artworkDecodeDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val decodeMutex = Mutex()
+    private var decodeJob: Job? = null
+    private var artworkGeneration = 0L
     private val artwork: ImageView
     private val titleView: TextView
     private val artistView: TextView
@@ -88,18 +105,31 @@ class NowPlayingScreen @JvmOverloads constructor(
         val bytes = info.artwork
         if (bytes !== lastArtwork || artwork.drawable == null) {
             lastArtwork = bytes
-            val bitmap = bytes?.let { BoundedBitmap.decode(it, 1024) }
-            if (bitmap != null) {
-                artwork.scaleType = ImageView.ScaleType.CENTER_CROP
-                artwork.setImageBitmap(bitmap)
-                artwork.setColorFilter(null)
-            } else {
-                // No artwork from the sender (typical for raw system audio) — show the AirPlay glyph.
-                artwork.scaleType = ImageView.ScaleType.CENTER_INSIDE
-                artwork.setImageResource(R.drawable.ic_airplay)
-                artwork.setColorFilter(color(R.color.text_secondary))
-                if (info.artwork != null) {
-                    Logger.w("NowPlayingScreen: artwork bytes (${info.artwork.size}B) failed to decode")
+            val generation = ++artworkGeneration
+            decodeJob?.cancel()
+            clearArtwork()
+            showArtworkPlaceholder()
+            if (bytes != null) decodeJob = decodeScope.launch {
+                var decoded: Bitmap? = null
+                val bitmap = try {
+                    // Serialize native decodes: cancellation cannot interrupt BitmapFactory.
+                    decodeMutex.withLock {
+                        withContext(artworkDecodeDispatcher) {
+                            BoundedBitmap.decode(bytes, 1024).also { decoded = it }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    decoded?.takeUnless { it.isRecycled }?.recycle()
+                    throw cancelled
+                }
+                if (generation != artworkGeneration) {
+                    bitmap?.recycle()
+                } else if (bitmap != null) {
+                    artwork.scaleType = ImageView.ScaleType.CENTER_CROP
+                    artwork.setImageBitmap(bitmap)
+                    artwork.setColorFilter(null)
+                } else {
+                    Logger.w("NowPlayingScreen: artwork decode failed")
                 }
             }
 
@@ -113,7 +143,27 @@ class NowPlayingScreen @JvmOverloads constructor(
     /** Releases the (potentially large) artwork bitmap when the card is hidden. */
     fun clear() {
         lastArtwork = null
+        artworkGeneration++
+        decodeJob?.cancel()
+        decodeJob = null
+        clearArtwork()
+    }
+
+    override fun onDetachedFromWindow() {
+        clear()
+        super.onDetachedFromWindow()
+    }
+
+    private fun clearArtwork() {
+        val bitmap = (artwork.drawable as? BitmapDrawable)?.bitmap
         artwork.setImageDrawable(null)
+        bitmap?.takeUnless { it.isRecycled }?.recycle()
+    }
+
+    private fun showArtworkPlaceholder() {
+        artwork.scaleType = ImageView.ScaleType.CENTER_INSIDE
+        artwork.setImageResource(R.drawable.ic_airplay)
+        artwork.setColorFilter(color(R.color.text_secondary))
     }
 
     private fun TextView.setTextVisible(value: String?) {

@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.os.Handler
+import android.os.Looper
 import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
 import android.net.nsd.NsdServiceInfo
@@ -118,6 +120,8 @@ class MdnsService(
 
     // Default-network watcher — see the class docs (point 3).
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val networkHandler = Handler(Looper.getMainLooper())
+    private var pendingNetworkRefresh: Runnable? = null
 
     /** Timestamp of the last (re)advertisement, used to debounce network callbacks. */
     @Volatile
@@ -428,16 +432,42 @@ class MdnsService(
             Logger.d("mDNS: ConnectivityManager unavailable — network changes will not re-advertise")
             return
         }
+        val state = DiscoveryNetworkState(setOfNotNull(NetworkUtils.getLocalIpAddress()))
+        var currentNetwork = manager.activeNetwork
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = readvertise("network available")
-
-            override fun onLost(network: Network) = readvertise("default network lost")
+            override fun onLost(network: Network) {
+                networkHandler.post {
+                    if (networkCallback !== this || currentNetwork != network) return@post
+                    currentNetwork = null
+                    state.lost()
+                    pendingNetworkRefresh?.let { networkHandler.removeCallbacks(it) }
+                    pendingNetworkRefresh = null
+                }
+            }
 
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-                val hasAddress = runCatching {
-                    linkProperties.linkAddresses.any { it.address is java.net.Inet4Address }
-                }.getOrDefault(true)
-                if (hasAddress) readvertise("address changed")
+                val addresses = linkProperties.linkAddresses.mapNotNull {
+                    it.address.takeIf { address -> address is java.net.Inet4Address }?.hostAddress
+                }.toSet()
+                networkHandler.post {
+                    if (networkCallback !== this) return@post
+                    currentNetwork = network
+                    if (addresses.isEmpty()) {
+                        state.lost()
+                        pendingNetworkRefresh?.let { networkHandler.removeCallbacks(it) }
+                        pendingNetworkRefresh = null
+                        return@post
+                    }
+                    if (!state.changed(addresses)) return@post
+                    pendingNetworkRefresh?.let { networkHandler.removeCallbacks(it) }
+                    // Coalesce DHCP/link bursts without losing a recovery to the old cooldown.
+                    val refresh = Runnable {
+                        pendingNetworkRefresh = null
+                        if (networkCallback === this) readvertise("network address restored or changed", bypassCooldown = true)
+                    }
+                    pendingNetworkRefresh = refresh
+                    networkHandler.postDelayed(refresh, NETWORK_SETTLE_MS)
+                }
             }
         }
         runCatching { manager.registerDefaultNetworkCallback(callback) }
@@ -451,6 +481,8 @@ class MdnsService(
     }
 
     private fun stopWatchingNetwork() {
+        pendingNetworkRefresh?.let { networkHandler.removeCallbacks(it) }
+        pendingNetworkRefresh = null
         val callback = networkCallback ?: return
         networkCallback = null
         runCatching {
@@ -502,7 +534,11 @@ class MdnsService(
     ): NsdManager.RegistrationListener {
         return object : NsdManager.RegistrationListener {
 
+            private fun isCurrent(): Boolean = isStarted &&
+                (airPlayListener === this || raopListener === this)
+
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
+                if (!isCurrent()) return
                 // NsdManager may append " (2)" to resolve name conflicts.
                 // Log the actual name so we can debug picker-visibility issues.
                 Logger.i("mDNS registered: $serviceLabel as '${serviceInfo.serviceName}'")
@@ -517,6 +553,7 @@ class MdnsService(
             }
 
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                if (!isCurrent()) return
                 // Error codes from NsdManager:
                 //   FAILURE_ALREADY_ACTIVE (3) — already registered; treat as success
                 //   FAILURE_MAX_LIMIT (4)      — too many services (should not happen)
@@ -564,6 +601,7 @@ class MdnsService(
 
         /** Minimum gap between re-advertisements, so a network flap cannot spin the daemon. */
         private const val READVERTISE_COOLDOWN_MS = 5_000L
+        private const val NETWORK_SETTLE_MS = 500L
 
         // Every value a sender can read about this receiver — model, feature bits, flags, `pk`,
         // `pi`, versions — comes from [AirPlayIdentity]. It used to be spread across this file

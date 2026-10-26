@@ -25,6 +25,14 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
 import java.io.File
+import android.graphics.drawable.BitmapDrawable
+import android.widget.ImageView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 
 /**
  * Renders real Android layouts with deterministic sample data and checks TV usability.
@@ -313,6 +321,37 @@ class HearthUiTest {
         render(view, "now-playing-no-metadata")
         view.clear()
         view.update(NowPlayingInfo("MacBook"))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun artworkDecodesAsynchronouslyAndClearCancelsPendingWork() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val view = NowPlayingScreen(host()).apply { artworkDecodeDispatcher = dispatcher }
+            val original = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            val bytes = ByteArrayOutputStream().apply {
+                original.compress(Bitmap.CompressFormat.PNG, 100, this)
+            }.toByteArray()
+            original.recycle()
+            val info = NowPlayingInfo("Phone", artwork = bytes)
+            val art = ((view.getChildAt(0) as ViewGroup).getChildAt(0) as ImageView)
+            view.update(info)
+            assertFalse(art.drawable is BitmapDrawable)
+            testScheduler.advanceUntilIdle()
+            val displayed = (art.drawable as BitmapDrawable).bitmap
+            view.update(info)
+            testScheduler.advanceUntilIdle()
+            assertSame(displayed, (art.drawable as BitmapDrawable).bitmap)
+            view.clear()
+            assertTrue(displayed.isRecycled)
+            view.update(info)
+            view.clear()
+            testScheduler.advanceUntilIdle()
+            assertNull(art.drawable)
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun artworkIsSampledBeforeAllocatingAndInvalidImagesFailSafely() {
