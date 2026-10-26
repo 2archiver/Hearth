@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.0] — discovery recovery and smoother artwork updates
+
+- Shorten release titles to `Hearth 2.5.0`, without the Google TV suffix or repeated platform label.
+- Adapt PhairPlay's fragmented H.264 memory safeguard: cap a reassembled FU-A NAL at 8 MiB,
+  discard an overflowing unit before appending, and recover at the next start fragment.
+- Adapt upstream SPS parsing overflow protection, bounding Exp-Golomb values before dimension
+  arithmetic and loop counts; verify against the actual Android decoder parser as well as JVM tests.
+- Avoid discovery registration churn from initial and repeated network callbacks. Wait for a usable
+  IPv4 address, coalesce link changes on the main thread and preserve quick reconnection recovery.
+  Ignore callbacks from superseded mDNS registrations and cancel pending refreshes when stopped.
+- Decode audio album artwork off the main thread, serialize decodes, cancel superseded work and
+  recycle replaced bitmaps. Metadata-only updates reuse existing artwork.
+- Preserve Hearth's existing bounded photo decoding, AirPlay video transport, app identity,
+  release signing and both ARM ABIs. See `docs/UPSTREAM-REVIEW-2.5.md` for the upstream comparison.
+- Automated checks cover fragmented-frame overflow/recovery, discovery address transitions,
+  artwork cancellation/reuse and the shorter release title. TV performance and casting
+  compatibility still require device testing; no measured FPS or latency gain is claimed.
+
 ## [2.4.0] — video status, faster activity log and Hearth identity
 
 - Send standard AirPlay reverse-channel video status events, scoped to the sender session.

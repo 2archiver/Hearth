@@ -178,7 +178,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --stacktrace 2>&1 | tee -a build.log
+          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --tests 'com.phairplay.airplay.VideoDecoderSpsTest' --stacktrace 2>&1 | tee -a build.log
 
       # Lint aborts the build with nothing but "Lint found errors in the project", which is
       # useless in a PR comment. The text report names the file, the line and the check id,

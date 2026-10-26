@@ -41,6 +41,16 @@ IMMUTABLE_TAG_RE = re.compile(r"^v\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?-main\.\d+$"
 
 
 class ReleaseNamingTest(unittest.TestCase):
+    def test_title_omits_platform_suffix(self):
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('title="Hearth ${VERSION%-googletv}"', workflow)
+        for version in ("2.5.0-googletv", "2.5.0-main.42-googletv"):
+            title = subprocess.check_output(
+                ["bash", "-c", 'VERSION="$1"; title="Hearth ${VERSION%-googletv}"; printf "%s" "$title"', "test", version],
+                text=True,
+            )
+            self.assertEqual("Hearth " + version.removesuffix("-googletv"), title)
+
     def test_example_names_follow_the_immutable_scheme(self):
         self.assertTrue(BASE_VERSION_RE.match(EXAMPLE_BASE))
         self.assertTrue(IMMUTABLE_TAG_RE.match(EXAMPLE_TAG))

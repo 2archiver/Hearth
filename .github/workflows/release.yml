@@ -201,7 +201,7 @@ jobs:
           python3 tools/test_release_workflow.py
           python3 tools/check-workflows.py .github/workflows/*.yml
           ./gradlew :test-runner:test :app:lintGoogletvDebug --stacktrace 2>&1 | tee build.log
-          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --stacktrace 2>&1 | tee -a build.log
+          ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --tests 'com.phairplay.airplay.VideoDecoderSpsTest' --stacktrace 2>&1 | tee -a build.log
 
       - name: Build release APK
         env:
@@ -447,7 +447,7 @@ jobs:
           fi
 
           short_sha="${GITHUB_SHA:0:7}"
-          title="Hearth ${VERSION} for Google TV"
+          title="Hearth ${VERSION%-googletv}"
           apk_url="https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}"
           {
             echo "# What's new in this build"
