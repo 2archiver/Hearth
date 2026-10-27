@@ -1,5 +1,9 @@
 <div align="center">
 
+<img src="docs/branding/hearth-logo.svg" width="600" alt="Hearth — Signal Flame logo" />
+
+<img src="docs/branding/hearth-logo.svg" width="600" alt="Hearth — Signal Flame logo" />
+
 # Hearth
 ### Your Apple devices. Your Google TV. One cosy connection.
 

@@ -156,12 +156,12 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                 val rawStream = nextConnection.inputStream
                 inputStream = rawStream
                 if (skipped > 0L) skipFully(rawStream, skipped)
-                val declaredLength = nextConnection.contentLengthLong
-                remainingBytes = when {
-                    dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
-                    declaredLength >= 0L -> (declaredLength - skipped).coerceAtLeast(0L)
-                    else -> C.LENGTH_UNSET.toLong()
+                val available = if (code == HttpURLConnection.HTTP_PARTIAL) {
+                    MediaResponseRange.partialLength(nextConnection.getHeaderField("Content-Range"), dataSpec.position)
+                } else {
+                    nextConnection.contentLengthLong.let { if (it >= 0L) (it - skipped).coerceAtLeast(0L) else it }
                 }
+                remainingBytes = MediaResponseRange.readLength(dataSpec.length, available)
                 startTransfer(dataSpec)
                 return remainingBytes
             }
@@ -185,7 +185,10 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
             minOf(length.toLong(), remainingBytes).toInt()
         }
         val read = stream.read(buffer, offset, allowed)
-        if (read < 0) return C.RESULT_END_OF_INPUT
+        if (read < 0) {
+            if (remainingBytes > 0L) throw EOFException("direct media response ended before declared length")
+            return C.RESULT_END_OF_INPUT
+        }
         if (remainingBytes != C.LENGTH_UNSET.toLong()) remainingBytes -= read
         val spec = activeDataSpec
         if (spec != null && read > 0) {

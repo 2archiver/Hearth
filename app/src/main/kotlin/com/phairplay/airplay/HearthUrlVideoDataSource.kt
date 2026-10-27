@@ -157,6 +157,10 @@ internal class HearthUrlVideoDataSource(
         return if (isBridgeUri(requestedUri)) requestedUri else delegate.getUri() ?: requestedUri
     }
 
+    // Media3 uses response metadata for HLS loads; the wrapper must preserve the HTTP contract.
+    override fun getResponseHeaders(): Map<String, List<String>> =
+        if (body != null) emptyMap() else delegate.getResponseHeaders()
+
     override fun close() {
         val requestId = activeRequestId
         if (requestId != 0L) {
