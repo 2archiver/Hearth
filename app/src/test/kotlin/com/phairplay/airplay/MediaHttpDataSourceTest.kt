@@ -93,11 +93,58 @@ class MediaHttpDataSourceTest {
         } finally { source.close() }
     }
 
+    @Test fun bridgeByteRangesCapLargeLengthsWithoutOverflow() {
+        val source = bridgeSource()
+        try {
+            assertEquals(2L, source.open(spec("hearth-hls://fixture/item/0", 1L, Long.MAX_VALUE)))
+            val bytes = ByteArray(8)
+            assertEquals(2, source.read(bytes, 0, bytes.size))
+            assertEquals("bc", bytes.decodeToString(0, 2))
+            assertEquals(0, source.read(bytes, 0, 0))
+        } finally { source.close() }
+    }
+
+    @Test fun bridgeRejectsASeekPastTheResourceEnd() {
+        val source = bridgeSource()
+        try {
+            try { source.open(spec("hearth-hls://fixture/item/0", 4L)); fail("seek past EOF accepted") }
+            catch (_: IOException) { /* Preserve a real seek failure instead of clamping silently. */ }
+        } finally { source.close() }
+    }
+
+    @Test fun gzipPlaylistIsDecodedBeforeHlsClassification() {
+        val body = java.io.ByteArrayOutputStream().apply {
+            java.util.zip.GZIPOutputStream(this).use { it.write("#EXTM3U\n".toByteArray()) }
+        }.toByteArray()
+        serve("200 OK", "Content-Encoding: gzip\r\nContent-Length: ${body.size}\r\n", body) { url ->
+            val source = HearthRedirectGuardedHttpDataSource()
+            try {
+                source.open(spec(url, length = 1024L))
+                val bytes = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(32)
+                while (true) {
+                    val count = source.read(buffer, 0, buffer.size)
+                    if (count < 0) break
+                    bytes.write(buffer, 0, count)
+                }
+                assertTrue(UrlVideoSourceClassifier.classify(null, bytes.toByteArray()).isHls)
+            } finally { source.close() }
+        }
+    }
+
+    private fun bridgeSource() = HearthUrlVideoDataSource(object : UrlVideoSessionSource {
+        override val sessionId = "fixture"
+        override fun open(uri: String) = "abc".toByteArray()
+    }, { null }, AtomicLong())
+
     private fun spec(url: String, position: Long = 0L, length: Long = C.LENGTH_UNSET.toLong()) =
         DataSpec.Builder().setUri(url).setPosition(position).setLength(length).build()
 
     /** Serves one finite HTTP response; no external website, DNS, account or TV is required. */
-    private fun serve(status: String, headers: String, body: String, test: (String) -> Unit) {
+    private fun serve(status: String, headers: String, body: String, test: (String) -> Unit) =
+        serve(status, headers, body.toByteArray(), test)
+
+    private fun serve(status: String, headers: String, body: ByteArray, test: (String) -> Unit) {
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
             server.soTimeout = 5000
             val worker = thread(isDaemon = true, name = "Hearth-media-fixture") {
@@ -106,7 +153,7 @@ class MediaHttpDataSourceTest {
                     val input = socket.getInputStream().bufferedReader()
                     while (!input.readLine().isNullOrEmpty()) { /* Read request headers. */ }
                     socket.getOutputStream().write(
-                        ("HTTP/1.1 $status\r\n${headers}Connection: close\r\n\r\n$body").toByteArray(),
+                        ("HTTP/1.1 $status\r\n${headers}Connection: close\r\n\r\n").toByteArray() + body,
                     )
                     socket.getOutputStream().flush()
                 }

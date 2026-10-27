@@ -1,135 +1,26 @@
-# CI — runs on every push and pull request against main.
-#
-#   jvm-tests      protocol/logic unit tests, no Android SDK needed
-#   android-build  Android Lint + debug APK (the artifact you can sideload straight from a PR)
-#
-# Failing runs publish the tail of the Gradle output to the job summary AND comment it back on
-# the pull request (or the commit, for pushes), because runner logs sit on a blob host that is
-# awkward to reach and expire after 90 days.
-
+# Pull requests are verified here; main runs the same gates once in Release.
 name: CI
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'LICENSE'
+      - 'ACKNOWLEDGEMENTS.md'
 
-# contents: write (not read) is required for the failure reporter below: on a push to main it
-# writes a commit comment, and a read-only token makes that call fail — which is how a red build
-# on main produced a job summary nobody could reach and no readable cause on GitHub.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
-  actions: write
+  contents: read
   pull-requests: write
 
 jobs:
-  jvm-tests:
-    name: JVM protocol tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate release automation
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 python3 tools/test_extract_release_notes.py
-          PYTHONDONTWRITEBYTECODE=1 python3 tools/test_release_workflow.py
-          python3 tools/check-workflows.py .github/workflows/*.yml
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-
-      - name: Grant Gradle wrapper execute permission
-        run: chmod +x gradlew
-
-      # :test-runner is a plain JVM module, but it lives in the same build as :app, so Gradle
-      # configures the Android module too and wants to know where the SDK is.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-35 build-tools;35.0.0 ndk;28.2.13676358 cmake;3.22.1'
-
-      - name: Write local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
-
-      - name: Run JVM protocol test suite
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew :test-runner:test --stacktrace 2>&1 | tee build.log
-
-      - name: Report the failure (job summary + comment)
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -uo pipefail
-          report=$(mktemp)
-          {
-            echo "**${GITHUB_WORKFLOW} → ${GITHUB_JOB}** failed on \`${GITHUB_SHA:0:7}\`."
-            echo ""
-            echo "Errors:"
-            echo '```'
-            # FAILED also catches Gradle's "SomeTest > some case FAILED" lines, which is how a
-            # failing unit test names itself; head keeps a wall of warnings from pushing the
-            # real error out of the report. AssertionError/ComparisonFailure/expected:< pick up
-            # the assertion text a failing unit test prints (see testLogging in
-            # app/build.gradle.kts), and "at com.phairplay" names the line of ours behind it.
-            grep -E "^e: |error:|Error: |AssertionError|ComparisonFailure|expected:<|at com\.phairplay|FAILURE: |What went wrong|FAILED|Execution failed for task|Lint found|A problem occurred|^Caused by: |tests? completed" build.log 2>/dev/null | head -80 || true
-            echo '```'
-            # Gradle's console output does not always carry a failing test's own message (a failure
-            # raised on a test's own thread is reported without one). The JUnit XML always does, so
-            # the report stays diagnosable without the log blob host.
-            if compgen -G "test-runner/build/test-results/test/TEST-*.xml" > /dev/null; then
-              echo ""
-              echo "Failing test messages (from the JUnit XML):"
-              echo '```'
-              python3 -c 'import glob, xml.etree.ElementTree as E; print("\n".join("  " + str(c.get("classname")) + "." + str(c.get("name")) + ": " + (f.get("message") or f.get("type") or "").replace("\n", " ")[:400] for path in sorted(glob.glob("test-runner/build/test-results/test/TEST-*.xml")) for c in E.parse(path).getroot().iter("testcase") for f in list(c.findall("failure")) + list(c.findall("error"))))' 2>/dev/null | head -40 || true
-              echo '```'
-            fi
-            echo ""
-            echo "<details><summary>Gradle failure block and last 40 lines</summary>"
-            echo ""
-            echo '```'
-            awk '/^FAILURE: Build/{f=1} f{print}' build.log 2>/dev/null | head -45 || true
-            echo "--- tail ---"
-            tail -n 40 build.log 2>/dev/null || echo "(no build log — this step failed before Gradle ran)"
-            echo '```'
-            echo ""
-            echo "</details>"
-            echo ""
-            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > "$report"
-          cat "$report" >> "$GITHUB_STEP_SUMMARY"
-
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
-              --repo "$GITHUB_REPOSITORY" --body-file "$report" \
-              || echo "::warning::could not comment on the pull request"
-          else
-            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -f body="$(cat "$report")" > /dev/null \
-              || echo "::warning::could not comment on the commit"
-          fi
-
-      - name: Upload JVM test report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: jvm-test-report
-          path: test-runner/build/reports/tests/test/
-          retention-days: 30
-          if-no-files-found: ignore
-
   android-build:
-    name: Android lint & debug APK (${{ matrix.flavor }})
+    name: Verify Google TV
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -151,6 +42,12 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Validate release automation
+        run: |
+          python3 tools/test_extract_release_notes.py
+          python3 tools/test_release_workflow.py
+          python3 tools/check-workflows.py .github/workflows/*.yml
+
       - name: Grant Gradle wrapper execute permission
         run: chmod +x gradlew
 
@@ -168,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
+          ./gradlew :test-runner:test ${{ matrix.lint_task }} ${{ matrix.assemble_task }} --stacktrace 2>&1 | tee build.log
 
       # HearthUiTest inflates the real TV layouts under Robolectric's native graphics mode and
       # writes rendered previews to app/build/reports/hearth-ui/, which the build-reports
@@ -243,7 +140,9 @@ jobs:
         if: always()
         with:
           name: build-reports
-          path: app/build/reports/
+          path: |
+            app/build/reports/
+            test-runner/build/reports/
           retention-days: 30
           if-no-files-found: ignore
 

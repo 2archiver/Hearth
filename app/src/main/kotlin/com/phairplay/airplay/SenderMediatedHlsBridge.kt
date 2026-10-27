@@ -77,6 +77,8 @@ internal class SenderMediatedHlsBridge(
     @Volatile
     private var masterBytes: ByteArray? = null
 
+    @Volatile private var rootLoaded = false
+
     /** Why the session could not serve media, once that is known. URL-free and shown to the user. */
     @Volatile
     private var failure: String? = null
@@ -125,7 +127,7 @@ internal class SenderMediatedHlsBridge(
     /** One-line, URL-free summary for the connection log. */
     fun describe(): String = buildString {
         append("session=$sessionId fcup[${channel.stats()}] ")
-        append("master=${if (masterBytes != null) "loaded" else "pending"} ")
+        append("root=${if (rootLoaded) "loaded" else "pending"} ")
         append("playlists=${playlistTable.size} items=${itemTable.size} ")
         append("reads=")
         append("master:${masterFetches.get()} playlist:${playlistFetches.get()} item:${itemFetches.get()}")
@@ -219,6 +221,17 @@ internal class SenderMediatedHlsBridge(
         val original = channel.fetch(contentLocation, "master playlist")
         if (original.size > maxPlaylistBytes) throw HlsBridgeException("master playlist exceeds the size limit")
         val text = original.toString(Charsets.UTF_8)
+        if (text.removePrefix("\uFEFF").trimStart().lineSequence().firstOrNull()?.trim() != "#EXTM3U") {
+            throw HlsBridgeException("root response is not an HLS playlist")
+        }
+        // HLS permits a media playlist as the initial resource. A sender need not wrap a single
+        // rendition in a synthetic multivariant master. Live roots must be refreshed, never cached.
+        if (HlsPlaylistCodec.kindOf(text) == HlsPlaylistCodec.Kind.MEDIA) {
+            val bytes = rewriteMediaPlaylist(text, contentLocation)
+            rootLoaded = true
+            if (HlsPlaylistCodec.parseMedia(text).hasEndList) synchronized(lock) { masterBytes = bytes }
+            return bytes
+        }
         val master = HlsPlaylistCodec.parseMaster(text)
         if (!master.hasPotentialVideoVariant) {
             failure = if (master.audioRenditions.isNotEmpty() || master.shape == HlsPlaylistCodec.MasterPlaylist.Shape.AUDIO_ONLY) {
@@ -257,7 +270,7 @@ internal class SenderMediatedHlsBridge(
             role = ROLE,
             kind = AirPlayTrace.Kind.LIFECYCLE,
         )
-        synchronized(lock) { masterBytes = bytes }
+        synchronized(lock) { masterBytes = bytes; rootLoaded = true }
         return bytes
     }
 
@@ -268,7 +281,11 @@ internal class SenderMediatedHlsBridge(
         // the picture or make a seek land on a segment the sender has already dropped.
         val original = channel.fetch(senderUri, "media playlist")
         if (original.size > maxPlaylistBytes) throw HlsBridgeException("media playlist exceeds the size limit")
-        val text = original.toString(Charsets.UTF_8)
+        return rewriteMediaPlaylist(original.toString(Charsets.UTF_8), senderUri)
+    }
+
+    /** Shared root/rendition handling keeps signed URLs, encryption checks and live refresh intact. */
+    private fun rewriteMediaPlaylist(text: String, senderUri: String): ByteArray {
         val parsed = HlsPlaylistCodec.parseMedia(text)
         if (parsed.isSampleAes) throw HlsBridgeException("media playlist requires SAMPLE-AES protection")
         var tableFull = false

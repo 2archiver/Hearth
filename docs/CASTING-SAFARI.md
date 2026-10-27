@@ -25,10 +25,11 @@ confirms MPEG-TS and fMP4/CMAF support and explicit HLS source selection for URL
 `.m3u8` suffix. Keep Hearth's existing guarded classifier and HlsMediaSource for these sources.
 Hardware codec support still depends on the TV.
 
-[UxPlay](https://github.com/FDH2/UxPlay) documents its YouTube HLS support separately and explicitly
-states that streaming through a browser's AirPlay icon is not supported by that implementation.
-It is useful reference material for FCUP, not evidence that Safari works. Hearth retains its
-existing sender-mediated bridge and session ownership; no capability bits are broadened.
+[UxPlay](https://github.com/FDH2/UxPlay) is useful reference material for FCUP and direct video
+handoff. Its README's browser limitation is older than the current implementation: the reviewed
+`http_handler_play` source at commit `28ed70a9876fe3f5864479f4e0d07abe4678383a` explicitly passes
+HTTP(S) locations from Safari to its player. Source support is not proof of Hearth device
+compatibility. See [the 2.6 review](UPSTREAM-REVIEW-2.6.md) for current findings.
 
 ## Hardware acceptance, in priority order
 

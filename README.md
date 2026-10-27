@@ -47,7 +47,7 @@ Ethernet or 5 GHz Wi-Fi is recommended.
 
 ## Contribute & credits
 
-[Build and contribute](docs/CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Support on Ko-fi](https://ko-fi.com/2archiver)
+[Acknowledgements](ACKNOWLEDGEMENTS.md) · [Build and contribute](docs/CONTRIBUTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Support on Ko-fi](https://ko-fi.com/2archiver)
 
 Forked from [PhairPlay](https://github.com/mazer666/PhairPlay), with references from
 [UxPlay](https://github.com/FDH2/UxPlay), [RPiPlay](https://github.com/FD-/RPiPlay) and the

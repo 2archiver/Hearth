@@ -57,6 +57,20 @@ class ImmutableReleaseTest {
     """.trimIndent()
 
     @Test
+    fun compactReleaseNotesRetainUpdateCodeAndChecksum() {
+        val body = """
+            ## What's new
+            - Better casting and smoother playback.
+            <details><summary>Build details</summary>
+            Version: `2.6.0-googletv` · versionCode 1483000
+            SHA-256: `$sha256`
+            </details>
+        """.trimIndent()
+        assertEquals(1483000, ReleaseParser.scrapeVersionCode(body))
+        assertEquals(sha256, ReleaseParser.scrapeSha256(body))
+    }
+
+    @Test
     fun `an immutable 2_0 release parses end to end`() {
         val json = immutableReleaseJson(
             tag = "v2.0.0-main.23",

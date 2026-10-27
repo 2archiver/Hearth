@@ -177,7 +177,10 @@ class VideoDecoder(
             // mode, only decoded presentation is paced, using the validated sender/arrival mapping.
             releaseOutputBuffers(codec)
 
-            val inputBufferIndex = codec.dequeueInputBuffer(INPUT_BUFFER_TIMEOUT_US)
+            val inputBufferIndex = DecoderInputPump.acquire(
+                dequeue = { waitUs -> codec.dequeueInputBuffer(waitUs) },
+                drain = { releaseOutputBuffers(codec) },
+            )
             if (inputBufferIndex < 0) {
                 // Encoded loss breaks the reference chain. The mirroring queue observes false and
                 // waits for the next configured IDR instead of feeding predicted frames blindly.
@@ -359,7 +362,6 @@ class VideoDecoder(
         // How long to wait for an input buffer before dropping (microseconds).
         // 100ms — generous enough that the decoder rarely has to drop a NAL unit (which would
         // corrupt the stream), while still bounding stall if the codec is truly wedged.
-        private const val INPUT_BUFFER_TIMEOUT_US = 100_000L
 
         /**
          * Parses the H.264 SPS NAL unit to extract the actual video resolution.

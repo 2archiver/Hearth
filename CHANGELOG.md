@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] — clearer casting and smoother playback
+
+- New Signal Flame logo throughout Hearth and the README.
+- Better Safari video loading and seeking, including compressed and single-playlist HLS streams.
+- Keep live playlists fresh and handle large YouTube video seeks safely.
+- Keep the decoder moving under load to reduce avoidable freezes.
+- Remove duplicate CI/lint runs and shorten release notes.
+
+Safari, Rumble and YouTube still need real iPhone-to-TV testing; no measured FPS increase is claimed.
+
 ## [2.5.0] — discovery recovery and smoother artwork updates
 
 - Shorten release titles to `Hearth 2.5.0`, without the Google TV suffix or repeated platform label.

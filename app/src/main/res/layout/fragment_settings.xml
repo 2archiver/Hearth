@@ -312,6 +312,20 @@
             </LinearLayout>
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/row_acknowledgements"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="76dp"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/focus_ring_selector"
+            android:focusable="true"
+            android:clickable="true"
+            android:text="@string/acknowledgements_title"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
         <LinearLayout
             android:id="@+id/row_reset"
             android:layout_width="match_parent"
