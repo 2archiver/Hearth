@@ -11,6 +11,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.zip.GZIPInputStream
 import java.util.Locale
 import java.util.TreeMap
 import java.util.concurrent.CopyOnWriteArraySet
@@ -154,10 +155,23 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                 } else {
                     0L
                 }
+                val encoding = nextConnection.getHeaderField("Content-Encoding").orEmpty().trim()
+                val gzip = encoding.equals("gzip", ignoreCase = true)
+                if (encoding.isNotEmpty() && !gzip && !encoding.equals("identity", ignoreCase = true)) {
+                    throw IOException("direct media response uses an unsupported content encoding")
+                }
+                // Web playlists can be gzip-compressed even when identity was requested. Decode
+                // the transport representation before sniffing/parsing it; compressed length is
+                // not the number of bytes Media3 will read. Partial gzip bodies are not seekable.
+                if (gzip && code == HttpURLConnection.HTTP_PARTIAL) {
+                    throw IOException("compressed partial media responses are unsupported")
+                }
                 val rawStream = nextConnection.inputStream
                 inputStream = rawStream
-                if (skipped > 0L) skipFully(rawStream, skipped)
-                val available = if (code == HttpURLConnection.HTTP_PARTIAL) {
+                val stream = if (gzip) GZIPInputStream(rawStream) else rawStream
+                inputStream = stream
+                if (skipped > 0L) skipFully(stream, skipped)
+                val available = if (gzip) C.LENGTH_UNSET.toLong() else if (code == HttpURLConnection.HTTP_PARTIAL) {
                     MediaResponseRange.partialLength(nextConnection.getHeaderField("Content-Range"), dataSpec.position)
                 } else {
                     nextConnection.contentLengthLong.let { if (it >= 0L) (it - skipped).coerceAtLeast(0L) else it }

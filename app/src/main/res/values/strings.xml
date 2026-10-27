@@ -299,4 +299,10 @@
     <string name="update_install_verification_failed">The downloaded update failed verification and was deleted. Download it again.</string>
     <string name="activity_log_oldest">Oldest</string>
     <string name="activity_log_newest">Newest</string>
+    <string name="acknowledgements_title">Open-source acknowledgements</string>
+    <string name="acknowledgements_body">Built on PhairPlay and AndroidX Media3.
+
+Thanks to UxPlay, RPiPlay, android-airplay-server and OpenAirPlay for protocol and playback research.
+
+Hearth 2.6 independently implements bounded decoder draining and HLS root-playlist handling. Project links and license details are in ACKNOWLEDGEMENTS.md in the Hearth repository.</string>
 </resources>

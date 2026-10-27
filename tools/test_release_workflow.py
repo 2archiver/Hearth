@@ -304,5 +304,35 @@ class StableMilestoneTest(unittest.TestCase):
             self.assertNotIn(forbidden, code)
 
 
+class EfficientVerificationTest(unittest.TestCase):
+    def test_pr_verification_is_not_repeated_on_main(self):
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn("  pull_request:", ci)
+        self.assertNotIn("  push:", ci)
+        self.assertEqual(1, ci.count("uses: android-actions/setup-android"))
+        self.assertIn("cancel-in-progress: true", ci)
+        self.assertFalse((ROOT / ".github/workflows/lint.yml").exists())
+
+    def test_both_paths_keep_protocol_http_ui_and_lint_gates(self):
+        for name in ("ci.yml", "release.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text()
+            for gate in (":test-runner:test", "MediaHttpDataSourceTest", "HearthUiTest", "VideoDecoderSpsTest"):
+                self.assertIn(gate, workflow)
+            self.assertIn("lint", workflow.lower())
+
+    def test_compact_notes_preserve_updater_metadata(self):
+        release = RELEASE_WORKFLOW.read_text()
+        self.assertIn("versionCode ${CODE}", release)
+        self.assertIn("SHA-256: ", release)
+        self.assertNotIn("dist/changes-since-last-build.md", release)
+        self.assertIn("<details><summary>Build details</summary>", release)
+
+    def test_previous_release_rename_is_scoped_to_the_transition(self):
+        release = RELEASE_WORKFLOW.read_text()
+        self.assertIn("if: steps.meta.outputs.tag == 'v2.6.0'", release)
+        self.assertIn("releases/tags/v2.5.0-main.34", release)
+        self.assertIn('-f name="2.5 nightly"', release)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

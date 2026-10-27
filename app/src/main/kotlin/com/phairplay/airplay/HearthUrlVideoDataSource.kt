@@ -61,14 +61,15 @@ internal class HearthUrlVideoDataSource(
                 ?: throw IOException("sender-mediated media was requested without a session bridge")
             try {
                 val bytes = source.open(dataSpec.uri.toString())
-                val from = dataSpec.position.coerceIn(0L, bytes.size.toLong()).toInt()
-                val requested = if (dataSpec.length == C.LENGTH_UNSET.toLong()) {
-                    (bytes.size - from).toLong()
-                } else {
-                    dataSpec.length
-                }
+                if (dataSpec.position < 0L || dataSpec.position > bytes.size.toLong() ||
+                    dataSpec.length < C.LENGTH_UNSET.toLong()
+                ) throw IOException("sender-mediated byte range is outside the resource")
+                val from = dataSpec.position.toInt()
+                val available = bytes.size - from
+                val requested = if (dataSpec.length == C.LENGTH_UNSET.toLong()) available.toLong()
+                    else minOf(dataSpec.length, available.toLong())
                 readPosition = from
-                readEnd = (from + requested).coerceAtMost(bytes.size.toLong()).toInt()
+                readEnd = from + requested.toInt()
                 body = bytes
                 trace(
                     "Media request id=$activeRequestId route=$activeRoute resource=$activeResourceType " +
@@ -134,6 +135,7 @@ internal class HearthUrlVideoDataSource(
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
         val bytes = body
         val result = if (bytes != null) {
             if (readPosition >= readEnd) C.RESULT_END_OF_INPUT

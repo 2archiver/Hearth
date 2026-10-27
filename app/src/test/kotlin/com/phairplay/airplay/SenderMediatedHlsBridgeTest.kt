@@ -31,6 +31,38 @@ class SenderMediatedHlsBridgeTest {
     private val session = SessionToken(sessionId = "S1", generation = 1)
 
     @Test
+    fun `a single rendition root playlist starts and serves segments`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\nclip.ts\n#EXT-X-ENDLIST\n"
+        val bridge = bridge(sender)
+        assertTrue(bridge.start())
+        val text = bridge.open(bridge.playerUri).toString(Charsets.UTF_8)
+        assertTrue(text.contains("hearth-hls://${session.sessionId}/item/0.ts"))
+        assertEquals(1, sender.requestedUrls().size)
+    }
+
+    @Test
+    fun `a live single rendition root is refreshed instead of cached`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\na.ts\n"
+        val bridge = bridge(sender)
+        assertTrue(bridge.start())
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\nb.ts\n"
+        val text = bridge.open(bridge.playerUri).toString(Charsets.UTF_8)
+        assertTrue(text.contains("/item/1.ts"))
+        assertEquals(2, sender.requestedUrls().size)
+    }
+
+    @Test
+    fun `single rendition root still rejects SAMPLE AES`() {
+        val sender = FakeSender(session.sessionId)
+        sender.answers[MASTER_URI] = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=key\n#EXTINF:6.0,\nclip.ts\n"
+        val bridge = bridge(sender)
+        assertFalse(bridge.start())
+        assertTrue(bridge.failureReason().orEmpty().contains("SAMPLE-AES"))
+    }
+
+    @Test
     fun `the master playlist is fetched through the sender and rewritten for the player`() {
         val sender = FakeSender(session.sessionId)
         sender.answers[MASTER_URI] = """
