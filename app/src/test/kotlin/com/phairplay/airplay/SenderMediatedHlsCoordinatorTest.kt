@@ -61,7 +61,7 @@ class SenderMediatedHlsCoordinatorTest {
         assertTrue("/play should succeed only after its first FCUP response was applied", result.accepted)
         assertEquals(200, actionResult.get()?.httpStatus)
         assertNotNull(playbackBridge.get())
-        assertTrue(playbackBridge.get()!!.describe().contains("master=loaded"))
+        assertTrue(playbackBridge.get()!!.describe().contains("root=loaded"))
         coordinator.reset("test complete")
     }
 
