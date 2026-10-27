@@ -21,7 +21,8 @@ import kotlin.concurrent.thread
 
 /** Real socket/Media3 regressions: the production HTTP wrapper runs under Android framework stubs. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = android.app.Application::class)
+@androidx.media3.common.util.UnstableApi
 class MediaHttpDataSourceTest {
     @Before fun permitOnlyTheTestLoopbackServer() {
         // Production deliberately blocks loopback sender URLs. Replace only that policy here,
