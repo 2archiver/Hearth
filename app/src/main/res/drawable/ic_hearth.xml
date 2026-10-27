@@ -1,4 +1,3 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="36dp" android:height="36dp" android:viewportWidth="36" android:viewportHeight="36">
-    <path android:fillColor="#F2A4BB" android:pathData="M19,2 C22,10 29,12 29,21 C29,28 24,33 18,33 C11,33 7,28 7,22 C7,16 11,12 14,9 C13,16 15,18 17,19 C21,15 22,10 19,2 Z"/>
-    <path android:fillColor="#71334B" android:pathData="M18,19 C20,23 23,24 22,28 C21,31 15,31 14,28 C13,25 16,22 18,19 Z"/>
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Signal Flame: shared geometry with docs/branding/hearth-symbol.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="36dp" android:height="36dp" android:viewportWidth="540" android:viewportHeight="540"><group android:translateX="95" android:translateY="25"><path android:fillColor="#FFF5F7" android:pathData="M207 0 C188 92 235 122 289 182 C390 294 361 450 193 489 C252 421 232 340 177 280 C102 198 44 120 207 0 Z"/><path android:fillColor="#FFF5F7" android:pathData="M44 182 C51 251 121 266 164 324 C207 382 215 436 164 489 L155 489 C163 375 91 313 0 303 C-3 252 19 207 44 182 Z"/><path android:fillColor="#FF7889" android:pathData="M4 340 C67 344 125 392 123 478 C54 448 17 397 4 340 Z"/></group></vector>

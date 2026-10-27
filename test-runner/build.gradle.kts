@@ -60,6 +60,7 @@ sourceSets {
                 "**/airplay/ExoUrlVideoBackend.kt",
                 "**/airplay/HearthUrlVideoDataSource.kt",
                 "**/airplay/HearthRedirectGuardedHttpDataSource.kt",
+                "**/airplay/MediaHttpDataSourceTest.kt", // Android/Media3 socket tests run in the app module.
                 // VideoDecoder is shadowed by src/stubs/VideoDecoder.kt which has no
                 // MediaCodec/Surface dependencies but exposes the companion-object
                 // members (parseSpsResolution, SpsBitReader) needed by VideoDecoderSpsTest.

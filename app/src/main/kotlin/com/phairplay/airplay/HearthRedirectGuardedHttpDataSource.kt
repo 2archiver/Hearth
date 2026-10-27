@@ -30,6 +30,7 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
     private var currentUri: Uri? = null
     private var remainingBytes = C.LENGTH_UNSET.toLong()
     private var transferStarted = false
+    private var responseLengthKnown = false
 
     private var responseCode = -1
     private var responseHeaders: Map<String, List<String>> = emptyMap()
@@ -156,12 +157,13 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                 val rawStream = nextConnection.inputStream
                 inputStream = rawStream
                 if (skipped > 0L) skipFully(rawStream, skipped)
-                val declaredLength = nextConnection.contentLengthLong
-                remainingBytes = when {
-                    dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
-                    declaredLength >= 0L -> (declaredLength - skipped).coerceAtLeast(0L)
-                    else -> C.LENGTH_UNSET.toLong()
+                val available = if (code == HttpURLConnection.HTTP_PARTIAL) {
+                    MediaResponseRange.partialLength(nextConnection.getHeaderField("Content-Range"), dataSpec.position)
+                } else {
+                    nextConnection.contentLengthLong.let { if (it >= 0L) (it - skipped).coerceAtLeast(0L) else it }
                 }
+                responseLengthKnown = available >= 0L
+                remainingBytes = MediaResponseRange.readLength(dataSpec.length, available)
                 startTransfer(dataSpec)
                 return remainingBytes
             }
@@ -185,7 +187,10 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
             minOf(length.toLong(), remainingBytes).toInt()
         }
         val read = stream.read(buffer, offset, allowed)
-        if (read < 0) return C.RESULT_END_OF_INPUT
+        if (read < 0) {
+            if (remainingBytes > 0L && responseLengthKnown) throw EOFException("direct media response ended before declared length")
+            return C.RESULT_END_OF_INPUT
+        }
         if (remainingBytes != C.LENGTH_UNSET.toLong()) remainingBytes -= read
         val spec = activeDataSpec
         if (spec != null && read > 0) {
@@ -208,6 +213,7 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
             currentUri = null
             responseHeaders = emptyMap()
             remainingBytes = C.LENGTH_UNSET.toLong()
+            responseLengthKnown = false
             if (notifyEnd && spec != null) {
                 notifyListeners { it.onTransferEnd(this, spec, true) }
             }
