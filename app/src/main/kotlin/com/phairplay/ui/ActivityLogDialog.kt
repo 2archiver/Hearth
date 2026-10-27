@@ -157,7 +157,7 @@ object ActivityLogDialog {
                 mapOf(
                     "Hearth version" to BuildConfig.VERSION_NAME,
                     "Android API" to Build.VERSION.SDK_INT.toString(),
-                ) + "\n\n" + AirPlayTrace.exportText()
+                )
             ) + "\n\n" + AirPlayTrace.exportText()
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             if (clipboard != null) {
