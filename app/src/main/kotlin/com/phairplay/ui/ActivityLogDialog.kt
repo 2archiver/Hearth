@@ -22,6 +22,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.phairplay.BuildConfig
 import com.phairplay.R
+import com.phairplay.airplay.AirPlayTrace
 import com.phairplay.diagnostics.ActivityEntry
 import com.phairplay.diagnostics.ActivityLog
 import com.phairplay.diagnostics.Severity
@@ -156,8 +157,8 @@ object ActivityLogDialog {
                 mapOf(
                     "Hearth version" to BuildConfig.VERSION_NAME,
                     "Android API" to Build.VERSION.SDK_INT.toString(),
-                )
-            )
+                ) + "\n\n" + AirPlayTrace.exportText()
+            ) + "\n\n" + AirPlayTrace.exportText()
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             if (clipboard != null) {
                 clipboard.setPrimaryClip(

@@ -47,7 +47,8 @@ source preparation or audio playback alone is not evidence of working video.
 | Rumble app | Record the actual selected transport and verify first frame + audio independently |
 | Regression | Photos, mirroring, audio-only, stop/recast, network interruption |
 
-Use the Activity Log to identify `/play`, direct vs sender-mediated source, HTTP status, track
+Copy diagnostics now includes both the activity history and the bounded, redacted AirPlay trace.
+Copying is explicit and local; it does not upload the report. Use the Activity Log to identify `/play`, direct vs sender-mediated source, HTTP status, track
 selection and first frame. Do not publish signed media URLs, cookies or authorization headers.
 If Safari never sends `/play`, investigate the site's source/route choice before changing decoding.
 If it sends `/play` but HTTP fails, investigate response status/ranges; if tracks exist but no frame

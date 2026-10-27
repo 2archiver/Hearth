@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Better Safari video loading and seeking, including compressed and single-playlist HLS streams.
 - Keep live playlists fresh and handle large YouTube video seeks safely.
 - Keep the decoder moving under load to reduce avoidable freezes.
+- Copy diagnostics now includes the private, redacted video handoff trace.
 - Remove duplicate CI/lint runs and shorten release notes.
 
 Safari, Rumble and YouTube still need real iPhone-to-TV testing; no measured FPS increase is claimed.
