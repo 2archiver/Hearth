@@ -42,10 +42,13 @@ identified failure paths; the user's exact Safari regression has not been reprod
 - Added automated tests: metadata/cover replacement and merge behavior; command routing and binary
   framing above 64 KiB; oversized and malformed bodies; remote mappings and DACP name matching;
   real-socket gzip-206 recovery and decoded seeking.
-- Kotlin/JVM, Robolectric, Android lint and APK build: NOT RUN locally. Gradle is not installed,
-  and the wrapper distribution cannot be downloaded with this workspace's available network.
+- Kotlin/JVM protocol tests, Robolectric TV/media tests, Android lint and signed APK build:
+  PASSED in [release workflow 40844884379](https://github.com/2archiver/Hearth/actions/runs/40844884379).
+  APK version, signature, both ARM ABIs and monotonic update code checks also passed.
+  The local Gradle wrapper could not download its distribution; validation ran on GitHub Actions.
 - iPhone/Spotify/Safari/TV acceptance: NOT RUN. No target hardware is attached.
-- Public push and release publication: pending approval after automatic review blocked publication.
+- Published on main after explicit authorization: [Hearth 2.7](https://github.com/2archiver/Hearth/releases/tag/v2.7),
+  source commit `a655a1c2592ba2591738f6c865c1c5549913c4e7`.
 
 ## Hardware acceptance
 
