@@ -16,6 +16,14 @@ import org.junit.Test
  */
 class AirPlayTraceTest {
 
+    @Test fun httpErrorsAppearInTheFailureSummary() {
+        AirPlayTrace.clear()
+        AirPlayTrace.record("POST /fp-setup2 rejected", kind = AirPlayTrace.Kind.REQUEST,
+            severity = com.phairplay.diagnostics.Severity.ERROR)
+        assertNotNull(AirPlayTrace.lastFailure())
+        assertTrue(AirPlayTrace.exportText().contains("Last failure: POST /fp-setup2 rejected"))
+    }
+
     @Before
     fun clearTrace() {
         AirPlayTrace.clear()

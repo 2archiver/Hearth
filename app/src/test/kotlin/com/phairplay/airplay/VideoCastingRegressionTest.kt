@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit
 class VideoCastingRegressionTest {
     @Test
     fun `video and HLS are advertised without changing legacy pairing`() {
+        assertEquals(0L, AirPlayIdentity.FEATURES and (1L shl 2))
+        assertEquals(0L, AirPlayIdentity.FEATURES and (1L shl 12))
         assertTrue(AirPlayIdentity.FEATURES and 1L != 0L)
         assertTrue(AirPlayIdentity.FEATURES and (1L shl 4) != 0L)
         assertTrue(AirPlayIdentity.FEATURES and (1L shl 27) != 0L)

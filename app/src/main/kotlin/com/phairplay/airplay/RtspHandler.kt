@@ -282,6 +282,7 @@ open class RtspHandler(
             val parsed = java.net.URI(uri)
             if (parsed.isAbsolute) parsed.rawPath.orEmpty() else uri.substringBefore('?').substringBefore('#')
         }.getOrElse { uri.substringBefore('?').substringBefore('#') }
+        if (uri.startsWith("rtsp://", true)) return "/session"
         val normalized = path.ifBlank { "/" }.lowercase(Locale.US)
         return if (normalized in KNOWN_ENDPOINTS) normalized else "/unsupported"
     }
@@ -900,7 +901,12 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
      * `http_handler_fpsetup2` (`lib/http_handlers.h`).
      */
     private fun handleFpSetup2(request: RtspRequest): RtspResponse {
-        Logger.i("POST /fp-setup2 — returning 421 Misdirected Request")
+        AirPlayTrace.record(
+            "Video control negotiation failed: sender requested unsupported FairPlay SAP control encryption (/fp-setup2). No playback URL has been received on this connection.",
+            connectionId = traceConnectionId,
+            kind = AirPlayTrace.Kind.FAILURE,
+            severity = com.phairplay.diagnostics.Severity.ERROR,
+        )
         return RtspResponse(421, "Misdirected Request", protocol = request.responseProtocol())
     }
 

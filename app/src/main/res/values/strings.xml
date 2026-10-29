@@ -132,7 +132,6 @@
     <string name="setting_force_high_res_subtitle">Native-resolution mirroring on a 4K Google TV, capped by what this panel and decoder support. Off = 1080p</string>
     <string name="setting_version">Version</string>
     <!-- Shown next to the version: a rename must never look like a different app. -->
-    <string name="setting_renamed_note">Hearth is the new name for PhairPlay — same app, same settings, same signing key.</string>
     <string name="setting_reset_defaults">Reset to defaults</string>
 
     <!-- ── Waiting screen (legacy, used by WaitingScreen view) ─── -->
@@ -184,7 +183,6 @@
     <string name="update_action_download">Download</string>
     <string name="update_action_install">Install now</string>
     <string name="update_action_later">Later</string>
-    <string name="update_action_skip">Skip this version</string>
     <string name="update_action_close">Close</string>
     <string name="update_action_retry">Try again</string>
     <string name="update_action_open_release">Open release page</string>

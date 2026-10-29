@@ -127,15 +127,6 @@ object ActivityLogDialog {
         val clearButton = actionButton(context, R.string.activity_log_clear)
         actionRow.addView(copyButton)
         actionRow.addView(clearButton)
-        val oldestButton = actionButton(context, R.string.activity_log_oldest)
-        val newestButton = actionButton(context, R.string.activity_log_newest)
-        oldestButton.setOnClickListener { list.setSelection(0); list.requestFocus() }
-        newestButton.setOnClickListener { list.setSelection((list.count - 1).coerceAtLeast(0)); list.requestFocus() }
-        actionRow.addView(oldestButton)
-        actionRow.addView(newestButton)
-
-
-
         render = {
             val entries = ActivityLog.entries(minSeverity)
             status.text = if (entries.isEmpty()) if (minSeverity == null) "No activity yet. Start the receiver and try casting." else "No matching events. Choose All to see connection progress." else
@@ -172,6 +163,7 @@ object ActivityLogDialog {
         }
 
         clearButton.setOnClickListener {
+            AirPlayTrace.clear()
             ActivityLog.clear()
             ActivityLog.record(Severity.INFO, "ui", "Activity log cleared by the user")
             render()
@@ -181,7 +173,7 @@ object ActivityLogDialog {
         root.addView(status)
         // Roughly half a TV screen: enough for ~8 rows, still leaves the dialog title and the
         // hardware D-pad focus ring inside the safe area.
-        val listHeight = (context.resources.configuration.screenHeightDp * 0.38f).toInt().coerceIn(120, 360)
+        val listHeight = (context.resources.configuration.screenHeightDp * 0.55f).toInt().coerceIn(120, 640)
         root.addView(list, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(listHeight)
@@ -197,7 +189,7 @@ object ActivityLogDialog {
             .create()
         dialog.show()
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(context.getColor(R.color.background_surface)))
-        dialog.window?.setLayout((context.resources.displayMetrics.widthPixels * 0.9f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.window?.setLayout((context.resources.displayMetrics.widthPixels * 0.76f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(context.getColor(R.color.accent_blue))
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         var snapshot = ActivityLog.entries(minSeverity)
@@ -232,7 +224,7 @@ object ActivityLogDialog {
         val details = entry.details
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(5), dp(10), dp(5))
             setBackgroundResource(R.drawable.focus_ring_selector)
         }
 
@@ -243,13 +235,13 @@ object ActivityLogDialog {
                 append(entry.subsystem)
                 if (entry.severity == Severity.CRITICAL) append("  · needs action")
             }
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             typeface = Typeface.MONOSPACE
             setTextColor(context.getColor(severityColor(entry.severity)))
         }
         val message = TextView(context).apply {
             text = entry.message
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTextColor(context.getColor(R.color.text_primary))
             setPadding(0, dp(3), 0, 0)
         }
@@ -259,7 +251,7 @@ object ActivityLogDialog {
         if (!details.isNullOrBlank()) {
             val detailView = TextView(context).apply {
                 text = details
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                 typeface = Typeface.MONOSPACE
                 setTextColor(context.getColor(R.color.text_tertiary))
                 setPadding(0, dp(6), 0, 0)

@@ -64,10 +64,12 @@ object AirPlayIdentity {
      * GET /info and GET /server-info consistent so Safari can negotiate that path.
      * No HomeKit, HEVC or additional DRM capability is added by this change.
      */
-    const val FEATURES = 0x5A7FFEF7L
+    // Clear VideoFairPlay (2) and FPSAPv2.5 AES-GCM (12): encrypted HTTP control is not implemented.
+    // Keep direct video/HLS and the existing legacy pairing/audio paths.
+    const val FEATURES = 0x5A7FEEF3L
 
     /** Same value as the TXT record, in the `0x…` form senders parse out of mDNS. */
-    const val FEATURES_TXT = "0x5A7FFEF7"
+    const val FEATURES_TXT = "0x5A7FEEF3"
 
     /**
      * `statusFlags` — 0x44 = AudioLink (0x04) + SupportsAirPlayFromCloud (0x40).

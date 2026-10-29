@@ -91,6 +91,17 @@ class HearthUiTest {
         bitmap.recycle()
     }
 
+    @Test fun updaterDialogUsesWineSurfaceAndOffersOnlyDownloadOrLater() {
+        val activity = host()
+        val dialog = WineDialogs.builder(activity).setTitle("Update Hearth")
+            .setMessage("Version 2.9 is available")
+            .setPositiveButton("Download", null).setNegativeButton("Later", null).show()
+        assertEquals(View.GONE, dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).visibility)
+        assertEquals(activity.getColor(R.color.accent_blue), dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).currentTextColor)
+        render(dialog.window!!.decorView, "updater-wine-2.9")
+        dialog.dismiss()
+    }
+
     @Test fun activityLogVirtualizesFullHistoryAndOffersJumpControls() {
         val activity = host()
         com.phairplay.diagnostics.ActivityLog.init(activity)
@@ -109,9 +120,9 @@ class HearthUiTest {
         val list = views.filterIsInstance<android.widget.ListView>().single()
         assertEquals(300, list.adapter.count)
         assertTrue("History should create only visible rows", list.childCount < list.adapter.count)
-        assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Newest" })
-        assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Oldest" })
-        for (label in listOf("Oldest", "Newest")) {
+        assertFalse(views.filterIsInstance<TextView>().any { it.text.toString() == "Newest" })
+        assertFalse(views.filterIsInstance<TextView>().any { it.text.toString() == "Oldest" })
+        for (label in listOf("Copy diagnostics", "Clear")) {
             val control = views.filterIsInstance<TextView>().first { it.text.toString() == label }
             assertTrue("Action must remain tall enough to show its label", control.height >= 40)
             assertTrue("Action must have visible label width", control.width > 50)

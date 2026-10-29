@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9] — casting negotiation and cleaner TV dialogs
+
+- Correct advertised capabilities for unimplemented encrypted video/control transports.
+- Explain unsupported video control negotiation and include HTTP errors in the last-failure summary.
+- Taller, narrower Activity Log with compact rows; remove Oldest and Newest actions.
+- Match updater prompts to the wine theme and remove Skip this version, including old suppression choices.
+- Remove the in-app acknowledgements screen and former-name note from Settings.
+
+Encrypted FairPlay SAP video control remains unimplemented. The capability correction requires
+real-device retesting; successful Safari or YouTube playback is not yet confirmed.
+
 ## [2.8] — clearer casting diagnostics and Activity Log
 
 - Wine-themed Activity Log with readable, full-height actions and live updates.

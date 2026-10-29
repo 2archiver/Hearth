@@ -65,13 +65,6 @@ class SettingsFragment : Fragment() {
         setSectionTitles()
         setRowLabels()
         loadAndPopulate()
-        view.findViewById<View>(R.id.row_acknowledgements).setOnClickListener {
-            AlertDialog.Builder(requireContext())
-                .setTitle(R.string.acknowledgements_title)
-                .setMessage(R.string.acknowledgements_body)
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
-        }
         view.getFocusables(View.FOCUS_FORWARD).forEach { it.nextFocusLeftId = R.id.nav_item_settings }
     }
 

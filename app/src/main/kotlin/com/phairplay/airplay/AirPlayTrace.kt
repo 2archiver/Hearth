@@ -131,7 +131,7 @@ object AirPlayTrace {
 
     fun latest(): String? = entries.value.lastOrNull()?.message
 
-    fun lastFailure(): Entry? = entries.value.lastOrNull { it.kind == Kind.FAILURE }
+    fun lastFailure(): Entry? = entries.value.lastOrNull { it.kind == Kind.FAILURE || it.severity >= Severity.ERROR }
 
     fun clear() {
         synchronized(buffer) {
@@ -153,7 +153,7 @@ object AirPlayTrace {
             metadata.toSortedMap().forEach { (key, value) ->
                 appendLine("${redact(key.take(80))}: ${redactMetadata(key, value).take(MAX_EXPORT_VALUE_CHARS)}")
             }
-            appendLine("Last failure: ${snapshot.lastOrNull { it.kind == Kind.FAILURE }?.let { redact(it.message) } ?: "none recorded"}")
+            appendLine("Last failure: ${snapshot.lastOrNull { it.kind == Kind.FAILURE || it.severity >= Severity.ERROR }?.let { redact(it.message) } ?: "none recorded"}")
             appendLine("Trace (oldest first; ${snapshot.size}/$MAX_ENTRIES entries):")
             snapshot.forEach { entry ->
                 val elapsed = (entry.atElapsedMillis - firstElapsed).coerceAtLeast(0L)

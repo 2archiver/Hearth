@@ -50,6 +50,7 @@ internal class SettingsUpdates(
     private fun startActivity(intent: Intent) = fragment.startActivity(intent)
 
     init {
+        com.phairplay.update.UpdateManager.get(requireContext()).unskipVersion()
         rowCheckUpdates.setOnClickListener {
             if (updateCheckRunning) return@setOnClickListener
             val manager = com.phairplay.update.UpdateManager.get(requireContext())
@@ -319,7 +320,7 @@ internal class SettingsUpdates(
 
     private fun showAvailableDialog(info: UpdateInfo) {
         val installed = com.phairplay.update.UpdateManager.get(requireContext()).installedVersionName()
-        AlertDialog.Builder(requireContext())
+        WineDialogs.builder(requireContext())
             .setTitle(R.string.update_dialog_title)
             .setMessage(
                 getString(
@@ -331,16 +332,6 @@ internal class SettingsUpdates(
                 )
             )
             .setPositiveButton(R.string.update_action_download) { _, _ -> downloadAndOfferInstall(info) }
-            .setNeutralButton(R.string.update_action_skip) { _, _ ->
-                com.phairplay.update.UpdateManager.get(requireContext()).skipVersion(info.versionCode)
-                pendingAvailableUpdate = info
-                setUpdateCardState(
-                    message = getString(R.string.update_skipped_message, info.shortLabel()),
-                    badge = R.string.update_status_available,
-                    action = R.string.update_action_download
-                )
-                Logger.i("User skipped update ${info.shortLabel()}")
-            }
             .setNegativeButton(R.string.update_action_later, null)
             .show()
     }
@@ -408,7 +399,7 @@ internal class SettingsUpdates(
     }
 
     private fun showInstallDialog(info: UpdateInfo) {
-        AlertDialog.Builder(requireContext())
+        WineDialogs.builder(requireContext())
             .setTitle(R.string.update_ready_title)
             .setMessage(getString(R.string.update_ready_message, info.shortLabel()))
             .setPositiveButton(R.string.update_action_install) { _, _ -> startInstall() }
@@ -502,7 +493,7 @@ internal class SettingsUpdates(
 
     private fun showInstallPermissionDialog() {
         if (!isAdded) return
-        AlertDialog.Builder(requireContext())
+        WineDialogs.builder(requireContext())
             .setTitle(R.string.update_permission_title)
             .setMessage(R.string.update_permission_message)
             .setPositiveButton(R.string.update_action_open_settings) { _, _ -> openInstallPermissionSettings() }
@@ -527,7 +518,7 @@ internal class SettingsUpdates(
         } else {
             getString(R.string.update_key_mismatch_message_unknown)
         }
-        AlertDialog.Builder(requireContext())
+        WineDialogs.builder(requireContext())
             .setTitle(R.string.update_key_mismatch_title)
             .setMessage(message)
             .setPositiveButton(R.string.update_action_open_release) { _, _ -> openUpdateReleasePage() }
@@ -551,7 +542,7 @@ internal class SettingsUpdates(
     }
 
     private fun showMessageDialog(titleRes: Int, message: String) {
-        AlertDialog.Builder(requireContext())
+        WineDialogs.builder(requireContext())
             .setTitle(titleRes)
             .setMessage(message)
             .setPositiveButton(R.string.update_action_close, null)

@@ -74,15 +74,8 @@ class UpdateManager(private val context: Context) {
             Logger.i("Release ${result.info.versionName} (${result.info.versionCode}) already proved not newer — not offering it again")
             result = UpdateCheck.UpToDate(result.info, newerThanPublished = false)
         }
-        // "Skip this version" is an instruction about *that* build, not about updating: a manual
-        // check still shows it (so the decision can be reversed), but the background loop must
-        // stop mentioning it. Marked here — the one place both the service and the UI pass
-        // through — so neither can forget.
-        if (result is UpdateCheck.Available &&
-            prefs.skippedVersionCode != 0 && prefs.skippedVersionCode == result.info.versionCode
-        ) {
-            result = result.copy(skipped = true)
-        }
+        // Version suppression was removed; discard old persisted choices during migration.
+        prefs.skippedVersionCode = 0
         when (result) {
             is UpdateCheck.Available -> {
                 prefs.recordCheckSuccess(System.currentTimeMillis())

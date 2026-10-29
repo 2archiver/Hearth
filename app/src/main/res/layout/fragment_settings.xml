@@ -299,32 +299,8 @@
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
                     android:textSize="16sp" />
-
-
-                <TextView
-                    android:id="@+id/text_renamed_note"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/setting_renamed_note"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:alpha="0.8" />
             </LinearLayout>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/row_acknowledgements"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="76dp"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="16dp"
-            android:background="@drawable/focus_ring_selector"
-            android:focusable="true"
-            android:clickable="true"
-            android:text="@string/acknowledgements_title"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp" />
 
         <LinearLayout
             android:id="@+id/row_reset"
