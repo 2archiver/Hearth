@@ -260,8 +260,8 @@ class HearthUiTest {
      *
      * Checks the three things 2.0 got wrong and that no screenshot can prove on its own: it sits
      * inside the safe area (not at a fixed 40px offset), it never becomes a focus/accessibility
-     * target, and its numbers are labelled by what they measure — an unmeasured frame rate says
-     * `N/A` instead of `0`, and the payload rate is never printed as an fps.
+     * target, and its numbers are labelled by what they measure — unavailable compact FPS is
+     * omitted, and the payload rate is never printed as an fps.
      */
     @Test fun debugOverlayStaysInTheSafeAreaAndLabelsWhatItMeasures() {
         val activity = host()
@@ -314,7 +314,8 @@ class HearthUiTest {
             )
 
             val text = hud.text.toString()
-            assertTrue("one FPS field should be shown: $text", text.contains("N/A"))
+            assertFalse("unmeasured FPS should be omitted: $text", text.contains("N/A"))
+            assertFalse("no fabricated FPS should be shown: $text", text.contains("fps"))
             assertTrue("compact HUD should fit within three lines: $text", text.lines().size <= 3)
             listOf("SOURCE", "PACE", "AUDIO", "RX", "KEYS").forEach { label ->
                 assertFalse("$label should be absent from compact HUD: $text", text.contains(label))

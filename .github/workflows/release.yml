@@ -44,9 +44,7 @@ permissions:
 # of main is allowed to take the Latest designation (see the freshness step).
 concurrency:
   group: release-publish
-  # Explicitly replace an untagged preliminary build when a final review finds a correction.
-  # Normal pushes remain serialized. Use this marker only before the old run creates its tag.
-  cancel-in-progress: ${{ contains(github.event.head_commit.message, '[supersede-build]') }}
+  cancel-in-progress: false
 
 jobs:
   release:

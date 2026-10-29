@@ -26,8 +26,8 @@ retesting is required to establish whether accepting playlist notifications prev
 - Match updater prompts to the wine theme and remove Skip this version, including old suppression choices.
 - Remove the in-app acknowledgements screen and former-name note from Settings.
 
-Encrypted FairPlay SAP video control remains unimplemented. The capability correction requires
-real-device retesting; successful Safari or YouTube playback is not yet confirmed.
+Safari and YouTube video playback, including pause/resume, were confirmed on a user's iPhone and
+Google TV setup. Encrypted FairPlay SAP video control remains unimplemented.
 
 ## [2.8] — clearer casting diagnostics and Activity Log
 

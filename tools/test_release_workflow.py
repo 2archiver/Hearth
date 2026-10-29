@@ -162,8 +162,7 @@ class LatestDesignationTest(unittest.TestCase):
     def test_concurrent_publishing_is_serialized(self):
         self.assertIn("concurrency:", self.text)
         self.assertIn("group: release-publish", self.text)
-        self.assertIn("cancel-in-progress: ${{ contains(github.event.head_commit.message, '[supersede-build]') }}", self.text)
-        self.assertIn("Normal pushes remain serialized", self.text)
+        self.assertIn("cancel-in-progress: false", self.text)
 
 
 class OneApkAndArtifactTest(unittest.TestCase):
