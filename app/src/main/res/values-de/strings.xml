@@ -10,7 +10,6 @@
     <!-- ── Über die App ────────────────────────────────────────── -->
     <!-- Sagt laut, dass die App umbenannt wurde: sonst wundert sich, wer aktualisiert
          hat, warum Beschriftung und Versionszeile nicht zur Erinnerung passen. -->
-    <string name="setting_renamed_note">Hearth ist der neue Name von PhairPlay — dieselbe App, dieselben Einstellungen, derselbe Signaturschlüssel.</string>
     <string name="update_version_value">%1$s (%2$d) · Hearth (früher PhairPlay)</string>
 
     <!-- ── Navigation ──────────────────────────────────────────── -->
