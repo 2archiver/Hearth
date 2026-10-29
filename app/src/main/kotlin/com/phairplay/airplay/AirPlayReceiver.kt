@@ -359,6 +359,7 @@ internal class AirPlayReceiver(
         Logger.i("AirPlayReceiver stopping (${reason.name.lowercase()})")
         // Invalidate claims/callbacks before closing sockets. A late media callback can no longer
         // regain ownership while the remaining resources are being released.
+        senderMediatedHls.finishVideoSession(sessionOwnership.snapshot()?.token)
         stopped = true
         sessionOwnership.reset()
         photoAssetCache.clear()
@@ -407,6 +408,7 @@ internal class AirPlayReceiver(
 
         // Mute/pause before any socket or decoder cleanup, so a slow sender or codec cannot leave
         // local sound/video running while the rest of the pipeline is being torn down.
+        senderMediatedHls.finishVideoSession(token)
         silenceMediaOutputs("local Stop playback")
         photoAssetCache.clear()
         clearPhotoDisplay()

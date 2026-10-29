@@ -388,17 +388,15 @@ internal class SenderMediatedHlsCoordinator(
         return old.isNotEmpty()
     }
 
-    /** Full session/receiver cleanup: close bridges and revoke every upgraded PTTH socket. */
-    fun reset(reason: String) {
-        // Notify the phone before revoking its reverse socket. The ownership generation may
-        // already be retired here; only the still-bound video token may send this final event.
+    /** Terminal status must reach the phone before the listener closes its sockets. */
+    fun finishVideoSession(token: SessionToken?) {
         synchronized(videoEventLock) {
-            val token = videoEventToken
+            if (token == null || token != videoEventToken) return
             val sender = videoEventSender
             val offer = synchronized(lock) {
                 reverseOffers.values.filter { it.senderSessionId == sender }.singleOrNull()
             }
-            if (token != null && sender != null && offer != null &&
+            if (sender != null && offer != null &&
                 lastVideoEvent != (offer.connectionId to "stopped")
             ) {
                 val sent = runCatching { offer.writer(VideoPlaybackEvent.frame(sender, "stopped")) }.getOrDefault(false)
@@ -414,6 +412,11 @@ internal class SenderMediatedHlsCoordinator(
             pendingVideoState = null
             lastVideoEvent = null
         }
+    }
+
+    /** Full session/receiver cleanup: close bridges and revoke every upgraded PTTH socket. */
+    fun reset(reason: String) {
+        synchronized(videoEventLock) { finishVideoSession(videoEventToken) }
         val (oldBridges, oldOffers) = synchronized(lock) {
             val old = bridges
             bridges = emptyList()
