@@ -396,7 +396,8 @@ object StreamStats {
                 nowNanos - lastPresentedNanos in 0L..2_000_000_000L) presentedFps else 0.0
         }
         return buildString {
-            append("Hearth ").append(com.phairplay.BuildConfig.VERSION_NAME.substringBefore("-main.").substringBefore("-googletv")).append(" · ").append(fps(recentFps))
+            append("Hearth ").append(com.phairplay.BuildConfig.VERSION_NAME.substringBefore("-main.").substringBefore("-googletv"))
+            if (recentFps > 0.0) append(" · ").append(fps(recentFps))
             if (source.isEmpty()) {
                 append("\nWaiting for a stream")
             } else {

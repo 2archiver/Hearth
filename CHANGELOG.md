@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0] — video session continuity and cleanup
+
+- Accept matching Safari playlist bookkeeping during direct video playback without requiring a sender-mediated media bridge or replacing the player.
+- Send a final stopped event before closing the video status channel, and clear pending status so stopped sessions cannot reappear.
+- Keep confirmed first-frame state when preparation callbacks arrive later; align request diagnostics with the player's cached playback state.
+- Omit unavailable FPS from the compact overlay without adding per-frame video monitoring.
+- Distinguish an explicit sender stop from a receiver failure and identify rejected action categories without exposing media URLs.
+
+Phone app switching can still send an explicit AirPlay stop; Hearth honors that command. Real-device
+retesting is required to establish whether accepting playlist notifications prevents the reported disconnect.
+
 ## [2.9] — casting negotiation and cleaner TV dialogs
 
 - Correct advertised capabilities for unimplemented encrypted video/control transports.

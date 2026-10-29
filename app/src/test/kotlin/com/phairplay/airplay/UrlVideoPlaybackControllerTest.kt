@@ -9,6 +9,22 @@ import org.junit.Test
 
 class UrlVideoPlaybackControllerTest {
     @Test
+    fun `first frame before prepared never regresses confirmed playing to loading`() {
+        val fixture = Fixture { FakeSurface() }
+        fixture.controller.play("https://media.example/video.m3u8", 0.0)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.fireFirstFrame()
+        fixture.scheduler.runCurrent()
+        assertEquals(AirPlayPlaybackState.PLAYING, fixture.states.last())
+        val confirmed = fixture.states.size
+        backend.firePrepared()
+        fixture.scheduler.runCurrent()
+        assertFalse(fixture.states.drop(confirmed).contains(AirPlayPlaybackState.LOADING))
+        assertFalse(backend.released)
+    }
+
+    @Test
     fun `a rebuffer stall reports loading then a bounded network failure`() {
         val fixture = Fixture { FakeSurface() }
         fixture.controller.play("https://media.example/video.m3u8", 0.0)

@@ -299,9 +299,26 @@ internal class SenderMediatedHlsCoordinator(
     }
 
     override fun deliverAction(senderSessionId: String?, body: ByteArray): SenderMediatedActionResult {
-        val snapshot = bridges
-        if (snapshot.isEmpty()) return SenderMediatedActionResult(400, "no sender-mediated session is active")
         val parsed = FcupCodec.parseAction(body)
+        // Playlist notifications also arrive during direct HTTP(S) playback. They do not carry
+        // fetched bytes and must not depend on an FCUP bridge existing. /stop remains the terminal
+        // command; bookkeeping alone must not tear down or restart a smooth video pipeline.
+        if (parsed is FcupCodec.ActionParse.Playlist) {
+            synchronized(videoEventLock) {
+                val token = videoEventToken
+                if (token != null && isSessionCurrent(token) && !isStopped() &&
+                    senderSessionId != null && senderSessionId == videoEventSender
+                ) {
+                    val action = if (parsed.type.equals(FcupCodec.TYPE_PLAYLIST_REMOVE, true))
+                        "playlistRemove" else "playlistInsert"
+                    return SenderMediatedActionResult(200,
+                        "$action bookkeeping received; playback retained until an explicit stop or replacement")
+                }
+            }
+        }
+        val snapshot = bridges
+        if (snapshot.isEmpty()) return SenderMediatedActionResult(400,
+            "no matching sender-mediated session; ${safeActionDescription(parsed)}")
         val matchingSession = snapshot.filter { it.bridge.channelSessionId == senderSessionId }
         if (matchingSession.isEmpty()) {
             return SenderMediatedActionResult(
@@ -319,6 +336,14 @@ internal class SenderMediatedHlsCoordinator(
         }
         val delivery = entry.bridge.deliverParsed(parsed)
         return SenderMediatedActionResult(delivery.httpStatus, delivery.summary)
+    }
+
+    private fun safeActionDescription(parsed: FcupCodec.ActionParse): String = when (parsed) {
+        is FcupCodec.ActionParse.Playlist -> if (parsed.type.equals(FcupCodec.TYPE_PLAYLIST_REMOVE, true))
+            "action=playlistRemove" else "action=playlistInsert"
+        is FcupCodec.ActionParse.Response -> "action=unhandledURLResponse"
+        is FcupCodec.ActionParse.Unsupported -> "action=unrecognized"
+        is FcupCodec.ActionParse.Invalid -> "action=invalid (${parsed.reason})"
     }
 
     /**
@@ -365,6 +390,30 @@ internal class SenderMediatedHlsCoordinator(
 
     /** Full session/receiver cleanup: close bridges and revoke every upgraded PTTH socket. */
     fun reset(reason: String) {
+        // Notify the phone before revoking its reverse socket. The ownership generation may
+        // already be retired here; only the still-bound video token may send this final event.
+        synchronized(videoEventLock) {
+            val token = videoEventToken
+            val sender = videoEventSender
+            val offer = synchronized(lock) {
+                reverseOffers.values.filter { it.senderSessionId == sender }.singleOrNull()
+            }
+            if (token != null && sender != null && offer != null &&
+                lastVideoEvent != (offer.connectionId to "stopped")
+            ) {
+                val sent = runCatching { offer.writer(VideoPlaybackEvent.frame(sender, "stopped")) }.getOrDefault(false)
+                AirPlayTrace.record(
+                    if (sent) "Video status event sent: stopped (session cleanup)"
+                    else "Video stop notification unavailable: sender channel already closed",
+                    sessionId = token.sessionId, connectionId = offer.connectionId,
+                    kind = AirPlayTrace.Kind.LIFECYCLE,
+                )
+            }
+            videoEventToken = null
+            videoEventSender = null
+            pendingVideoState = null
+            lastVideoEvent = null
+        }
         val (oldBridges, oldOffers) = synchronized(lock) {
             val old = bridges
             bridges = emptyList()

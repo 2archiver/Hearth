@@ -13,6 +13,30 @@ import java.util.concurrent.TimeUnit
 
 class VideoCastingRegressionTest {
     @Test
+    fun `direct playback diagnostics follow the player and explicit stop still ends the generation`() {
+        AirPlayTrace.clear()
+        val token = SessionToken("safari", 1)
+        var stopped = false
+        var explicit = false
+        val handler = RtspHandler(
+            context = mockk(relaxed = true), videoSurfaceProvider = { null },
+            onStreamingStarted = {}, onStreamingStopped = {},
+            onSessionClaim = { _, _, _, _ -> token },
+            onPlaybackInfoSession = { PlaybackInfo(600.0, 20.0, 1.0, true) },
+            onVideoStopSession = { stopped = it == token },
+            onSessionStoppedDetailed = { _, _, _, terminal, _ -> explicit = terminal },
+        )
+        handler.routeRequest(RtspRequest("POST", "/play", mapOf("X-Apple-Session-ID" to "safari"), "",
+            bodyBytes = PlistCodec.encode(mapOf("Content-Location" to "https://media.example/video.m3u8"))))
+        handler.routeRequest(request("GET", "/playback-info", "safari"))
+        assertTrue(AirPlayTrace.exportText().contains("state=url_video/playing->url_video/playing"))
+        assertEquals(200, handler.routeRequest(request("POST", "/stop", "safari")).statusCode)
+        assertTrue(stopped)
+        assertTrue(explicit)
+        handler.close()
+    }
+
+    @Test
     fun `video and HLS are advertised without changing legacy pairing`() {
         assertEquals(0L, AirPlayIdentity.FEATURES and (1L shl 2))
         assertEquals(0L, AirPlayIdentity.FEATURES and (1L shl 12))

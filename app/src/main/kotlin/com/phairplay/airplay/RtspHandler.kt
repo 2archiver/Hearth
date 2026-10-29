@@ -651,6 +651,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         currentCSeq = request.header("CSeq")?.let(::safeCSeq)
         protocolFingerprint(request)?.let { protocolSessionFingerprint = it }
         val endpoint = normalizedEndpoint(request.uri)
+        refreshVideoPlaybackState()
         val before = sessionStateLabel()
         val response = try {
             dispatchRequest(request)
@@ -687,6 +688,19 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             role = currentRole.name,
         )
         return response
+    }
+
+    /** Read the player's cheap cached snapshot; request diagnostics must follow actual playback. */
+    private fun refreshVideoPlaybackState() {
+        if (currentMode !in URL_VIDEO_MODES || playbackState in setOf(
+                AirPlayPlaybackState.STOPPING, AirPlayPlaybackState.STOPPED,
+                AirPlayPlaybackState.DISCONNECTED, AirPlayPlaybackState.FAILED)) return
+        val info = onPlaybackInfoSession?.invoke(sessionToken) ?: onPlaybackInfo() ?: return
+        playbackState = when {
+            !info.readyToPlay || info.buffering -> AirPlayPlaybackState.LOADING
+            info.rate <= 0.0 -> AirPlayPlaybackState.PAUSED
+            else -> AirPlayPlaybackState.PLAYING
+        }
     }
 
     private fun safeCSeq(value: String): String? =
@@ -861,7 +875,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         }
         val result = host.deliverAction(senderSessionId, request.bodyBytes)
         trace(
-            "FCUP/action ${if (result.httpStatus < 400) "accepted" else "rejected"}: ${result.summary}",
+            "Video action ${if (result.httpStatus < 400) "accepted" else "rejected"}: ${result.summary}",
             kind = if (result.httpStatus < 400) AirPlayTrace.Kind.INFO else AirPlayTrace.Kind.FAILURE,
         )
         return RtspResponse(
@@ -1137,6 +1151,8 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
 
     /** POST /stop — stop URL playback and close the session deliberately. */
     private fun handleVideoStop(request: RtspRequest): RtspResponse {
+        trace("Sender explicitly requested video stop; ending playback and releasing the cast route",
+            kind = AirPlayTrace.Kind.LIFECYCLE)
         Logger.i("POST /stop (URL video)")
         reportPlaybackState(AirPlayPlaybackState.STOPPING)
         onVideoStopSession?.invoke(sessionToken) ?: onVideoStop()

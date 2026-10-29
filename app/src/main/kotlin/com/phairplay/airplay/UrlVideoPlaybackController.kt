@@ -352,10 +352,13 @@ internal class UrlVideoPlaybackController(
         prepared = true
         preparedAtMillis = clockMillis()
         trace(
-            "URL video: player prepared after ${elapsedPlaybackMillis()}ms; waiting for a valid surface and first rendered frame",
+            "URL video: player prepared after ${elapsedPlaybackMillis()}ms" +
+                if (firstFrameRendered) "; first frame already rendered" else "; waiting for a valid surface and first rendered frame",
             AirPlayTrace.Kind.LIFECYCLE,
         )
-        reportState(AirPlayPlaybackState.LOADING)
+        // Media3 may deliver the first-frame callback before STATE_READY. Do not regress a
+        // confirmed playing timeline to loading just because preparation was reported later.
+        if (!firstFrameRendered) reportState(AirPlayPlaybackState.LOADING)
         runCatching {
             val initialMs = if (startInSeconds) {
                 (startPosition * 1000.0).coerceAtMost(Int.MAX_VALUE.toDouble())

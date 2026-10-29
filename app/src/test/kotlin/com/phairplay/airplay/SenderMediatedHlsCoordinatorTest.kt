@@ -13,6 +13,57 @@ import java.util.concurrent.atomic.AtomicReference
 class SenderMediatedHlsCoordinatorTest {
 
     @Test
+    fun `direct video accepts playlist notifications only for its live sender`() {
+        val token = SessionToken("direct", 1)
+        var current = true
+        val coordinator = SenderMediatedHlsCoordinator(
+            isStopped = { false }, isSessionCurrent = { current && it == token },
+            onPlaybackReady = { _, _ -> error("bookkeeping must not replace playback") },
+        )
+        coordinator.bindVideoSession(token, "safari")
+        for (type in listOf("playlistRemove", "playlistInsert")) {
+            val body = PlistCodec.encode(mapOf("type" to type,
+                "params" to mapOf("item" to mapOf("uuid" to "11111111-2222-3333-4444-555555555555"))))
+            assertEquals(200, coordinator.deliverAction("safari", body).httpStatus)
+            assertEquals(400, coordinator.deliverAction("other", body).httpStatus)
+            assertEquals(400, coordinator.deliverAction(null, body).httpStatus)
+            current = false
+            assertEquals(400, coordinator.deliverAction("safari", body).httpStatus)
+            current = true
+        }
+        assertEquals(400, coordinator.deliverAction("safari", byteArrayOf(1, 2)).httpStatus)
+        val unknown = PlistCodec.encode(mapOf("type" to "https://secret.example/token", "params" to emptyMap<String, Any>()))
+        assertFalse(coordinator.deliverAction("safari", unknown).summary.contains("secret"))
+        coordinator.reset("test complete")
+    }
+
+    @Test
+    fun `cleanup sends stopped before revocation even after ownership retires and never replays loading`() {
+        val token = SessionToken("direct", 1)
+        var current = true
+        var stopped = false
+        val events = mutableListOf<String>()
+        val coordinator = SenderMediatedHlsCoordinator(
+            isStopped = { stopped }, isSessionCurrent = { current && it == token },
+            onPlaybackReady = { _, _ -> },
+        )
+        coordinator.bindVideoSession(token, "safari")
+        coordinator.registerReverseChannel("reverse", "safari", writer = { frame ->
+            val split = frame.toString(Charsets.ISO_8859_1).indexOf("\r\n\r\n")
+            events += PlistCodec.decode(frame.copyOfRange(split + 4, frame.size))["state"] as String
+            true
+        }, revoke = { events += "revoked" })
+        coordinator.publishVideoState(token, AirPlayPlaybackState.PLAYING)
+        current = false
+        stopped = true
+        coordinator.reset("receiver disabled")
+        coordinator.reverseChannelReady()
+        coordinator.publishVideoState(token, AirPlayPlaybackState.PLAYING)
+        coordinator.reset("duplicate cleanup")
+        assertEquals(listOf("playing", "stopped", "revoked"), events)
+    }
+
+    @Test
     fun `bridge is routable before start waits for the first master action`() {
         val ownership = SessionOwnership()
         val fingerprint = AirPlaySessionFingerprint.of("youtube-session")

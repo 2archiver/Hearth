@@ -23,6 +23,19 @@ import org.junit.Test
 class StreamStatsTest {
 
     @Test
+    fun `unmeasured video fps is omitted without losing resolution or session time`() {
+        StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
+        StreamStats.videoRes = "1920x1080"
+        StreamStats.sessionStartedAtMillis = 1_000L
+        val text = StreamStats.summary(nowMillis = 111_000L)
+        assertTrue(text.contains("1920x1080"))
+        assertTrue(text.contains("1:50"))
+        assertFalse(text.contains("N/A"))
+        assertFalse(text.contains("fps"))
+        StreamStats.resetStreams()
+    }
+
+    @Test
     fun `compact HUD shows one fps and omits technical rows`() {
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         StreamStats.videoRes = "1920x1080"
@@ -41,7 +54,8 @@ class StreamStatsTest {
     fun `compact HUD expires a stalled fps instead of freezing on the last rate`() {
         StreamStats.beginSession(StreamStats.SOURCE_AIRPLAY)
         for (i in 0..62) StreamStats.noteFramePresented(i * 16_666_667L)
-        assertTrue(StreamStats.summary(nowNanos = 4_000_000_000L).contains("N/A"))
+        assertFalse(StreamStats.summary(nowNanos = 4_000_000_000L).contains("fps"))
+        assertFalse(StreamStats.summary(nowNanos = 4_000_000_000L).contains("N/A"))
         StreamStats.resetStreams()
     }
 
