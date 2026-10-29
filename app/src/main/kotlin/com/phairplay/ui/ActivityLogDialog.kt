@@ -50,12 +50,14 @@ object ActivityLogDialog {
 
     fun show(context: Context) {
         ActivityLog.init(context)
+        val context = android.view.ContextThemeWrapper(context, R.style.Theme_PhairPlay_Fullscreen)
         val density = context.resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
 
         var minSeverity: Severity? = null
 
         val root = LinearLayout(context).apply {
+            setBackgroundColor(context.getColor(R.color.background_surface))
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(4), dp(16), 0)
         }
@@ -131,17 +133,16 @@ object ActivityLogDialog {
         newestButton.setOnClickListener { list.setSelection((list.count - 1).coerceAtLeast(0)); list.requestFocus() }
         actionRow.addView(oldestButton)
         actionRow.addView(newestButton)
-        actionRow.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-        actionRow.addView(TextView(context).apply {
-            setText(R.string.activity_log_sort_hint)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(context.getColor(R.color.text_tertiary))
-        })
+
+
 
         render = {
             val entries = ActivityLog.entries(minSeverity)
-            status.text = if (entries.isEmpty()) context.getString(R.string.activity_log_empty) else
+            status.text = if (entries.isEmpty()) if (minSeverity == null) "No activity yet. Start the receiver and try casting." else "No matching events. Choose All to see connection progress." else
                 context.getString(R.string.activity_log_summary, entries.size, ActivityLog.MAX_ENTRIES)
+            allChip.isSelected = minSeverity == null
+            warnChip.isSelected = minSeverity == Severity.WARNING
+            errorChip.isSelected = minSeverity == Severity.ERROR
             list.adapter = object : BaseAdapter() {
                 override fun getCount() = entries.size
                 override fun getItem(position: Int) = entries[position]
@@ -180,7 +181,7 @@ object ActivityLogDialog {
         root.addView(status)
         // Roughly half a TV screen: enough for ~8 rows, still leaves the dialog title and the
         // hardware D-pad focus ring inside the safe area.
-        val listHeight = (context.resources.configuration.screenHeightDp * 0.55f).toInt().coerceAtLeast(240)
+        val listHeight = (context.resources.configuration.screenHeightDp * 0.38f).toInt().coerceIn(120, 360)
         root.addView(list, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(listHeight)
@@ -195,6 +196,27 @@ object ActivityLogDialog {
             .setPositiveButton(android.R.string.ok, null)
             .create()
         dialog.show()
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(context.getColor(R.color.background_surface)))
+        dialog.window?.setLayout((context.resources.displayMetrics.widthPixels * 0.9f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(context.getColor(R.color.accent_blue))
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        var snapshot = ActivityLog.entries(minSeverity)
+        val refresh = object : Runnable {
+            override fun run() {
+                val next = ActivityLog.entries(minSeverity)
+                if (next != snapshot) {
+                    val following = list.lastVisiblePosition >= list.count - 2
+                    val position = list.firstVisiblePosition
+                    val top = list.getChildAt(0)?.top ?: 0
+                    snapshot = next
+                    render()
+                    if (!following) list.setSelectionFromTop(position, top)
+                }
+                handler.postDelayed(this, 1000)
+            }
+        }
+        handler.postDelayed(refresh, 1000)
+        dialog.setOnDismissListener { handler.removeCallbacks(refresh) }
         // Newest activity is at the bottom of a chronological list; show it without making the
         // user scroll through yesterday to find out what just failed.
         list.post { list.setSelection((list.count - 1).coerceAtLeast(0)) }
@@ -273,11 +295,14 @@ object ActivityLogDialog {
         return container
     }
 
-    private fun actionButton(context: Context, labelRes: Int): Button {
+    private fun actionButton(context: Context, labelRes: Int): TextView {
         // Density is resolved here so the caller never has to pass a `dp` reference around.
         val density = context.resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
-        return Button(context).apply {
+        return TextView(context).apply {
+            isClickable = true
+            gravity = Gravity.CENTER
+            contentDescription = context.getString(labelRes)
             setText(labelRes)
             isFocusable = true
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -286,8 +311,8 @@ object ActivityLogDialog {
             minHeight = dp(48)
             setPadding(dp(18), dp(10), dp(18), dp(10))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                0,
+                dp(48), 1f
             ).apply { marginEnd = dp(8) }
         }
     }

@@ -527,6 +527,7 @@ internal class UrlVideoPlaybackController(
         connectionId = traceContext?.connectionId,
         role = traceContext?.role,
         kind = kind,
+        severity = if (kind == AirPlayTrace.Kind.FAILURE) com.phairplay.diagnostics.Severity.ERROR else null,
     )
 
     private fun onMain(action: () -> Unit) = scheduler.dispatch(action)

@@ -125,6 +125,7 @@ object AirPlayTrace {
             connectionId = connectionId,
             role = role,
             kind = Kind.REQUEST,
+            severity = if (status >= 400) Severity.ERROR else if (endpoint in setOf("/play", "/reverse") || method == "SETUP") Severity.INFO else Severity.DEBUG,
         )
     }
 

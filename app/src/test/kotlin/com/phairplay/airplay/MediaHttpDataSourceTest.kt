@@ -173,6 +173,16 @@ class MediaHttpDataSourceTest {
         }
     }
 
+    @Test fun webPageResponseFailsBeforeDecoderWaitsForMedia() = serve(
+        "200 OK", "Content-Type: text/html\r\nContent-Length: 4\r\n", "oops",
+    ) { url ->
+        val source = HearthRedirectGuardedHttpDataSource()
+        try {
+            try { source.open(spec(url)); fail("HTML accepted as media") }
+            catch (error: IOException) { assertTrue(error.message!!.contains("instead of playable media")) }
+        } finally { source.close() }
+    }
+
     private fun bridgeSource() = HearthUrlVideoDataSource(object : UrlVideoSessionSource {
         override val sessionId = "fixture"
         override fun open(uri: String) = "abc".toByteArray()

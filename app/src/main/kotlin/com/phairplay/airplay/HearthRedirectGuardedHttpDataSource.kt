@@ -160,6 +160,10 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                     throw IOException("direct media request failed (HTTP $code)")
                 }
 
+                val mime = nextConnection.contentType.orEmpty().substringBefore(';').trim()
+                if (mime.equals("text/html", true) || mime.equals("application/json", true)) {
+                    throw IOException("media request returned a web page or API response instead of playable media (HTTP $code)")
+                }
                 val skipped = if (code == HttpURLConnection.HTTP_OK && dataSpec.position > 0L) {
                     dataSpec.position
                 } else {

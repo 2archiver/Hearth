@@ -287,10 +287,6 @@ internal class ExoUrlVideoBackend(
             preparePlayer(uri, mediaItem, hls = true, generation = generation, evidence = "URL path")
             return
         }
-        if (hasKnownProgressiveExtension(uri)) {
-            preparePlayer(uri, mediaItem, hls = false, generation = generation, evidence = "URL path")
-            return
-        }
 
         // Source type cannot be selected from a signed/extensionless URL. Probe one bounded byte
         // range off the UI thread through the same redirect/TLS guard used for playback. MIME type
@@ -353,6 +349,7 @@ internal class ExoUrlVideoBackend(
             // Inspect a bounded prefix of a normal GET; classification never requires Range.
             source.open(spec, headers)
             val mimeType = responseContentType(source.getResponseHeaders())
+            trace("Media probe: HTTP ${source.getResponseCode()}; content type ${mimeType.take(80)}", AirPlayTrace.Kind.LIFECYCLE)
             val mimeResult = UrlVideoSourceClassifier.classify(mimeType)
             if (mimeResult.isHls) {
                 HlsProbeResult(true, mimeResult.evidence)
@@ -368,7 +365,7 @@ internal class ExoUrlVideoBackend(
                 HlsProbeResult(result.isHls, result.evidence)
             }
         } catch (error: Exception) {
-            Logger.d("URL video: guarded HLS probe could not classify response (${error.javaClass.simpleName})")
+            AirPlayTrace.record("Media classification failed (HTTP ${source.getResponseCode()}, ${error.javaClass.simpleName}); attempting progressive decoding", kind = AirPlayTrace.Kind.FAILURE)
             HlsProbeResult(false, "probe fallback")
         } finally {
             runCatching { source.close() }

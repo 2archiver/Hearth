@@ -111,6 +111,11 @@ class HearthUiTest {
         assertTrue("History should create only visible rows", list.childCount < list.adapter.count)
         assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Newest" })
         assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "Oldest" })
+        for (label in listOf("Oldest", "Newest")) {
+            val control = views.filterIsInstance<TextView>().first { it.text.toString() == label }
+            assertTrue("Action must remain tall enough to show its label", control.height >= 40)
+            assertTrue("Action must have visible label width", control.width > 50)
+        }
         dialog.dismiss()
         com.phairplay.diagnostics.ActivityLog.clear()
     }
@@ -340,7 +345,8 @@ class HearthUiTest {
             assertFalse(art.drawable is BitmapDrawable)
             testScheduler.advanceUntilIdle()
             val displayed = (art.drawable as BitmapDrawable).bitmap
-            view.update(info)
+            view.update(info.copy(artwork = bytes.copyOf()))
+            assertSame(displayed, (art.drawable as BitmapDrawable).bitmap)
             testScheduler.advanceUntilIdle()
             assertSame(displayed, (art.drawable as BitmapDrawable).bitmap)
             view.clear()

@@ -103,12 +103,14 @@ class NowPlayingScreen @JvmOverloads constructor(
     /** Updates the card to reflect [info]. Falls back to a placeholder glyph when no artwork. */
     fun update(info: NowPlayingInfo) {
         val bytes = info.artwork
-        if (bytes !== lastArtwork || artwork.drawable == null) {
+        if (!bytes.contentEquals(lastArtwork) || artwork.drawable == null) {
             lastArtwork = bytes
             val generation = ++artworkGeneration
             decodeJob?.cancel()
-            clearArtwork()
-            showArtworkPlaceholder()
+            if (bytes == null || artwork.drawable == null) {
+                clearArtwork()
+                showArtworkPlaceholder()
+            }
             if (bytes != null) decodeJob = decodeScope.launch {
                 var decoded: Bitmap? = null
                 val bitmap = try {
@@ -125,6 +127,7 @@ class NowPlayingScreen @JvmOverloads constructor(
                 if (generation != artworkGeneration) {
                     bitmap?.recycle()
                 } else if (bitmap != null) {
+                    clearArtwork()
                     artwork.scaleType = ImageView.ScaleType.CENTER_CROP
                     artwork.setImageBitmap(bitmap)
                     artwork.setColorFilter(null)

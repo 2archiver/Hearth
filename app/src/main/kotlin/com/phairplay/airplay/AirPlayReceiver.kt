@@ -792,6 +792,7 @@ internal class AirPlayReceiver(
             connectionId = connectionId,
             role = AirPlayConnectionRole.DIRECT_VIDEO_CONTROL.name,
             kind = if (state == AirPlayPlaybackState.FAILED) AirPlayTrace.Kind.FAILURE else AirPlayTrace.Kind.LIFECYCLE,
+            severity = if (state == AirPlayPlaybackState.FAILED) com.phairplay.diagnostics.Severity.ERROR else null,
         )
         videoEvents.trySend(token to state)
         onUrlPlaybackStateChanged(state, failure)

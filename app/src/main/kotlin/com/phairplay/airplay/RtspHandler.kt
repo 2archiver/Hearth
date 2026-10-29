@@ -453,6 +453,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
 
                 val outcome = requestReader.readDetailed(inputStream)
                 if (outcome is RtspRequestReader.ReadOutcome.End) {
+                    if (closed) break // Local shutdown closes the socket; it is not a sender failure.
                     closeReason = when {
                         outcome.cleanEof && isSessionActive() -> "sender EOF on this RTSP connection without TEARDOWN"
                         outcome.cleanEof -> "sender EOF before a session started"
@@ -1529,13 +1530,11 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
                         activeStreamTypes.add(103)
                         reportMediaRole(AirPlayMediaRole.MIRROR_AUDIO, true)
                         Logger.i("buffered audio stream type=103 data server ready on port $dataPort")
-                        trace("Audio: buffered stream set up (Apple Music style playback)")
+                        AirPlayTrace.record("Buffered audio transport 103 is not decoded by this receiver. Choose a legacy AirPlay audio route or direct media playback.", kind = AirPlayTrace.Kind.FAILURE, severity = com.phairplay.diagnostics.Severity.ERROR)
                         mapOf("type" to 103L, "dataPort" to dataPort.toLong())
                     }
                     else -> {
-                        Logger.i("mirror SETUP stream dict: " + stream.entries.joinToString { (k, v) ->
-                            "$k=" + when (v) { is ByteArray -> "${v.size}B"; else -> v.toString() }
-                        })
+                        AirPlayTrace.record("Sender requested an unsupported stream type; no media decoder was started", kind = AirPlayTrace.Kind.FAILURE, severity = com.phairplay.diagnostics.Severity.ERROR)
                         null
                     }
                 }

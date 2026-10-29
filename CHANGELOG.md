@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8] — clearer casting diagnostics and Activity Log
+
+- Wine-themed Activity Log with readable, full-height actions and live updates.
+- Keep your scroll position while inspecting events; explain empty severity filters.
+- Show failed media requests and playback failures under Errors, with HTTP and format evidence.
+- Inspect media responses before choosing a decoder, including misleading file extensions.
+- Detect web-page/API responses instead of leaving them buffering as media.
+- Report unsupported buffered audio and suppress socket warnings caused by local shutdown.
+- Reuse identical album artwork on pause/resume to prevent cover flashes.
+
+Safari compatibility still depends on the sender providing a playable source. Buffered audio
+transport 103 remains undecoded; complete device compatibility has not been verified.
+
 ## [2.7] — Safari and Spotify casting
 
 - Receive iOS Now Playing commands, track details and album artwork alongside legacy audio metadata.
