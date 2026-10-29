@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1] — audio-only playback and quieter handover
+
+- Show the wine Now Playing screen for audio-only URL casts, including while paused.
+- Keep audio-only media playing without a video surface or a false first-frame timeout.
+- Keep secondary AirPlay audio suspended across volume changes and late stream setup when the URL player owns the soundtrack.
+- Avoid decoding and resend requests for suspended secondary audio, reducing unnecessary receiver and network work.
+- Preserve the session continuity and stop-cleanup fixes confirmed in 3.0.
+
+Phone speaker routing remains controlled by iOS. App-switching smoothness and phone audio need
+retesting on the reported iPhone 14 / iOS 27.0.1 setup; these changes do not force a phone route.
+
 ## [3.0] — video session continuity and cleanup
 
 - Accept matching Safari playlist bookkeeping during direct video playback without requiring a sender-mediated media bridge or replacing the player.

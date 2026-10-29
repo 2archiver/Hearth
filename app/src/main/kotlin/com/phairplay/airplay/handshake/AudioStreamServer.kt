@@ -54,12 +54,15 @@ class AudioStreamServer(
     private val key = SecretKeySpec(MirrorCrypto.audioKey(aesKey, ecdhSecret, hashAudioKey), "AES")
     private val iv = IvParameterSpec(aesIv.copyOf(16))
 
-    // Playback gain (0..1), set from the sender's AirPlay volume. Applied to the AudioTrack and
-    // re-applied if the track is recreated. Initialized from the receiver's tracked volume if
-    // present (UxPlay commit 412c5b7), otherwise starts at full.
-    @Volatile private var volumeGain = initialVolumeDb?.let { db ->
-        if (db <= -144f) 0f else ((db + 30f) / 30f).coerceIn(0f, 1f)
-    } ?: 1f
+    private val outputGate = AudioOutputGate(initialVolumeDb)
+
+    /** Drain transport without decoding or rendering a soundtrack owned by URL playback. */
+    @Synchronized
+    fun suspendOutput(suspended: Boolean) {
+        outputGate.suspended = suspended
+        frameQueue.clear()
+        runCatching { audioTrack?.setVolume(outputGate.effectiveGain) }
+    }
 
     // Reused across packets: decryptPacket runs only on the playback thread, so one Cipher
     // instance is safe and avoids a Cipher.getInstance allocation on every packet (~92/s).
@@ -293,7 +296,7 @@ class AudioStreamServer(
      * [resendCtr] concurrently. Runs outside the reorder lock — never blocks the decode path on I/O.
      */
     private fun requestResend(startSeq: Int, count: Int) {
-        if (count <= 0 || count > MAX_RESEND_RANGE) return
+        if (outputGate.suspended || count <= 0 || count > MAX_RESEND_RANGE) return
         synchronized(sendLock) {
             val addr = senderCtrlAddr ?: return    // unknown until the sender's first control packet
             val req = ByteArray(8)
@@ -322,6 +325,7 @@ class AudioStreamServer(
             initAudioTrack()
             while (running) {
                 val payload = frameQueue.poll(200, TimeUnit.MILLISECONDS) ?: continue
+                if (outputGate.suspended) continue
                 try {
                     val decrypted = decryptPacket(payload)
                     if (alac != null) playAlacFrame(decrypted) else decodeFrame(decrypted)
@@ -418,9 +422,10 @@ class AudioStreamServer(
     }
 
     /** Sets playback volume from the sender's AirPlay volume (−30 dB … 0 dB, or ≤ −144 = mute). */
+    @Synchronized
     fun setVolume(airplayVolume: Float) {
-        volumeGain = if (airplayVolume <= -144f) 0f else ((airplayVolume + 30f) / 30f).coerceIn(0f, 1f)
-        runCatching { audioTrack?.setVolume(volumeGain) }
+        outputGate.setVolume(airplayVolume)
+        runCatching { audioTrack?.setVolume(outputGate.effectiveGain) }
     }
 
     private fun initAudioTrack() {
@@ -449,7 +454,7 @@ class AudioStreamServer(
             .setBufferSizeInBytes(minBuf)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-            .also { it.setVolume(volumeGain); it.play() }
+            .also { it.setVolume(outputGate.effectiveGain); it.play() }
     }
 
     companion object {

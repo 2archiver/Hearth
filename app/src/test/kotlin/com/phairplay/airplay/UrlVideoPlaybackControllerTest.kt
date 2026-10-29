@@ -9,6 +9,31 @@ import org.junit.Test
 
 class UrlVideoPlaybackControllerTest {
     @Test
+    fun `audio-only media stays ready and controllable with no video surface`() {
+        val fixture = Fixture { null }
+        fixture.controller.play("https://media.example/audio.m3u8", 0.0, seconds = true)
+        fixture.scheduler.runCurrent()
+        val backend = fixture.factory.players.single()
+        backend.hasVideoTrack = false
+        backend.hasAudioTrack = true
+        backend.firePrepared()
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertTrue(backend.playing)
+        assertTrue(fixture.controller.info()!!.readyToPlay)
+        assertEquals(AirPlayPlaybackState.AUDIO_ONLY, fixture.states.last())
+        assertEquals(listOf(true), fixture.audioOwnership)
+        fixture.controller.setRate(0f)
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TICK_MS)
+        assertFalse(backend.playing)
+        assertEquals(AirPlayPlaybackState.PAUSED, fixture.states.last())
+        fixture.controller.setRate(1f)
+        fixture.scheduler.advanceBy(UrlVideoPlaybackController.DEFAULT_TIMEOUT_MS)
+        assertTrue(backend.playing)
+        assertEquals(AirPlayPlaybackState.AUDIO_ONLY, fixture.states.last())
+        assertEquals(0, fixture.endedCount)
+    }
+
+    @Test
     fun `first frame before prepared never regresses confirmed playing to loading`() {
         val fixture = Fixture { FakeSurface() }
         fixture.controller.play("https://media.example/video.m3u8", 0.0)

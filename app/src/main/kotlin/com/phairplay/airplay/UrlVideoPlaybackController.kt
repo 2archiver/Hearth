@@ -172,27 +172,27 @@ internal class UrlVideoPlaybackController(
                     attachedSurface = surface
                 }
 
+                val audioOnly = !current.hasVideoTrack
                 if (prepared) {
-                    if (current.isBuffering && desiredRate > 0f && firstFrameRendered) {
+                    if (current.isBuffering && desiredRate > 0f && (firstFrameRendered || audioOnly)) {
                         val since = bufferingStartedAtMillis ?: clockMillis().also { bufferingStartedAtMillis = it }
                         if (clockMillis() - since >= 30_000L) {
                             fail(current, "buffering timeout")
                             return@runCatching
                         }
                     } else bufferingStartedAtMillis = null
-                    if (surface != null && desiredRate > 0f) {
+                    if ((audioOnly || surface != null) && desiredRate > 0f) {
                         if (!current.isPlaying) current.start()
                         if (!started) trace("URL video: playback started at ${elapsedPlaybackMillis()}ms")
                         started = true
                     } else if (current.isPlaying) {
                         current.pause()
                     }
-                    val audioOnly = !current.hasVideoTrack
                     if (firstFrameRendered || audioOnly) decideAudioOwnership(current)
                     reportState(
                         when {
                             desiredRate <= 0f -> AirPlayPlaybackState.PAUSED
-                            surface == null -> AirPlayPlaybackState.LOADING
+                            !audioOnly && surface == null -> AirPlayPlaybackState.LOADING
                             current.isBuffering -> AirPlayPlaybackState.LOADING
                             audioOnly -> AirPlayPlaybackState.AUDIO_ONLY
                             firstFrameRendered -> AirPlayPlaybackState.PLAYING
@@ -205,7 +205,7 @@ internal class UrlVideoPlaybackController(
                         durationSec = current.durationMs.coerceAtLeast(0) / 1000.0,
                         positionSec = current.positionMs.coerceAtLeast(0) / 1000.0,
                         rate = if (current.isPlaying) 1.0 else 0.0,
-                        readyToPlay = surface != null,
+                        readyToPlay = audioOnly || surface != null,
                         buffering = current.isBuffering,
                         bufferedPositionSec = current.bufferedPositionMs.coerceAtLeast(0) / 1000.0,
                         seekable = current.isSeekable,
@@ -213,9 +213,8 @@ internal class UrlVideoPlaybackController(
                 }
 
                 val neverPrepared = !prepared
-                // "Started" only becomes true once a surface was attached, so the player never
-                // starting is exactly "no surface ever showed up" — the original rule, kept as is.
-                val neverStarted = !started && surface == null
+                // Video still needs a surface. Confirmed audio-only media has no render deadline.
+                val neverStarted = !started && !audioOnly && surface == null
                 val neverRendered = started && surface != null && current.hasVideoTrack &&
                     !firstFrameRendered && desiredRate > 0f
                 if ((neverPrepared || neverStarted || neverRendered) && clockMillis() >= deadlineMillis) {

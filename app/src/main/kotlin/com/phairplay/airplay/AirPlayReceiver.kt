@@ -230,6 +230,7 @@ internal class AirPlayReceiver(
     // plus the latest DMAP metadata/artwork and recompute on every change (see [emitNowPlaying]).
     @Volatile private var audioPlaying = false
     @Volatile private var videoPlaying = false
+    @Volatile private var urlAudioOnly = false
     @Volatile private var npSenderName = "AirPlay"
     @Volatile private var npTitle: String? = null
     @Volatile private var npArtist: String? = null
@@ -786,6 +787,15 @@ internal class AirPlayReceiver(
         failureReason: String?,
     ) {
         if (!sessionOwnership.updatePlaybackState(token, state)) return
+        if (state == AirPlayPlaybackState.AUDIO_ONLY) {
+            urlAudioOnly = true
+            videoPlaying = false
+            emitNowPlaying()
+        } else if (state == AirPlayPlaybackState.PLAYING && urlAudioOnly) {
+            urlAudioOnly = false
+            videoPlaying = true
+            emitNowPlaying()
+        }
         val failure = failureReason?.let(::safePlaybackFailure)
         AirPlayTrace.record(
             "URL video playback ${state.name.lowercase()}" +
@@ -1010,6 +1020,7 @@ internal class AirPlayReceiver(
                 codec      = session.audioCodec,
                 alacFramesPerPacket = session.alacFramesPerPacket
             )
+            player.suspendOutput(videoAudioHandover.isAudioSuspended)
         }
         Logger.i("AudioPlayer started (${session.sampleRate}Hz × ${session.channels}ch, " +
                  "codec=${session.audioCodec}, encrypted=${session.isAudioEncrypted})")
@@ -1223,7 +1234,11 @@ internal class AirPlayReceiver(
             framesPerPacket = framesPerPacket,
             hashAudioKey = ecdhSecret.isNotEmpty(),
             initialVolumeDb = currentVolumeDb,
-        ).also { audioServer = it; it.start(scope) }
+        ).also {
+            audioServer = it
+            it.suspendOutput(videoAudioHandover.isAudioSuspended)
+            it.start(scope)
+        }
         audioPlaying = true
         emitNowPlaying()
         Logger.i("Mirror audio server started: dataPort=${server.dataPort} controlPort=${server.controlPort}")
@@ -1315,6 +1330,7 @@ internal class AirPlayReceiver(
             },
         )
         urlVideoPlayer = player
+        urlAudioOnly = false
         videoPlaying = true
         emitNowPlaying()
         onSenderNameChanged("AirPlay")
@@ -1360,8 +1376,8 @@ internal class AirPlayReceiver(
      *
      * WHY "output" AND NOT "stream": upstream stops the RAOP service outright at this point, and a
      * sender that sees its audio stream die can tear the whole session down — including the video
-     * this handover exists to protect. Hearth therefore keeps reading (and decoding) the incoming
-     * packets and simply stops writing them to the output, which removes the duplicate audio without
+     * this handover exists to protect. Hearth therefore keeps reading the incoming
+     * transport while skipping unused decoding/output, which removes the duplicate audio without
      * giving the sender a reason to end the session. It is applied **only** to a generation that is
      * current, and only after the player reported that the media carries its own audio.
      */
@@ -1371,11 +1387,11 @@ internal class AirPlayReceiver(
         val server = audioServer
         val legacy = audioPlayer
         val mirrored = server != null || legacy != null
-        server?.setVolume(SILENT_VOLUME_DB)
+        server?.suspendOutput(true)
         legacy?.suspendOutput(true)
         AirPlayTrace.record(
             if (mirrored) {
-                "Media audio owns the session: AirPlay audio output silenced (stream kept open)"
+                "Media audio owns the session: secondary audio suspended; transport kept open, unused decoding and resends disabled"
             } else {
                 "Media audio owns the session: no AirPlay audio stream was running"
             },
@@ -1395,6 +1411,7 @@ internal class AirPlayReceiver(
         val legacy = audioPlayer
         if (server == null && legacy == null) return false
         server?.setVolume(currentVolumeDb)
+        server?.suspendOutput(false)
         legacy?.suspendOutput(false)
         AirPlayTrace.record(
             "AirPlay audio output restored ($reason)",
@@ -1510,6 +1527,7 @@ internal class AirPlayReceiver(
         val oldAesIv = mirrorAesIv.also { mirrorAesIv = null }
         audioPlaying = false
         videoPlaying = false
+        urlAudioOnly = false
         clearNowPlayingMetadata()
 
         CleanupSafety.runAll(
@@ -1555,7 +1573,7 @@ internal class AirPlayReceiver(
 
     /** Pushes the current now-playing state out: a [NowPlayingInfo] when audio plays without video, else null. */
     private fun emitNowPlaying() {
-        val show = audioPlaying && !videoPlaying
+        val show = (audioPlaying || urlAudioOnly) && !videoPlaying
         onNowPlayingChanged(
             if (show) NowPlayingInfo(npSenderName, npTitle, npArtist, npAlbum, npArtwork) else null
         )
