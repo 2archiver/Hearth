@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7] — Safari and Spotify casting
+
+- Receive iOS Now Playing commands, track details and album artwork alongside legacy audio metadata.
+- Preserve covers during progress updates and accept artwork larger than the old 64 KiB message limit.
+- Use OK to play/pause and left/right to change tracks; route Safari video controls to the TV player.
+- Improve sender control discovery and briefly queue remote presses while the sender resolves.
+- Recover from compressed partial media responses and avoid Range requests when identifying Safari HLS.
+
+Automated protocol, media and TV interface checks cover these changes. Live Spotify/Safari casting
+still requires an iPhone and TV; device compatibility has not been verified in this environment.
+
 ## [2.6.0] — clearer casting and smoother playback
 
 - New Signal Flame logo throughout Hearth and the README.

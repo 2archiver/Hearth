@@ -435,7 +435,21 @@ internal class AirPlayReceiver(
      * AirPlay sender — e.g. play/pause or skip what the Mac/iPhone is streaming. No-op if no sender
      * has advertised a DACP identity yet.
      */
-    fun sendRemoteCommand(command: String) = dacpClient.sendCommand(command)
+    fun sendRemoteCommand(command: String) {
+        val player = urlVideoPlayer
+        if (player != null) {
+            // Safari URL playback belongs to this TV player; DACP controls the sender's audio.
+            val info = player.info()
+            when (command) {
+                DacpClient.CMD_PLAY_PAUSE -> player.setRate(if (info?.rate == 0.0) 1f else 0f)
+                DacpClient.CMD_PLAY -> player.setRate(1f)
+                DacpClient.CMD_PAUSE -> player.setRate(0f)
+                DacpClient.CMD_NEXT, DacpClient.CMD_FF -> if (info?.seekable == true) player.scrub(info.positionSec + 10.0)
+                DacpClient.CMD_PREV, DacpClient.CMD_REW -> if (info?.seekable == true) player.scrub((info.positionSec - 10.0).coerceAtLeast(0.0))
+                else -> dacpClient.sendCommand(command)
+            }
+        } else dacpClient.sendCommand(command)
+    }
 
     /** True once a sender has advertised DACP reverse-control (so the TV remote can drive playback). */
     fun isRemoteControlAvailable(): Boolean = dacpClient.isAvailable
@@ -523,6 +537,7 @@ internal class AirPlayReceiver(
                     npTitle = title; npArtist = artist; npAlbum = album
                     emitNowPlaying()
                 },
+                onNowPlayingUpdate = { update -> applyNowPlayingUpdate(update) },
                 onArtwork = { bytes ->
                     npArtwork = bytes.takeIf { it.isNotEmpty() }
                     emitNowPlaying()
@@ -912,6 +927,7 @@ internal class AirPlayReceiver(
             sessionId = token?.sessionId,
             kind = AirPlayTrace.Kind.LIFECYCLE,
         )
+        dacpClient.reset()
         releaseMediaComponents()
         scope.launch {
             withContext(Dispatchers.Main) {
@@ -1525,6 +1541,13 @@ internal class AirPlayReceiver(
             )
         ) { label, error -> reportCleanupFailure(label, error) }
 
+    }
+
+    @Synchronized
+    private fun applyNowPlayingUpdate(update: NowPlayingUpdate) {
+        val info = update.applyTo(NowPlayingInfo(npSenderName, npTitle, npArtist, npAlbum, npArtwork))
+        npTitle = info.title; npArtist = info.artist; npAlbum = info.album; npArtwork = info.artwork
+        emitNowPlaying()
     }
 
     /** Pushes the current now-playing state out: a [NowPlayingInfo] when audio plays without video, else null. */

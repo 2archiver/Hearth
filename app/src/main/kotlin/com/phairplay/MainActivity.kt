@@ -288,34 +288,23 @@ class MainActivity : AppCompatActivity() {
      * stream is showing — so the remote can play/pause/skip what the Mac/iPhone is streaming. Returns
      * false for other keys so normal navigation is unaffected.
      */
-    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         val overlayActive = currentNowPlaying != null ||
             currentAirPlayState == ProtocolState.CONNECTED ||
             currentAppleCastingState == ProtocolState.CONNECTED
         if (overlayActive) {
-            if (keyCode == android.view.KeyEvent.KEYCODE_MEDIA_STOP) {
-                service?.stopCurrentPlayback()
-                return true
-            }
-            val command = when (keyCode) {
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY,
-                android.view.KeyEvent.KEYCODE_MEDIA_PAUSE,
-                android.view.KeyEvent.KEYCODE_DPAD_CENTER -> com.phairplay.airplay.DacpClient.CMD_PLAY_PAUSE
-                android.view.KeyEvent.KEYCODE_MEDIA_NEXT,
-                android.view.KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> com.phairplay.airplay.DacpClient.CMD_NEXT
-                android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                android.view.KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> com.phairplay.airplay.DacpClient.CMD_PREV
-                android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> com.phairplay.airplay.DacpClient.CMD_FF
-                android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> com.phairplay.airplay.DacpClient.CMD_REW
-                else -> null
-            }
-            if (command != null) {
-                service?.sendAirPlayRemoteCommand(command)
+            val command = com.phairplay.airplay.AirPlayRemoteKeys.command(event.keyCode)
+            if (command != null || event.keyCode == android.view.KeyEvent.KEYCODE_MEDIA_STOP) {
+                // Intercept before a hidden, focused Home/Settings button can consume OK.
+                // One command per physical press, including remotes that repeat key-down.
+                if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    if (event.keyCode == android.view.KeyEvent.KEYCODE_MEDIA_STOP) service?.stopCurrentPlayback()
+                    else service?.sendAirPlayRemoteCommand(command!!)
+                }
                 return true
             }
         }
-        return super.onKeyDown(keyCode, event)
+        return super.dispatchKeyEvent(event)
     }
 
     /**

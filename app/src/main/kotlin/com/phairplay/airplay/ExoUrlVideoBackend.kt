@@ -347,19 +347,11 @@ internal class ExoUrlVideoBackend(
                 .setUri(uri)
                 .setHttpMethod(DataSpec.HTTP_METHOD_GET)
                 .setPosition(0L)
-                .setLength(HLS_PROBE_BYTES.toLong())
+                .setLength(C.LENGTH_UNSET.toLong())
                 .setHttpRequestHeaders(headers)
                 .build()
-            try {
-                source.open(spec, headers)
-            } catch (error: java.io.IOException) {
-                // Some web CDNs reject bounded ranges, even though a normal GET serves HLS.
-                // Retry only those responses; still read at most HLS_PROBE_BYTES locally and
-                // preserve the redirect/credential policy. Never retry auth failures this way.
-                if (source.getResponseCode() !in setOf(400, 416)) throw error
-                source.close()
-                source.open(spec.buildUpon().setLength(C.LENGTH_UNSET.toLong()).build(), headers)
-            }
+            // Inspect a bounded prefix of a normal GET; classification never requires Range.
+            source.open(spec, headers)
             val mimeType = responseContentType(source.getResponseHeaders())
             val mimeResult = UrlVideoSourceClassifier.classify(mimeType)
             if (mimeResult.isHls) {

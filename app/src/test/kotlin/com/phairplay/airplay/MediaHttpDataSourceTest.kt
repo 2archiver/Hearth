@@ -132,6 +132,47 @@ class MediaHttpDataSourceTest {
         }
     }
 
+    @Test fun compressedPartialResponseRetriesWithoutRangeAndDecodesAtRequestedOffset() {
+        val original = "0123456789".toByteArray()
+        val compressed = java.io.ByteArrayOutputStream().apply {
+            java.util.zip.GZIPOutputStream(this).use { it.write(original) }
+        }.toByteArray()
+        ServerSocket(0, 2, InetAddress.getByName("127.0.0.1")).use { server ->
+            server.soTimeout = 5000
+            val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val worker = thread(isDaemon = true) {
+                repeat(2) { index ->
+                    server.accept().use { socket ->
+                        socket.soTimeout = 5000
+                        val reader = socket.getInputStream().bufferedReader()
+                        val headers = StringBuilder()
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            if (line.isEmpty()) break
+                            headers.append(line).append("\n")
+                        }
+                        requests.add(headers.toString())
+                        val status = if (index == 0) "206 Partial Content" else "200 OK"
+                        socket.getOutputStream().write(("HTTP/1.1 $status\r\nContent-Encoding: gzip\r\n" +
+                            "Content-Length: ${compressed.size}\r\nConnection: close\r\n\r\n").toByteArray() + compressed)
+                    }
+                }
+            }
+            val source = HearthRedirectGuardedHttpDataSource()
+            try {
+                assertEquals(3L, source.open(spec("http://127.0.0.1:${server.localPort}/media", 4L, 3L)))
+                val out = ByteArray(16)
+                assertEquals(3, source.read(out, 0, out.size))
+                assertEquals("456", out.decodeToString(0, 3))
+                assertEquals(C.RESULT_END_OF_INPUT, source.read(out, 0, out.size))
+                worker.join(6000)
+                assertEquals(2, requests.size)
+                assertTrue(requests[0].contains("Range: bytes=4-6", true))
+                assertFalse(requests[1].contains("Range:", true))
+            } finally { source.close() }
+        }
+    }
+
     private fun bridgeSource() = HearthUrlVideoDataSource(object : UrlVideoSessionSource {
         override val sessionId = "fixture"
         override fun open(uri: String) = "abc".toByteArray()

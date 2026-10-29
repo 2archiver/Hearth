@@ -85,6 +85,7 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
             keys.removeAll { it.equals("Accept-Encoding", ignoreCase = true) }
         }
 
+        var retryWithoutRange = false
         try {
             for (redirectCount in 0..MAX_REDIRECTS) {
                 val nextConnection = url.openConnection() as? HttpURLConnection
@@ -98,7 +99,8 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                     nextConnection.setRequestProperty(name, value)
                 }
                 nextConnection.setRequestProperty("Accept-Encoding", "identity")
-                rangeHeader(dataSpec.position, dataSpec.length)?.let { range ->
+                val range = if (retryWithoutRange) null else rangeHeader(dataSpec.position, dataSpec.length)
+                range?.let { range ->
                     nextConnection.setRequestProperty("Range", range)
                 }
 
@@ -146,6 +148,14 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                     startTransfer(dataSpec)
                     return 0L
                 }
+                // Some Safari media CDNs reject byte ranges on playlists/progressive startup.
+                // Retry one normal GET at offset zero; the local read limit remains unchanged.
+                if (!retryWithoutRange && range != null && dataSpec.position == 0L && code in setOf(400, 416)) {
+                    nextConnection.disconnect()
+                    connection = null
+                    retryWithoutRange = true
+                    continue
+                }
                 if (code !in 200..299) {
                     throw IOException("direct media request failed (HTTP $code)")
                 }
@@ -164,7 +174,16 @@ internal class HearthRedirectGuardedHttpDataSource : DataSource {
                 // the transport representation before sniffing/parsing it; compressed length is
                 // not the number of bytes Media3 will read. Partial gzip bodies are not seekable.
                 if (gzip && code == HttpURLConnection.HTTP_PARTIAL) {
-                    throw IOException("compressed partial media responses are unsupported")
+                    // 2.6 failed immediately here. A compressed range cannot be decoded at an
+                    // arbitrary offset: fetch the complete representation once, then skip in
+                    // decoded bytes just as for a server that ignores Range and answers 200.
+                    if (!retryWithoutRange && range != null) {
+                        nextConnection.disconnect()
+                        connection = null
+                        retryWithoutRange = true
+                        continue
+                    }
+                    throw IOException("compressed partial media response persists without a Range request")
                 }
                 val rawStream = nextConnection.inputStream
                 inputStream = rawStream

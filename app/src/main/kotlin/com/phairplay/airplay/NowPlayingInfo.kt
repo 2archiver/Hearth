@@ -79,7 +79,7 @@ object DmapParser {
             val len = readBE32(buf, i + 4)
             val payloadStart = i + 8
             // Malformed/overrun length → stop scanning this level rather than reading out of bounds.
-            if (len < 0 || payloadStart + len > end) break
+            if (len < 0 || len > end - payloadStart) break
             when (tag) {
                 TRACK_TAG  -> if (acc.title == null)  acc.title  = utf8(buf, payloadStart, len)
                 ARTIST_TAG -> if (acc.artist == null) acc.artist = utf8(buf, payloadStart, len)

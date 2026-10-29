@@ -80,6 +80,7 @@ open class RtspHandler(
     private val onVolume: (Float) -> Unit = {},
     /** Now-playing track metadata (DMAP) from SET_PARAMETER — any field may be null. */
     private val onNowPlayingMetadata: (title: String?, artist: String?, album: String?) -> Unit = { _, _, _ -> },
+    private val onNowPlayingUpdate: ((NowPlayingUpdate) -> Unit)? = null,
     /** Album artwork (JPEG/PNG bytes) from SET_PARAMETER; empty bytes = artwork cleared. */
     private val onArtwork: (ByteArray) -> Unit = {},
     /** Legacy AirPlay video URL path: `Start-Position` is a fraction of media duration (0..1). */
@@ -705,7 +706,9 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
 
     private fun dispatchRequest(request: RtspRequest): RtspResponse {
         // DACP values are used by the remote-control client, but are never written to diagnostics.
-        request.header("Active-Remote")?.let { onRemoteControlInfo(request.header("DACP-ID"), it) }
+        if (request.header("DACP-ID") != null || request.header("Active-Remote") != null) {
+            onRemoteControlInfo(request.header("DACP-ID"), request.header("Active-Remote"))
+        }
         val endpoint = normalizedEndpoint(request.uri)
         // Safari may poll and control playback on another HTTP connection. Only an exact
         // sender session id may join it; an address or an unmatched probe never claims playback.
@@ -777,6 +780,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         "/audiomode"   -> handleAudioMode(request)
         "/reverse"     -> handleReverse(request)
         "/action"      -> handleAction(request)
+        "/command"     -> handleNowPlayingCommand(request)
         "/getproperty" -> handlePropertyXmlOk(request, "POST /getProperty")
         // AirPlay video URL mode (non-mirroring): play a URL + drive transport.
         "/play"        -> handleVideoPlay(request)
@@ -913,6 +917,24 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             contentType = "text/x-apple-plist+xml",
             protocol = request.responseProtocol()
         )
+    }
+
+    private fun handleNowPlayingCommand(request: RtspRequest): RtspResponse {
+        val update = try { NowPlayingUpdate.decode(request.bodyBytes) }
+        catch (_: Exception) {
+            Logger.w("AirPlay now-playing command rejected: invalid or oversized plist")
+            return RtspResponse(400, "Bad Request", protocol = request.responseProtocol())
+        }
+        if (update != null) {
+            val callback = onNowPlayingUpdate
+            if (callback != null) callback(update) else {
+                val info = update.applyTo(NowPlayingInfo(""))
+                onNowPlayingMetadata(info.title, info.artist, info.album)
+                info.artwork?.let(onArtwork)
+            }
+            Logger.i("AirPlay now-playing command received")
+        }
+        return RtspResponse(200, "OK", protocol = request.responseProtocol())
     }
 
     /** POST /audioMode or AUDIOMODE — logs the requested audioMode (if plist) and returns 200 OK. */
@@ -1960,7 +1982,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             setOf(AirPlaySessionMode.URL_VIDEO, AirPlaySessionMode.SENDER_MEDIATED_HLS)
 
         private val KNOWN_ENDPOINTS = setOf(
-            "/", "/1", "/action", "/audiomode", "/feedback", "/fp-setup", "/fp-setup2",
+            "/", "/1", "/command", "/action", "/audiomode", "/feedback", "/fp-setup", "/fp-setup2",
             "/getproperty", "/info", "/pair-pin-start", "/pair-setup", "/pair-setup-pin",
             "/pair-verify", "/photo", "/play", "/playback-info", "/rate", "/reverse",
             "/scrub", "/server-info", "/setproperty", "/stop",

@@ -108,6 +108,8 @@ internal class RtspRequestReader(
         val bodyLimit = when {
             isPhoto -> maxPhotoBytes
             isAction -> FcupCodec.MAX_ACTION_BODY_BYTES
+            method.equals("POST", true) && path.equals("/command", true) -> NowPlayingUpdate.MAX_BODY_BYTES
+            method.equals("SET_PARAMETER", true) -> NowPlayingUpdate.MAX_BODY_BYTES
             else -> maxMessageBytes
         }
         if (contentLength > bodyLimit) {
@@ -134,7 +136,8 @@ internal class RtspRequestReader(
     private fun isBinaryBody(method: String, uri: String): Boolean {
         val path = endpointPath(uri)
         return (method.equals("PUT", ignoreCase = true) && path == PhotoHandler.PHOTO_PATH) ||
-            (method.equals("POST", ignoreCase = true) && path.equals(FcupCodec.ACTION_PATH, ignoreCase = true))
+            (method.equals("POST", ignoreCase = true) &&
+                (path.equals(FcupCodec.ACTION_PATH, ignoreCase = true) || path.equals("/command", true)))
     }
 
     private fun endpointPath(uri: String): String = runCatching {

@@ -278,7 +278,7 @@
     <string name="settings_reset_title">Reset your preferences?</string>
     <string name="settings_reset_message">This restores the receiver name, playback and update preferences, then restarts Hearth’s receiver.</string>
     <string name="now_playing_eyebrow">NOW PLAYING · AIRPLAY</string>
-    <string name="now_playing_remote_hint">Press OK to play or pause · Use media keys to skip</string>
+    <string name="now_playing_remote_hint">OK: play/pause · Left/right: previous/next track</string>
     <string name="setting_state_on">On</string>
     <string name="setting_state_off">Off</string>
     <!-- 1.8.2: visible install states and the "Install unknown apps" flow -->
