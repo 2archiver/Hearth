@@ -50,6 +50,11 @@ class MirrorStreamServer(
     // against the new identity and encoded input waits for a configured IDR before resuming.
     @Volatile private var configuredSurface: Surface? = null
     private var receivedFrames = 0L
+    private var receivedConfigs = 0L
+    private var receivedKeyframes = 0L
+    private var lastGeometry: MirrorGeometry? = null
+    private var lastSummaryNanos = System.nanoTime()
+    private var pendingWaitReported = false
 
     /** OS-assigned TCP port macOS connects to (returned in the SETUP response). */
     val dataPort: Int get() = serverSocket.localPort
@@ -76,6 +81,7 @@ class MirrorStreamServer(
         running = false
         runCatching { client?.close() }
         runCatching { serverSocket.close() }
+        recordRotationSummary("stopped")
         requireRecoveryPoint()
         publishQueueStats()
         Logger.i("MirrorStreamServer stopped")
@@ -193,6 +199,14 @@ class MirrorStreamServer(
         }
 
         val keyframe = isKeyframe(annexB)
+        if (keyframe) receivedKeyframes++
+        val waiting = pendingConfig
+        if (waiting != null && !pendingWaitReported &&
+            arrivalNanos - waiting.receivedAtNanos >= 2_000_000_000L
+        ) {
+            pendingWaitReported = true
+            AirPlayTrace.record("Mirroring: configuration still waiting for a keyframe after 2s")
+        }
         val frameConfig = if (keyframe) configForKeyframe(arrivalNanos) else null
         val prefix = frameConfig?.let { config ->
             val startCode = MirrorCrypto.START_CODE
@@ -215,6 +229,10 @@ class MirrorStreamServer(
         }
         publishQueueStats(arrivalNanos)
         receivedFrames++
+        if (arrivalNanos - lastSummaryNanos >= 30_000_000_000L) {
+            lastSummaryNanos = arrivalNanos
+            recordRotationSummary("30s")
+        }
         if (receivedFrames % LOG_EVERY_FRAMES == 0L) {
             Logger.i(
                 "Mirror stats: rx=$receivedFrames encodedDrop=${after.droppedFrames} " +
@@ -227,16 +245,34 @@ class MirrorStreamServer(
     private fun parseConfig(payload: ByteArray): MirrorCodecConfig? = Companion.parseConfig(payload)
 
     private fun handleCodecConfig(header: ByteArray, payload: ByteArray) {
+        receivedConfigs++
+        val geometry = MirrorGeometry.parse(header)
+        if (geometry != lastGeometry || receivedConfigs == 1L) {
+            lastGeometry = geometry
+            AirPlayTrace.record("Mirroring: sender geometry ${geometry?.label ?: "unavailable"}")
+        }
         val stateByte = header[6].toInt() and 0xFF
         if (stateByte == 0x56 || stateByte == 0x5E) {
             Logger.i("Mirror: sender screen suspended (header[6]=0x${stateByte.toString(16)})")
         } else if (stateByte == 0x16 || stateByte == 0x1E) {
             Logger.d("Mirror: sender video active/resumed (header[6]=0x${stateByte.toString(16)})")
         }
-        if (payload.isEmpty()) return
-        parseConfig(payload)?.let { config ->
+        if (payload.isEmpty()) {
+            AirPlayTrace.record("Mirroring: empty codec configuration; retaining current decoder")
+            return
+        }
+        val config = parseConfig(payload)
+        if (config == null) {
+            AirPlayTrace.record("Mirroring: rejected codec configuration (${payload.size}B)")
+            return
+        }
+        config.let { config ->
             val previous = pendingConfig?.config ?: activeCodecConfig
-            pendingConfig = PendingMirrorConfig(config, System.nanoTime())
+            // Repeated identical configs must not restart the keyframe-wait diagnostic timer.
+            if (!config.sameAs(pendingConfig?.config)) {
+                pendingConfig = PendingMirrorConfig(config, System.nanoTime())
+                pendingWaitReported = false
+            }
             if (!config.sameAs(previous)) {
                 val size = VideoDecoder.parseSpsResolution(config.sps)
                 val label = size?.let { "${it.first}x${it.second}" } ?: "size unavailable"
@@ -257,10 +293,21 @@ class MirrorStreamServer(
             pendingConfig = null
             if (changed) {
                 val waitMillis = (arrivalNanos - pending.receivedAtNanos).coerceAtLeast(0L) / 1_000_000L
-                Logger.i("Mirror: applying codec configuration at keyframe after ${waitMillis}ms")
+                AirPlayTrace.record("Mirroring: applying codec configuration at keyframe after ${waitMillis}ms")
             }
         }
         return activeCodecConfig
+    }
+
+    private fun recordRotationSummary(reason: String) {
+        val size = activeCodecConfig?.let { VideoDecoder.parseSpsResolution(it.sps) }
+        AirPlayTrace.record(
+            "Mirroring orientation summary ($reason): frames=$receivedFrames keyframes=$receivedKeyframes " +
+                "configs=$receivedConfigs source=${lastGeometry?.label ?: "unavailable"} " +
+                "SPS=${size?.let { "${it.first}x${it.second}" } ?: "unavailable"} " +
+                "decoded=${StreamStats.videoWidth}x${StreamStats.videoHeight} " +
+                "pendingKeyframe=${pendingConfig != null}",
+        )
     }
 
     private fun requireRecoveryPoint() {

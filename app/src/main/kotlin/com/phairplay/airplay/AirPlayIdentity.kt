@@ -66,10 +66,12 @@ object AirPlayIdentity {
      */
     // Clear VideoFairPlay (2) and FPSAPv2.5 AES-GCM (12): encrypted HTTP control is not implemented.
     // Keep direct video/HLS and the existing legacy pairing/audio paths.
-    const val FEATURES = 0x5A7FEEF3L
+    // ScreenRotate (8) must agree with GET /info displays.rotation=true, otherwise a sender
+    // can keep the original portrait stream instead of negotiating landscape configurations.
+    const val FEATURES = 0x5A7FEFF3L
 
     /** Same value as the TXT record, in the `0x…` form senders parse out of mDNS. */
-    const val FEATURES_TXT = "0x5A7FEEF3"
+    const val FEATURES_TXT = "0x5A7FEFF3"
 
     /**
      * `statusFlags` — 0x44 = AudioLink (0x04) + SupportsAirPlayFromCloud (0x40).

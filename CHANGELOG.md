@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4] — advertise screen rotation and trace orientation handover
+
+- Enable ScreenRotate in the shared AirPlay feature mask. Previously the display said `rotation=true` while mDNS and `/info` disabled the rotation capability, allowing senders to keep the initial portrait stream.
+- Keep the existing keyframe-safe decoder handover and aspect-fit surface sizing; add regression coverage for rotation capability consistency and portrait → landscape → portrait TV layout.
+- Export sender header geometry, configuration receipt/rejection, keyframe application and decoder output/TV layout sizes. Include one orientation summary every 30 seconds and on stop, and a one-time pending-keyframe notice after two seconds of incoming video.
+- Reported reproduction: Telegram screen mirroring from iPhone 14 / iOS 27.2 on Hearth 3.3 remained portrait. No later codec-size change appears in that trace. The capability fix needs confirmation with the same phone and TV; automated checks do not establish real-device rotation success.
+
 ## [3.3] — mirroring orientation follow-up
 
 - Correct SPS size parsing for the Annex-B start codes actually passed to the hardware decoder, and remove H.264 emulation-prevention bytes before reading dimensions.
