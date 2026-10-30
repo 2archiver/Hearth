@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2] — mirroring rotation and quieter diagnostics
+
+- Apply updated mirroring SPS/PPS at the next keyframe even when the configuration and frame timestamps differ, allowing the decoder and aspect-fit display to follow portrait/landscape changes.
+- Summarize routine successful video reads every 30 seconds instead of logging every playlist and segment twice. Preserve errors and playback transitions.
+- Record read failures immediately and avoid reporting failed transfers as successful during cleanup.
+- Preserve the stale-configuration timeout and keyframe boundary during decoder changes.
+- iPhone-to-TV rotation still needs device validation; this corrects a configuration handover restriction, not phone orientation lock.
+
 ## [3.1] — audio-only playback and quieter handover
 
 - Show the wine Now Playing screen for audio-only URL casts, including while paused.

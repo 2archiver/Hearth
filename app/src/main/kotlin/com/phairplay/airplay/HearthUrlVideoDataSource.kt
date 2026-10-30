@@ -24,6 +24,7 @@ internal class HearthUrlVideoDataSource(
     private val traceContext: () -> UrlVideoTraceContext?,
     private val requestSequence: AtomicLong,
     private val requestHeaders: (Uri) -> Map<String, String> = { emptyMap() },
+    private val successLog: MediaSuccessLog = MediaSuccessLog(),
 ) : DataSource {
 
     private val delegate = HearthRedirectGuardedHttpDataSource()
@@ -38,6 +39,7 @@ internal class HearthUrlVideoDataSource(
     private var activeResponseCode: Int? = null
     private var activeContentType = "unknown"
     private var bytesRead = 0L
+    private var requestFailed = false
 
     override fun addTransferListener(transferListener: TransferListener) {
         delegate.addTransferListener(transferListener)
@@ -54,6 +56,7 @@ internal class HearthUrlVideoDataSource(
         activeResponseCode = null
         activeContentType = "unknown"
         bytesRead = 0L
+        requestFailed = false
 
         if (isBridgeUri(dataSpec.uri)) {
             activeRoute = "sender-reverse"
@@ -71,11 +74,6 @@ internal class HearthUrlVideoDataSource(
                 readPosition = from
                 readEnd = from + requested.toInt()
                 body = bytes
-                trace(
-                    "Media request id=$activeRequestId route=$activeRoute resource=$activeResourceType " +
-                        "bodyBytes=${bytes.size} duration=${elapsedMillis()}ms",
-                    AirPlayTrace.Kind.INFO,
-                )
                 return (readEnd - from).toLong()
             } catch (error: Exception) {
                 trace(
@@ -110,16 +108,6 @@ internal class HearthUrlVideoDataSource(
             val length = delegate.open(dataSpec, requestHeaders(dataSpec.uri))
             activeResponseCode = delegate.getResponseCode()
             activeContentType = contentType(delegate.getResponseHeaders())
-            trace(
-                "Media request id=$activeRequestId route=$activeRoute resource=$activeResourceType " +
-                    "status=${activeResponseCode ?: "unknown"} type=$activeContentType " +
-                    "declaredBytes=$length duration=${elapsedMillis()}ms",
-                if (activeResponseCode != null && activeResponseCode!! >= 400) {
-                    AirPlayTrace.Kind.FAILURE
-                } else {
-                    AirPlayTrace.Kind.REQUEST
-                },
-            )
             length
         } catch (error: Exception) {
             val status = delegate.getResponseCode().takeIf { it in 100..599 }
@@ -146,7 +134,12 @@ internal class HearthUrlVideoDataSource(
                 count
             }
         } else {
-            delegate.read(buffer, offset, length)
+            try {
+                delegate.read(buffer, offset, length)
+            } catch (error: IOException) {
+                trace("Media request id=$activeRequestId route=$activeRoute read failed (${error.javaClass.simpleName})", AirPlayTrace.Kind.FAILURE)
+                throw error
+            }
         }
         if (result > 0) bytesRead += result
         return result
@@ -165,13 +158,9 @@ internal class HearthUrlVideoDataSource(
 
     override fun close() {
         val requestId = activeRequestId
-        if (requestId != 0L) {
-            trace(
-                "Media request id=$requestId route=$activeRoute resource=$activeResourceType " +
-                    "status=${activeResponseCode ?: "body"} type=$activeContentType " +
-                    "readBytes=$bytesRead duration=${elapsedMillis()}ms",
-                AirPlayTrace.Kind.INFO,
-            )
+        if (requestId != 0L && !requestFailed && bytesRead > 0L) {
+            successLog.completed(activeRoute, activeResourceType, bytesRead, elapsedMillis(), System.nanoTime() / 1_000_000L)
+                ?.let { trace(it, AirPlayTrace.Kind.INFO) }
         }
         body = null
         uri = null
@@ -203,6 +192,7 @@ internal class HearthUrlVideoDataSource(
         value.scheme?.equals(SenderMediatedHlsBridge.SCHEME, ignoreCase = true) == true
 
     private fun trace(message: String, kind: AirPlayTrace.Kind) {
+        if (kind == AirPlayTrace.Kind.FAILURE) requestFailed = true
         val context = traceContext()
         AirPlayTrace.record(
             message = message,
@@ -226,6 +216,7 @@ internal class HearthUrlVideoDataSourceFactory(
     private val requestSequence: AtomicLong,
     private val requestHeaders: (Uri) -> Map<String, String> = { emptyMap() },
 ) : DataSource.Factory {
+    private val successLog = MediaSuccessLog()
     override fun createDataSource(): DataSource =
-        HearthUrlVideoDataSource(sessionSource, traceContext, requestSequence, requestHeaders)
+        HearthUrlVideoDataSource(sessionSource, traceContext, requestSequence, requestHeaders, successLog)
 }

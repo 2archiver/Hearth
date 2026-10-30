@@ -34,14 +34,6 @@ class MirrorStreamServer(
     private val width: Int = 1920,
     private val height: Int = 1080,
 ) {
-    private data class PendingConfig(
-        val config: MirrorCodecConfig,
-        val rawTimestamp: Long,
-        val receivedAtNanos: Long,
-    ) {
-        fun matches(frameTimestamp: Long): Boolean = rawTimestamp == frameTimestamp
-    }
-
     @Volatile private var cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
     private val serverSocket = ServerSocket(0) // OS-assigned free port
     private val timestampMapper = MirrorTimestampMapper()
@@ -50,7 +42,7 @@ class MirrorStreamServer(
     @Volatile private var running = false
     @Volatile private var client: Socket? = null
     @Volatile private var decoder: VideoDecoder? = null // owned by the decoder thread
-    @Volatile private var pendingConfig: PendingConfig? = null
+    @Volatile private var pendingConfig: PendingMirrorConfig? = null
     @Volatile private var activeCodecConfig: MirrorCodecConfig? = null // reader-thread snapshot
     private var lastDecoderConfig: MirrorCodecConfig? = null
 
@@ -152,7 +144,7 @@ class MirrorStreamServer(
                 }
                 when (payloadType) {
                     0 -> handleVideoPayload(payload, rawTimestamp, payloadSize)
-                    1 -> handleCodecConfig(header, payload, rawTimestamp)
+                    1 -> handleCodecConfig(header, payload)
                     2 -> Logger.v("Mirror: received type 2 heartbeat")
                     5 -> {
                         // Streaming report packets do not carry a presentation timestamp.
@@ -199,7 +191,7 @@ class MirrorStreamServer(
         }
 
         val keyframe = isKeyframe(annexB)
-        val frameConfig = if (keyframe) configForKeyframe(rawTimestamp, arrivalNanos) else null
+        val frameConfig = if (keyframe) configForKeyframe(arrivalNanos) else null
         val prefix = frameConfig?.let { config ->
             val startCode = MirrorCrypto.START_CODE
             startCode + config.sps + startCode + config.pps
@@ -232,7 +224,7 @@ class MirrorStreamServer(
 
     private fun parseConfig(payload: ByteArray): MirrorCodecConfig? = Companion.parseConfig(payload)
 
-    private fun handleCodecConfig(header: ByteArray, payload: ByteArray, rawTimestamp: Long) {
+    private fun handleCodecConfig(header: ByteArray, payload: ByteArray) {
         val stateByte = header[6].toInt() and 0xFF
         if (stateByte == 0x56 || stateByte == 0x5E) {
             Logger.i("Mirror: sender screen suspended (header[6]=0x${stateByte.toString(16)})")
@@ -241,18 +233,17 @@ class MirrorStreamServer(
         }
         if (payload.isEmpty()) return
         parseConfig(payload)?.let { config ->
-            pendingConfig = PendingConfig(config, rawTimestamp, System.nanoTime())
+            pendingConfig = PendingMirrorConfig(config, System.nanoTime())
         }
     }
 
-    /** Uses pending SPS/PPS only with its matching IDR; otherwise retain the known active config. */
-    private fun configForKeyframe(rawTimestamp: Long, arrivalNanos: Long): MirrorCodecConfig? {
+    /** Apply the latest ordered codec configuration at the next IDR, including after rotation. */
+    private fun configForKeyframe(arrivalNanos: Long): MirrorCodecConfig? {
         val pending = pendingConfig
         if (pending != null) {
-            val age = (arrivalNanos - pending.receivedAtNanos).coerceAtLeast(0L)
-            if (age > MAX_PENDING_CONFIG_AGE_NANOS) {
+            if (!pending.isFresh(arrivalNanos)) {
                 pendingConfig = null
-            } else if (pending.matches(rawTimestamp)) {
+            } else {
                 activeCodecConfig = pending.config
                 pendingConfig = null
             }
@@ -480,7 +471,6 @@ class MirrorStreamServer(
 
     companion object {
         private const val MAX_PAYLOAD = 8 * 1024 * 1024 // 8 MB per-packet sanity cap
-        private const val MAX_PENDING_CONFIG_AGE_NANOS = 1_000_000_000L
         private const val LOG_EVERY_FRAMES = 300L
         private const val QUEUE_WAIT_MILLIS = 10L
         private const val SURFACE_WAIT_TRIES = 50
