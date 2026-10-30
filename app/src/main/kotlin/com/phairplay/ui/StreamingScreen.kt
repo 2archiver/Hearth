@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
 import com.phairplay.R
+import com.phairplay.airplay.AirPlayTrace
 import com.phairplay.airplay.StreamStats
 import com.phairplay.util.Logger
 import kotlin.math.max
@@ -162,6 +163,12 @@ class StreamingScreen @JvmOverloads constructor(
         if (targetW == lastSurfaceW && targetH == lastSurfaceH) return
         lastSurfaceW = targetW
         lastSurfaceH = targetH
+        if (vw > 0 && vh > 0 && cw > 0 && ch > 0) {
+            AirPlayTrace.record(
+                "Mirroring: TV layout video=${vw}x$vh surface=${targetW}x$targetH container=${cw}x$ch",
+                subsystem = "display",
+            )
+        }
         surfaceView.layoutParams = (surfaceView.layoutParams as LayoutParams).apply {
             width = targetW; height = targetH; gravity = Gravity.CENTER
         }

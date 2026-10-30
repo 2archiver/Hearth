@@ -319,9 +319,7 @@ class VideoDecoder(
             h = format.getInteger("crop-bottom") - format.getInteger("crop-top") + 1
         }
         if (isPlausibleSize(w, h)) {
-            if (w != StreamStats.videoWidth || h != StreamStats.videoHeight) {
-                AirPlayTrace.record("Mirroring: decoded output size ${w}x$h", subsystem = "decoder")
-            }
+            AirPlayTrace.record("Mirroring: decoded output size ${w}x$h", subsystem = "decoder")
             StreamStats.videoWidth = w
             StreamStats.videoHeight = h
             Logger.i("Video output size ${w}x$h")

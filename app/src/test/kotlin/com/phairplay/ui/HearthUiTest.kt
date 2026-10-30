@@ -255,6 +255,38 @@ class HearthUiTest {
         }
     }
 
+    @Test fun mirrorSurfaceFollowsPortraitLandscapeAndBack() {
+        val activity = host()
+        val screen = StreamingScreen(activity)
+        activity.setContentView(screen)
+        try {
+            screen.measure(
+                View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+            )
+            screen.layout(0, 0, 1920, 1080)
+            val apply = StreamingScreen::class.java.getDeclaredMethod("applyAspectFit").apply { isAccessible = true }
+            for ((w, h) in listOf(888 to 1920, 1920 to 888, 888 to 1920)) {
+                StreamStats.videoWidth = w
+                StreamStats.videoHeight = h
+                apply.invoke(screen)
+                val params = screen.getChildAt(0).layoutParams as FrameLayout.LayoutParams
+                val ratio = w.toFloat() / h
+                if (w < h) {
+                    assertEquals(1080, params.height)
+                    assertEquals((1080 * ratio).toInt(), params.width)
+                } else {
+                    assertEquals(1920, params.width)
+                    assertEquals((1920 / ratio).toInt(), params.height)
+                }
+            }
+        } finally {
+            StreamStats.videoWidth = 0
+            StreamStats.videoHeight = 0
+            activity.finish()
+        }
+    }
+
     /**
      * The debug HUD, measured on a 1080p television layout.
      *
