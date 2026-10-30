@@ -187,6 +187,24 @@ class VideoDecoderSpsTest {
         assertEquals(Pair(1280, 1440), VideoDecoder.parseSpsResolution(sps))
     }
 
+    @Test
+    fun `rotation SPS dimensions survive the exact Annex B decoder input`() {
+        for ((w, h) in listOf(720 to 1280, 1280 to 720)) {
+            val raw = buildBaselineSps(66, 31, w / 16 - 1, h / 16 - 1)
+            for (prefix in listOf(byteArrayOf(), byteArrayOf(0, 0, 1), byteArrayOf(0, 0, 0, 1))) {
+                assertEquals(w to h, VideoDecoder.parseSpsResolution(prefix + raw))
+            }
+        }
+    }
+
+    @Test
+    fun `SPS emulation prevention bytes are removed before bit parsing`() {
+        val rbsp = byteArrayOf(0x67, 0, 0, 1, 0, 0, 2, 0, 0, 3)
+        val escaped = byteArrayOf(0x67, 0, 0, 3, 1, 0, 0, 3, 2, 0, 0, 3, 3)
+        org.junit.Assert.assertArrayEquals(rbsp, spsRbsp(escaped))
+        assertNull(spsRbsp(byteArrayOf(0x68, 1, 2, 3)))
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /**

@@ -59,6 +59,7 @@ class MirrorStreamServer(
         streamConnectionId = newStreamConnectionId
         cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, newStreamConnectionId)
         pendingConfig = null
+        activeCodecConfig = null
         requireRecoveryPoint()
         publishQueueStats()
     }
@@ -96,6 +97,7 @@ class MirrorStreamServer(
                 // Reconnects begin a new cipher run and a new decode dependency chain.
                 requireRecoveryPoint()
                 pendingConfig = null
+                activeCodecConfig = null
                 publishQueueStats()
                 readConnection(socket)
                 runCatching { socket.close() }
@@ -233,7 +235,13 @@ class MirrorStreamServer(
         }
         if (payload.isEmpty()) return
         parseConfig(payload)?.let { config ->
+            val previous = pendingConfig?.config ?: activeCodecConfig
             pendingConfig = PendingMirrorConfig(config, System.nanoTime())
+            if (!config.sameAs(previous)) {
+                val size = VideoDecoder.parseSpsResolution(config.sps)
+                val label = size?.let { "${it.first}x${it.second}" } ?: "size unavailable"
+                AirPlayTrace.record("Mirroring: codec configuration received ($label); waiting for keyframe")
+            }
         }
     }
 
@@ -241,11 +249,15 @@ class MirrorStreamServer(
     private fun configForKeyframe(arrivalNanos: Long): MirrorCodecConfig? {
         val pending = pendingConfig
         if (pending != null) {
-            if (!pending.isFresh(arrivalNanos)) {
-                pendingConfig = null
-            } else {
-                activeCodecConfig = pending.config
-                pendingConfig = null
+            // TCP orders configurations before their frames. An idle screen can take longer
+            // than one second to send its next IDR; retain the latest config until that boundary.
+            // Reconnect/rekey explicitly discard pending configuration.
+            val changed = !pending.config.sameAs(activeCodecConfig)
+            activeCodecConfig = pending.config
+            pendingConfig = null
+            if (changed) {
+                val waitMillis = (arrivalNanos - pending.receivedAtNanos).coerceAtLeast(0L) / 1_000_000L
+                Logger.i("Mirror: applying codec configuration at keyframe after ${waitMillis}ms")
             }
         }
         return activeCodecConfig
@@ -339,9 +351,13 @@ class MirrorStreamServer(
         StreamStats.configureMirrorPacing(false, width, height)
         StreamStats.videoDecoderReady = true
         Logger.i("Mirror decoder rebuilt for surface (SPS=${config.sps.size}B PPS=${config.pps.size}B)")
-        // Decoder fallback is a degradation a user can see (a brief freeze); it is not a crash.
+        // Initial setup and planned orientation changes are normal lifecycle events.
+        AirPlayTrace.record(
+            "Mirroring: decoder configured (${StreamStats.videoWidth}x${StreamStats.videoHeight})",
+            subsystem = "decoder",
+        )
         ActivityLog.record(
-            Severity.WARNING, "decoder",
+            Severity.INFO, "decoder",
             "Mirror decoder rebuilt",
             details = "SPS=${config.sps.size}B PPS=${config.pps.size}B " +
                 "surface=${if (surface == null) "none" else "attached"}",

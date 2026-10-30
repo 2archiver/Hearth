@@ -319,6 +319,9 @@ class VideoDecoder(
             h = format.getInteger("crop-bottom") - format.getInteger("crop-top") + 1
         }
         if (isPlausibleSize(w, h)) {
+            if (w != StreamStats.videoWidth || h != StreamStats.videoHeight) {
+                AirPlayTrace.record("Mirroring: decoded output size ${w}x$h", subsystem = "decoder")
+            }
             StreamStats.videoWidth = w
             StreamStats.videoHeight = h
             Logger.i("Video output size ${w}x$h")
@@ -386,8 +389,8 @@ class VideoDecoder(
          */
         internal fun parseSpsResolution(sps: ByteArray): Pair<Int, Int>? {
             try {
-                if (sps.size < 4) return null
-                val reader = SpsBitReader(sps, startOffset = 1)  // skip NAL type byte (0x67)
+                val rbsp = spsRbsp(sps) ?: return null
+                val reader = SpsBitReader(rbsp, startOffset = 1)  // skip NAL type byte (0x67)
 
                 val profileIdc = reader.readBits(8)
                 reader.readBits(8)   // constraint flags + 2 reserved zeros

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3] — mirroring orientation follow-up
+
+- Correct SPS size parsing for the Annex-B start codes actually passed to the hardware decoder, and remove H.264 emulation-prevention bytes before reading dimensions.
+- Keep the latest ordered rotation configuration until the next keyframe, including after an idle screen; reconnect and rekey discard pending configuration.
+- Log received codec dimensions and applied decoder dimensions at configuration changes. Normal decoder setup is informational rather than a warning.
+- Add regression coverage for portrait/landscape decoder input, delayed keyframes, stream rekey and escaped SPS bytes.
+- Real iPhone-to-TV rotation remains pending device validation; this release addresses defects found after the 3.2 test report.
+
 ## [3.2] — mirroring rotation and quieter diagnostics
 
 - Apply updated mirroring SPS/PPS at the next keyframe even when the configuration and frame timestamps differ, allowing the decoder and aspect-fit display to follow portrait/landscape changes.

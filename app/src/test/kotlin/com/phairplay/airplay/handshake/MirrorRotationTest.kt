@@ -23,12 +23,23 @@ class MirrorRotationTest {
     }
 
     @Test
-    fun `stale rotation config cannot replace current decoder config`() = withServer { server ->
+    fun `rotation config survives an idle screen until the next IDR`() = withServer { server ->
+        val active = MirrorCodecConfig(byteArrayOf(1), byteArrayOf(2))
+        field(server, "activeCodecConfig", active)
+        val rotated = MirrorCodecConfig(byteArrayOf(3), byteArrayOf(4))
+        field(server, "pendingConfig", PendingMirrorConfig(rotated, 0L))
+        assertSame(rotated, select(server, 5_000_000_001L))
+        assertNull(read(server, "pendingConfig"))
+    }
+
+    @Test
+    fun `rekey discards configuration from the old stream`() = withServer { server ->
         val active = MirrorCodecConfig(byteArrayOf(1), byteArrayOf(2))
         field(server, "activeCodecConfig", active)
         field(server, "pendingConfig", PendingMirrorConfig(MirrorCodecConfig(byteArrayOf(3), byteArrayOf(4)), 0L))
-        assertSame(active, select(server, 1_000_000_001L))
+        server.rekey(2L)
         assertNull(read(server, "pendingConfig"))
+        assertNull(select(server, 10_000_000_000L))
     }
 
     private fun withServer(block: (MirrorStreamServer) -> Unit) {

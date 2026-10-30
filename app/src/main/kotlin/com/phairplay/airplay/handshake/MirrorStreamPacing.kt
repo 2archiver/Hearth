@@ -14,10 +14,7 @@ internal class MirrorCodecConfig(val sps: ByteArray, val pps: ByteArray) {
 /** Configuration packets precede their IDR on the ordered TCP stream; their timestamps need
  * not match the frame timestamp during an orientation change. Only adopt at a recovery frame.
  */
-internal class PendingMirrorConfig(val config: MirrorCodecConfig, val receivedAtNanos: Long) {
-    fun isFresh(arrivalNanos: Long): Boolean =
-        (arrivalNanos - receivedAtNanos).coerceAtLeast(0L) <= 1_000_000_000L
-}
+internal class PendingMirrorConfig(val config: MirrorCodecConfig, val receivedAtNanos: Long)
 
 internal enum class MirrorTimestampSource { SENDER, ARRIVAL }
 
