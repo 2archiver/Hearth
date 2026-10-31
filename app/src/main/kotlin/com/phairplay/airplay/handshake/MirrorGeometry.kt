@@ -3,8 +3,8 @@ package com.phairplay.airplay.handshake
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Type-1 mirror header geometry, distinct from SPS/decoded pixels. Diagnostic only:
- * source/display rectangles do not specify a rotation angle and must never rotate pixels by guess.
+/** Type-1 mirror header geometry, distinct from SPS/decoded pixels.
+ * A reciprocal display aspect requests a quarter-turn without changing codec configuration.
  * Offsets follow the observed UxPlay lib/raop_rtp_mirror.c type-1 header layout.
  */
 internal data class MirrorGeometry(
@@ -14,6 +14,18 @@ internal data class MirrorGeometry(
     val displayHeight: Int,
 ) {
     val label: String get() = "${sourceWidth}x$sourceHeight display=${displayWidth}x$displayHeight"
+
+    /** Only infer a quarter-turn when the display ratio closely matches the reciprocal raster.
+     * Header rectangles cannot distinguish left from right; explicit SEI orientation wins.
+     */
+    fun quarterTurnFor(decodedWidth: Int, decodedHeight: Int): Boolean {
+        if (decodedWidth <= 0 || decodedHeight <= 0 ||
+            sourceWidth != decodedWidth || sourceHeight != decodedHeight) return false
+        val raster = decodedWidth.toDouble() / decodedHeight
+        val display = displayWidth.toDouble() / displayHeight
+        return (raster < 1.0) != (display < 1.0) &&
+            kotlin.math.abs(display * raster - 1.0) < 0.03
+    }
 
     companion object {
         fun parse(header: ByteArray): MirrorGeometry? {

@@ -112,6 +112,10 @@ object StreamStats {
     @Volatile var videoWidth = 0
     @Volatile var videoHeight = 0
 
+    /** Ordered display metadata from the mirroring decoder consumer; never changes codec size. */
+    @Volatile internal var mirrorGeometry: com.phairplay.airplay.handshake.MirrorGeometry? = null
+    @Volatile internal var mirrorOrientation: com.phairplay.airplay.handshake.MirrorOrientation? = null
+
     // ─── Audio ──────────────────────────────────────────────────────────────
     @Volatile var audioActive = false  // true while an audio stream is running
     @Volatile var audioQueue = 0       // current playback-queue depth
@@ -193,6 +197,8 @@ object StreamStats {
 
         videoWidth = 0
         videoHeight = 0
+        mirrorGeometry = null
+        mirrorOrientation = null
 
         audioActive = false
         audioQueue = 0

@@ -229,6 +229,7 @@ internal class AirPlayReceiver(
     // The now-playing card shows only when audio plays WITHOUT video. We track both stream kinds
     // plus the latest DMAP metadata/artwork and recompute on every change (see [emitNowPlaying]).
     @Volatile private var audioPlaying = false
+    @Volatile private var audioSessionPaused = false
     @Volatile private var videoPlaying = false
     @Volatile private var urlAudioOnly = false
     @Volatile private var npSenderName = "AirPlay"
@@ -564,6 +565,17 @@ internal class AirPlayReceiver(
                     onSenderNameChanged(senderName)
                 },
                 onAudioFlush = { nextSeq -> audioServer?.flush(nextSeq) },
+                onAudioPauseState = { paused, token ->
+                    synchronized(this@AirPlayReceiver) {
+                        if (sessionOwnership.isCurrent(token)) {
+                            audioSessionPaused = paused
+                            val suspend = paused || videoAudioHandover.isAudioSuspended
+                            audioServer?.suspendOutput(suspend)
+                            audioPlayer?.suspendOutput(suspend)
+                            emitNowPlaying()
+                        }
+                    }
+                },
                 initialVolume = currentVolumeDb,
                 socket = socket,
                 traceConnectionId = connectionId,
@@ -1240,6 +1252,7 @@ internal class AirPlayReceiver(
             it.start(scope)
         }
         audioPlaying = true
+        audioSessionPaused = false
         emitNowPlaying()
         Logger.i("Mirror audio server started: dataPort=${server.dataPort} controlPort=${server.controlPort}")
         return server.dataPort to server.controlPort
@@ -1252,7 +1265,7 @@ internal class AirPlayReceiver(
         audioServer?.stop()
         audioServer = null
         audioPlaying = false
-        clearNowPlayingMetadata()
+        if (!audioSessionPaused) clearNowPlayingMetadata()
         emitNowPlaying()
         Logger.i("Mirror audio stream stopped (video mirroring continues)")
     }
@@ -1485,6 +1498,7 @@ internal class AirPlayReceiver(
         if (!sessionOwnership.isCurrent(token)) return 0
         bufferedAudioServer?.stop()
         val server = BufferedAudioServer().also { bufferedAudioServer = it; it.start(scope) }
+        audioSessionPaused = false
         audioPlaying = true   // buffered audio (type 103) is always audio-only
         emitNowPlaying()
         Logger.i("Buffered audio server started: dataPort=${server.dataPort}")
@@ -1498,7 +1512,7 @@ internal class AirPlayReceiver(
         bufferedAudioServer?.stop()
         bufferedAudioServer = null
         audioPlaying = false
-        clearNowPlayingMetadata()
+        if (!audioSessionPaused) clearNowPlayingMetadata()
         emitNowPlaying()
         Logger.i("Buffered audio stream stopped")
     }
@@ -1526,6 +1540,7 @@ internal class AirPlayReceiver(
         val oldEcdhSecret = mirrorEcdhSecret.also { mirrorEcdhSecret = null }
         val oldAesIv = mirrorAesIv.also { mirrorAesIv = null }
         audioPlaying = false
+        audioSessionPaused = false
         videoPlaying = false
         urlAudioOnly = false
         clearNowPlayingMetadata()
@@ -1573,7 +1588,7 @@ internal class AirPlayReceiver(
 
     /** Pushes the current now-playing state out: a [NowPlayingInfo] when audio plays without video, else null. */
     private fun emitNowPlaying() {
-        val show = (audioPlaying || urlAudioOnly) && !videoPlaying
+        val show = (audioPlaying || audioSessionPaused || urlAudioOnly) && !videoPlaying
         onNowPlayingChanged(
             if (show) NowPlayingInfo(npSenderName, npTitle, npArtist, npAlbum, npArtwork) else null
         )

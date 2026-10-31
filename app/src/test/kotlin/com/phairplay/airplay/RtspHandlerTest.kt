@@ -245,6 +245,30 @@ class RtspHandlerTest {
     }
 
     @Test
+    fun `Spotify audio transport teardown preserves session and does not close control socket`() {
+        val handler = createTestHandler()
+        handler.seedActiveStreams(96)
+        val response = handler.handleTeardownPublic(teardownRequest(teardownBody(96)))
+        assertTrue(audioStopped)
+        assertFalse(streamingStopped)
+        assertFalse(response.headers.values.any { it.equals("close", true) })
+        // A true session-level disconnect remains terminal after the paused transport is gone.
+        handler.handleTeardownPublic(teardownRequest(byteArrayOf()))
+        assertTrue(streamingStopped)
+    }
+
+    @Test
+    fun `buffered audio pause preserves session until explicit full teardown`() {
+        val handler = createTestHandler()
+        handler.seedActiveStreams(103)
+        val response = handler.handleTeardownPublic(teardownRequest(teardownBody(103)))
+        assertEquals(200, response.statusCode)
+        assertFalse(streamingStopped)
+        handler.handleTeardownPublic(teardownRequest(byteArrayOf()))
+        assertTrue(streamingStopped)
+    }
+
+    @Test
     fun `TEARDOWN of an unknown stream type leaves the active session untouched`() {
         val handler = createTestHandler()
         handler.seedActiveStreams(110)

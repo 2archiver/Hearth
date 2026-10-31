@@ -287,6 +287,44 @@ class HearthUiTest {
         }
     }
 
+    @Test fun mirrorDisplayOnlyRotationDoesNotNeedNewDecodedDimensions() {
+        val activity = host()
+        val screen = StreamingScreen(activity)
+        activity.setContentView(screen)
+        try {
+            screen.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            screen.layout(0, 0, 1920, 1080)
+            StreamStats.videoWidth = 888
+            StreamStats.videoHeight = 1920
+            val apply = StreamingScreen::class.java.getDeclaredMethod("applyAspectFit").apply { isAccessible = true }
+            val surface = screen.getChildAt(0)
+            val originalSurface = screen.getSurface()
+            repeat(3) {
+                StreamStats.mirrorGeometry = com.phairplay.airplay.handshake.MirrorGeometry(888, 1920, 1920, 886)
+                apply.invoke(screen)
+                assertEquals(90f, surface.rotation)
+                val params = surface.layoutParams as FrameLayout.LayoutParams
+                assertEquals(1920, params.height)
+                assertEquals(888, params.width)
+                assertSame(originalSurface, screen.getSurface())
+                StreamStats.mirrorGeometry = com.phairplay.airplay.handshake.MirrorGeometry(888, 1920, 500, 1080)
+                apply.invoke(screen)
+                assertEquals(0f, surface.rotation)
+                assertEquals(1080, surface.layoutParams.height)
+            }
+            StreamStats.mirrorOrientation = com.phairplay.airplay.handshake.MirrorOrientation(270)
+            apply.invoke(screen)
+            assertEquals(270f, surface.rotation)
+            StreamStats.mirrorOrientation = com.phairplay.airplay.handshake.MirrorOrientation(0)
+            apply.invoke(screen)
+            assertEquals(0f, surface.rotation)
+        } finally {
+            StreamStats.resetStreams()
+            activity.finish()
+        }
+    }
+
     /**
      * The debug HUD, measured on a 1080p television layout.
      *

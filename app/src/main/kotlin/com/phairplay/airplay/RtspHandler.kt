@@ -114,6 +114,8 @@ open class RtspHandler(
     private val onMirrorSenderName: (senderName: String) -> Unit = {},
     /** RTSP FLUSH notification with optional next RTP sequence number from `RTP-Info: seq=...`. */
     private val onAudioFlush: (nextSeq: Int) -> Unit = {},
+    /** Pause retains the audio control session, keys, metadata and remote-control route. */
+    private val onAudioPauseState: (paused: Boolean, token: SessionToken?) -> Unit = { _, _ -> },
     /** Initial AirPlay volume in dB (`-30..0`) carried over from receiver state (UxPlay commit `412c5b7`). */
     initialVolume: Float = 0f,
     /**
@@ -1253,7 +1255,14 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         val n = request.bodyBytes.size
         if (n > 0) {
             runCatching {
-                val fieldCount = PlistCodec.decode(request.bodyBytes).size
+                val fields = PlistCodec.decode(request.bodyBytes)
+                val fieldCount = fields.size
+                if (label.startsWith("SETRATEANCHOR") && 110 !in activeStreamTypes && currentMode !in URL_VIDEO_MODES) {
+                    (fields["rate"] as? Number)?.toDouble()?.takeIf { it.isFinite() }?.let { rate ->
+                        onAudioPauseState(rate <= 0.0, sessionToken)
+                        reportPlaybackState(if (rate <= 0.0) AirPlayPlaybackState.PAUSED else AirPlayPlaybackState.AUDIO_ONLY)
+                    }
+                }
                 Logger.d("$label plist received ($n B, $fieldCount fields)")
             }.onFailure { Logger.d("$label body ($n B, non-plist)") }
         }
@@ -1654,6 +1663,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         if (isMirrorSession) {
             val mode = if (activeStreamTypes.contains(110)) AirPlaySessionMode.MIRRORING else AirPlaySessionMode.AUDIO_ONLY
             claimSession(mode, AirPlayConnectionRole.CONTROL)
+            if (mode == AirPlaySessionMode.AUDIO_ONLY) onAudioPauseState(false, sessionToken)
             Logger.i("RECORD (mirror session) — OK")
             return RtspResponse(
                 statusCode = 200, statusMessage = "OK",
@@ -1684,6 +1694,7 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         claimSession(mode, AirPlayConnectionRole.CONTROL)
         if (session.hasVideo) reportMediaRole(AirPlayMediaRole.MIRROR_VIDEO, true)
         if (session.hasAudio) reportMediaRole(AirPlayMediaRole.MIRROR_AUDIO, true)
+        if (mode == AirPlaySessionMode.AUDIO_ONLY) onAudioPauseState(false, sessionToken)
         Logger.i("RECORD — media pipeline starting (audioOnly=${session.isAudioOnly}, encrypted=${session.isAudioEncrypted})")
         trace("Streaming: RECORD received — media pipeline starting", kind = AirPlayTrace.Kind.LIFECYCLE)
         val detailedCallback = onStreamingStartedDetailed
@@ -1700,6 +1711,11 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
      */
     open fun handleTeardownInternal(request: RtspRequest): RtspResponse {
         val streamTypes = parseTeardownStreamTypes(request.bodyBytes)
+        val audioTransportPause = !streamTypes.isNullOrEmpty() &&
+            streamTypes.all { it == 96 || it == 103 } &&
+            activeStreamTypes.any { it == 96 || it == 103 } && 110 !in activeStreamTypes &&
+            currentMode !in URL_VIDEO_MODES
+        if (audioTransportPause) onAudioPauseState(true, sessionToken)
         if (streamTypes != null && streamTypes.isNotEmpty()) {
             // Stream-level teardown: stop ONLY the listed streams. Keep the session (keys, NTP,
             // event channel) alive so the remaining stream keeps running and a stopped one can be
@@ -1725,6 +1741,11 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
             if (activeStreamTypes.isNotEmpty()) {
                 Logger.i("TEARDOWN streams=$streamTypes — stopped those, session continues (active=$activeStreamTypes)")
                 return RtspResponse(statusCode = 200, statusMessage = "OK", protocol = request.responseProtocol())
+            }
+            if (audioTransportPause) {
+                reportPlaybackState(AirPlayPlaybackState.PAUSED)
+                trace("Audio transport paused; retaining control session for resume", kind = AirPlayTrace.Kind.LIFECYCLE)
+                return RtspResponse(200, "OK", protocol = request.responseProtocol())
             }
             Logger.i("TEARDOWN streams=$streamTypes — last stream removed, ending session")
         } else {
@@ -1846,6 +1867,11 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
     /** Handles PAUSE — suspends media delivery. Responds 200 OK; resume arrives as RECORD. */
     open fun handlePauseInternal(request: RtspRequest): RtspResponse {
         Logger.d("PAUSE received")
+        if (110 !in activeStreamTypes && currentSession?.hasVideo != true && currentMode !in URL_VIDEO_MODES) {
+            onAudioPauseState(true, sessionToken)
+            reportPlaybackState(AirPlayPlaybackState.PAUSED)
+            trace("Audio paused; control session retained", kind = AirPlayTrace.Kind.LIFECYCLE)
+        }
         return RtspResponse(statusCode = 200, statusMessage = "OK")
     }
 

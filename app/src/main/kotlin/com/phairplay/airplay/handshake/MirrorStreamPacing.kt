@@ -77,6 +77,10 @@ internal class MirrorTimestampMapper(
         if (deltaUs != null && deltaUs <= maximumForwardGapUs) {
             val ptsUs = max(lastPtsUs, saturatingAdd(senderAnchorPtsUs, deltaUs))
             lastPtsUs = ptsUs
+            // Validate each successive delta, not total time since session start (which caused
+            // an artificial discontinuity every 30 seconds during uninterrupted playback).
+            senderAnchorRaw = rawTimestamp
+            senderAnchorPtsUs = ptsUs
             return sample(ptsUs, MirrorTimestampSource.SENDER, discontinuity = false)
         }
 
@@ -137,6 +141,8 @@ internal data class MirrorQueuedFrame(
     val presentationTimeUs: Long,
     val codecConfig: MirrorCodecConfig?,
     val isKeyframe: Boolean,
+    val geometry: MirrorGeometry? = null,
+    val orientation: MirrorOrientation? = null,
 ) {
     /** A queue may resume only at an IDR with usable SPS/PPS. */
     val isRecoveryPoint: Boolean get() = isKeyframe && codecConfig != null
