@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.5] — mirroring rotation, performance and Spotify pause
+
+- Keep audio-only control sessions alive when the sender pauses by removing its audio transport. Stream-level audio teardown no longer returns `Connection: close` or destroys session keys; full session teardown and last-video teardown still disconnect. Handle explicit audio PAUSE/RECORD and rate-anchor updates without losing Now Playing metadata or remote controls. Spotify pause/resume from the phone and TV remote still needs real-device confirmation.
+
+- Apply ordered sender display geometry independently of codec changes. The reported Telegram case keeps an `888×1920` raster but requests a `1920×886` display; Hearth now applies a quarter-turn without waiting for another keyframe. Honor H.264 display-orientation SEI when supplied, including direction, flips and cancellation; reciprocal geometry alone uses a clockwise quarter-turn because rectangles do not encode direction.
+- Keep the decoded Surface buffer size stable during display-only rotation and check layout changes every 100 ms while retaining the one-second HUD refresh.
+- Ignore unchanged SPS/PPS repeats and cancel obsolete pending configurations when the sender returns to the active settings. Actual codec changes still apply at a configured IDR.
+- Request bounded larger decoder input buffers for photo/video access units, return undersized input slots safely, and report input starvation/capacity loss once per incident instead of silently freezing until the next keyframe.
+- Reduce per-frame allocations during AVCC conversion and decoder output draining. Validate timestamp deltas between successive frames, removing the artificial 30-second discontinuities visible in the supplied trace.
+- Add protocol and TV-layout regression coverage for display-only rotation, SEI direction/cancellation, duplicate configurations and uninterrupted timestamps. Orientation summaries include encoded drops, queue overflows, recovery state and presented frames.
+- Device validation is still required for Telegram's exact rotation direction, Google TV Surface composition, gallery focus/playback and audio/video sync. Automated tests cannot establish that the reported freezes are eliminated on the physical TV.
+
 ## [3.4] — advertise screen rotation and trace orientation handover
 
 - Enable ScreenRotate in the shared AirPlay feature mask. Previously the display said `rotation=true` while mDNS and `/info` disabled the rotation capability, allowing senders to keep the initial portrait stream.

@@ -7,6 +7,17 @@ import org.junit.Test
 
 class MirrorStreamPacingTest {
     @Test
+    fun `continuous two minute stream does not reset clock every thirty seconds`() {
+        val mapper = MirrorTimestampMapper()
+        for (seconds in 0L..120L) {
+            val sample = mapper.map((seconds + 1L) shl 32, seconds * 1_000_000_000L)
+            assertFalse("Unexpected reset at second $seconds", sample.discontinuity)
+            assertEquals(seconds * 1_000_000L, sample.presentationTimeUs)
+        }
+        assertTrue(mapper.map(200L shl 32, 121_000_000_000L).discontinuity)
+    }
+
+    @Test
     fun `maps little endian Q32 timestamps onto a monotonic microsecond timeline`() {
         val mapper = MirrorTimestampMapper()
         val origin = 5_000_000_000L

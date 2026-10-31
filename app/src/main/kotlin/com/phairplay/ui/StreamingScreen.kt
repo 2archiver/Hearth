@@ -78,6 +78,10 @@ class StreamingScreen @JvmOverloads constructor(
     // Last applied surface size, so we only re-layout on an actual change (rotation/resolution switch).
     private var lastSurfaceW = Int.MIN_VALUE
     private var lastSurfaceH = Int.MIN_VALUE
+    private var lastRotation = Int.MIN_VALUE
+    private var lastBufferW = 0
+    private var lastBufferH = 0
+    private var lastOverlayRefresh = 0L
 
     /** Last text handed to the HUD; re-assigning identical text still dirties the view. */
     private var lastOverlayText: String? = null
@@ -86,8 +90,12 @@ class StreamingScreen @JvmOverloads constructor(
     private val tick = object : Runnable {
         override fun run() {
             applyAspectFit()
-            updateOverlay()
-            handler.postDelayed(this, REFRESH_MS)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (lastOverlayRefresh == 0L || now - lastOverlayRefresh >= REFRESH_MS) {
+                lastOverlayRefresh = now
+                updateOverlay()
+            }
+            handler.postDelayed(this, LAYOUT_REFRESH_MS)
         }
     }
 
@@ -150,22 +158,44 @@ class StreamingScreen @JvmOverloads constructor(
     private fun applyAspectFit() {
         val vw = StreamStats.videoWidth
         val vh = StreamStats.videoHeight
+        val geometry = StreamStats.mirrorGeometry
+        val orientation = StreamStats.mirrorOrientation
+        // Geometry-only updates must not wait for a new codec/IDR. A reciprocal rectangle requests
+        // a quarter-turn; SEI, when present, supplies its exact direction and overrides the fallback.
+        val rotation = orientation?.clockwiseDegrees ?: if (geometry?.quarterTurnFor(vw, vh) == true) 90 else 0
+        val quarterTurn = rotation == 90 || rotation == 270
+        val displayW = if (quarterTurn) vh else vw
+        val displayH = if (quarterTurn) vw else vh
         val cw = width
         val ch = height
-        val (targetW, targetH) = if (vw <= 0 || vh <= 0 || cw <= 0 || ch <= 0) {
+        val (fittedW, fittedH) = if (displayW <= 0 || displayH <= 0 || cw <= 0 || ch <= 0) {
             LayoutParams.MATCH_PARENT to LayoutParams.MATCH_PARENT
         } else {
-            val videoRatio = vw.toFloat() / vh
-            val containerRatio = cw.toFloat() / ch
-            if (videoRatio > containerRatio) cw to (cw / videoRatio).toInt()   // fit width, bars top/bottom
-            else (ch * videoRatio).toInt() to ch                              // fit height, bars left/right
+            val videoRatio = displayW.toFloat() / displayH
+            if (videoRatio > cw.toFloat() / ch) cw to (cw / videoRatio).toInt()
+            else (ch * videoRatio).toInt() to ch
         }
-        if (targetW == lastSurfaceW && targetH == lastSurfaceH) return
+        val targetW = if (quarterTurn) fittedH else fittedW
+        val targetH = if (quarterTurn) fittedW else fittedH
+        surfaceView.scaleX = if (orientation?.horizontalFlip == true) -1f else 1f
+        surfaceView.scaleY = if (orientation?.verticalFlip == true) -1f else 1f
+        // Keep the producer buffers at decoded size while transforming the compositor layer.
+        // Update even when a resolution change keeps the same fitted aspect ratio.
+        if (vw > 0 && vh > 0 && (vw != lastBufferW || vh != lastBufferH)) {
+            surfaceView.holder.setFixedSize(vw, vh)
+            lastBufferW = vw
+            lastBufferH = vh
+        }
+        if (targetW == lastSurfaceW && targetH == lastSurfaceH && rotation == lastRotation) return
         lastSurfaceW = targetW
         lastSurfaceH = targetH
+        lastRotation = rotation
+        surfaceView.rotation = rotation.toFloat()
         if (vw > 0 && vh > 0 && cw > 0 && ch > 0) {
             AirPlayTrace.record(
-                "Mirroring: TV layout video=${vw}x$vh surface=${targetW}x$targetH container=${cw}x$ch",
+                "Mirroring: TV layout video=${vw}x$vh surface=${targetW}x$targetH " +
+                    "container=${cw}x$ch rotation=$rotation " +
+                    "orientation=${if (orientation != null) "SEI" else "geometry"}",
                 subsystem = "display",
             )
         }
@@ -254,6 +284,7 @@ class StreamingScreen @JvmOverloads constructor(
     companion object {
         /** HUD refresh period. 1 Hz is the frequency at which these counters are meaningful. */
         private const val REFRESH_MS = 1_000L
+        private const val LAYOUT_REFRESH_MS = 100L
 
         /** Broadcast-style safe area: keep the HUD out of the overscan region on every panel. */
         private const val SAFE_AREA_FRACTION = 0.05f

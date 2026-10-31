@@ -1,6 +1,5 @@
 package com.phairplay.airplay.handshake
 
-import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -47,7 +46,7 @@ object MirrorCrypto {
      */
     fun avccToAnnexB(data: ByteArray): ByteArray {
         if (data.size < 4) return ByteArray(0)
-        val out = ByteArrayOutputStream(data.size + 16)
+        val out = data.copyOf()
         var i = 0
         while (i <= data.size - 4) {
             val len = ((data[i].toInt() and 0xFF) shl 24) or
@@ -56,12 +55,13 @@ object MirrorCrypto {
                 (data[i + 3].toInt() and 0xFF)
             i += 4
             if (len <= 0 || len > data.size - i) return ByteArray(0)
-            out.write(START_CODE)
-            out.write(data, i, len)
+            // Four-byte AVCC lengths and Annex-B start codes have identical size. Replace only
+            // the prefix in one copy instead of streaming the entire frame through two buffers.
+            START_CODE.copyInto(out, i - 4)
             i += len
         }
         if (i != data.size) return ByteArray(0)
-        return out.toByteArray()
+        return out
     }
 
     val START_CODE = byteArrayOf(0, 0, 0, 1)

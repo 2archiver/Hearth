@@ -53,6 +53,7 @@ class MirrorStreamServer(
     private var receivedConfigs = 0L
     private var receivedKeyframes = 0L
     private var lastGeometry: MirrorGeometry? = null
+    private var lastOrientation: MirrorOrientation? = null
     private var lastSummaryNanos = System.nanoTime()
     private var pendingWaitReported = false
 
@@ -65,6 +66,8 @@ class MirrorStreamServer(
         cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, newStreamConnectionId)
         pendingConfig = null
         activeCodecConfig = null
+        lastGeometry = null
+        lastOrientation = null
         requireRecoveryPoint()
         publishQueueStats()
     }
@@ -104,6 +107,8 @@ class MirrorStreamServer(
                 requireRecoveryPoint()
                 pendingConfig = null
                 activeCodecConfig = null
+                lastGeometry = null
+                lastOrientation = null
                 publishQueueStats()
                 readConnection(socket)
                 runCatching { socket.close() }
@@ -198,6 +203,7 @@ class MirrorStreamServer(
             AirPlayTrace.record("Mirroring timestamp discontinuity; presentation re-anchored to monotonic arrival")
         }
 
+        MirrorOrientation.parse(annexB)?.let { lastOrientation = it }
         val keyframe = isKeyframe(annexB)
         if (keyframe) receivedKeyframes++
         val waiting = pendingConfig
@@ -219,6 +225,8 @@ class MirrorStreamServer(
             presentationTimeUs = sample.presentationTimeUs,
             codecConfig = frameConfig,
             isKeyframe = keyframe,
+            geometry = lastGeometry,
+            orientation = lastOrientation,
         )
 
         val before = frameQueue.snapshot(arrivalNanos)
@@ -266,18 +274,20 @@ class MirrorStreamServer(
             AirPlayTrace.record("Mirroring: rejected codec configuration (${payload.size}B)")
             return
         }
-        config.let { config ->
-            val previous = pendingConfig?.config ?: activeCodecConfig
-            // Repeated identical configs must not restart the keyframe-wait diagnostic timer.
-            if (!config.sameAs(pendingConfig?.config)) {
-                pendingConfig = PendingMirrorConfig(config, System.nanoTime())
-                pendingWaitReported = false
-            }
-            if (!config.sameAs(previous)) {
-                val size = VideoDecoder.parseSpsResolution(config.sps)
-                val label = size?.let { "${it.first}x${it.second}" } ?: "size unavailable"
-                AirPlayTrace.record("Mirroring: codec configuration received ($label); waiting for keyframe")
-            }
+        // Geometry-only updates and repeated avcC packets are NOT codec changes. In particular,
+        // Telegram can rotate the display repeatedly without sending another IDR.
+        if (config.sameAs(activeCodecConfig)) {
+            pendingConfig = null
+            pendingWaitReported = false
+            return
+        }
+        if (!config.sameAs(pendingConfig?.config)) {
+            lastOrientation = null // SEI applies within the current coded sequence.
+            pendingConfig = PendingMirrorConfig(config, System.nanoTime())
+            pendingWaitReported = false
+            val size = VideoDecoder.parseSpsResolution(config.sps)
+            val label = size?.let { "${it.first}x${it.second}" } ?: "size unavailable"
+            AirPlayTrace.record("Mirroring: codec configuration received ($label); waiting for keyframe")
         }
     }
 
@@ -306,7 +316,10 @@ class MirrorStreamServer(
                 "configs=$receivedConfigs source=${lastGeometry?.label ?: "unavailable"} " +
                 "SPS=${size?.let { "${it.first}x${it.second}" } ?: "unavailable"} " +
                 "decoded=${StreamStats.videoWidth}x${StreamStats.videoHeight} " +
-                "pendingKeyframe=${pendingConfig != null}",
+                "pendingKeyframe=${pendingConfig != null} " +
+                "queue=${StreamStats.videoQueue} drops=${StreamStats.videoFramesDropped} " +
+                "overflows=${StreamStats.videoQueueOverflows} awaitingIDR=${StreamStats.videoAwaitingIdr} " +
+                "presented=${StreamStats.presentedFrames}",
         )
     }
 
@@ -465,6 +478,8 @@ class MirrorStreamServer(
             publishQueueStats()
             return
         }
+        StreamStats.mirrorGeometry = frame.geometry
+        StreamStats.mirrorOrientation = frame.orientation
         if (frame.isRecoveryPoint) frameQueue.markRecoveryPointAccepted()
     }
 

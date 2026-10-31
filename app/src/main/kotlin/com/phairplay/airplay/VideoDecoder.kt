@@ -47,6 +47,8 @@ class VideoDecoder(
     @Volatile private var mediaCodec: MediaCodec? = null
     private var frameCallbackThread: HandlerThread? = null
     private val playoutClock = MirrorPlayoutClock()
+    private val outputBufferInfo = MediaCodec.BufferInfo()
+    private var inputLossReported = false
 
     // Track whether the decoder has been initialized (to prevent double-init)
     @Volatile
@@ -115,6 +117,10 @@ class VideoDecoder(
             // These are wrapped in ByteBuffers as required by the MediaCodec API.
             setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(spsBytes))  // SPS
             setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(ppsBytes))  // PPS
+            // Photo/video focus can produce much larger access units than an idle phone UI.
+            // Use the same bounded 8 MiB limit as the mirror packet reader, rather than a vendor's
+            // small default input allocation (BufferOverflow would lose references until an IDR).
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 8 * 1024 * 1024)
             // NOTE: do NOT set KEY_MAX_WIDTH/HEIGHT here — this SoC's MStar decoder rejects
             // adaptive playback (BadParameter / buffer-count failures) and produces banding.
             // Resolution changes are handled by recreating the decoder in MirrorStreamServer.
@@ -184,11 +190,24 @@ class VideoDecoder(
             if (inputBufferIndex < 0) {
                 // Encoded loss breaks the reference chain. The mirroring queue observes false and
                 // waits for the next configured IDR instead of feeding predicted frames blindly.
-                Logger.v("VideoDecoder: no input buffer available; mirroring must resync at IDR")
+                if (!inputLossReported) {
+                    inputLossReported = true
+                    ActivityLog.record(Severity.WARNING, "decoder", "Decoder input stalled; waiting for keyframe")
+                }
                 false
             } else {
                 val inputBuffer = codec.getInputBuffer(inputBufferIndex)!!
                 inputBuffer.clear()
+                if (nalUnit.size > inputBuffer.remaining()) {
+                    // Return the acquired slot before reporting loss; never leak an input buffer.
+                    codec.queueInputBuffer(inputBufferIndex, 0, 0, presentationTimeUs, 0)
+                    if (!inputLossReported) {
+                        inputLossReported = true
+                        ActivityLog.record(Severity.WARNING, "decoder", "Video frame exceeds decoder input capacity",
+                            details = "frame=${nalUnit.size}B capacity=${inputBuffer.capacity()}B")
+                    }
+                    return false
+                }
                 inputBuffer.put(nalUnit)
                 codec.queueInputBuffer(
                     inputBufferIndex,
@@ -198,6 +217,7 @@ class VideoDecoder(
                     0,
                 )
                 releaseOutputBuffers(codec)
+                inputLossReported = false
                 true
             }
         } catch (e: IllegalStateException) {
@@ -242,7 +262,7 @@ class VideoDecoder(
      * @param codec The active MediaCodec instance.
      */
     private fun releaseOutputBuffers(codec: MediaCodec) {
-        val bufferInfo = MediaCodec.BufferInfo()
+        val bufferInfo = outputBufferInfo
         var outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
 
         while (outputBufferIndex >= 0 || outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {

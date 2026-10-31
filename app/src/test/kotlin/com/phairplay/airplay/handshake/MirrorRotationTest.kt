@@ -42,6 +42,25 @@ class MirrorRotationTest {
         assertNull(select(server, 10_000_000_000L))
     }
 
+    @Test
+    fun `identical codec update cancels obsolete pending change without requiring IDR`() = withServer { server ->
+        val active = MirrorCodecConfig(byteArrayOf(0x67, 1), byteArrayOf(0x68, 2))
+        field(server, "activeCodecConfig", active)
+        field(server, "pendingConfig", PendingMirrorConfig(MirrorCodecConfig(byteArrayOf(3), byteArrayOf(4)), 0L))
+        val payload = byteArrayOf(1, 66, 0, 31, -1, -31, 0, 2, 0x67, 1, 1, 0, 2, 0x68, 2)
+        val header = ByteArray(128)
+        java.nio.ByteBuffer.wrap(header).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+            putFloat(40, 888f); putFloat(44, 1920f)
+            putFloat(56, 1920f); putFloat(60, 886f)
+        }
+        val handle = MirrorStreamServer::class.java.getDeclaredMethod("handleCodecConfig", ByteArray::class.java,
+            ByteArray::class.java).apply { isAccessible = true }
+        repeat(8) { handle.invoke(server, header, payload) }
+        assertNull(read(server, "pendingConfig"))
+        assertSame(active, read(server, "activeCodecConfig"))
+        org.junit.Assert.assertEquals(MirrorGeometry(888, 1920, 1920, 886), read(server, "lastGeometry"))
+    }
+
     private fun withServer(block: (MirrorStreamServer) -> Unit) {
         val server = MirrorStreamServer(ByteArray(16), ByteArray(32), 1L, { null })
         try { block(server) } finally { (read(server, "serverSocket") as ServerSocket).close() }
