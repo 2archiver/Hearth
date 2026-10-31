@@ -1713,16 +1713,15 @@ playbackState !in setOf(AirPlayPlaybackState.FAILED, AirPlayPlaybackState.STOPPE
         val streamTypes = parseTeardownStreamTypes(request.bodyBytes)
         val audioTransportPause = !streamTypes.isNullOrEmpty() &&
             streamTypes.all { it == 96 || it == 103 } &&
-            activeStreamTypes.any { it == 96 || it == 103 } && 110 !in activeStreamTypes &&
+            streamTypes.any { it in activeStreamTypes } && 110 !in activeStreamTypes &&
             currentMode !in URL_VIDEO_MODES
         if (audioTransportPause) onAudioPauseState(true, sessionToken)
         if (streamTypes != null && streamTypes.isNotEmpty()) {
             // Stream-level teardown: stop ONLY the listed streams. Keep the session (keys, NTP,
             // event channel) alive so the remaining stream keeps running and a stopped one can be
             // re-added later — e.g. audio keeps playing with video gone, or video keeps mirroring
-            // with audio stopped. But if this removes the LAST active stream (e.g. macOS names both
-            // 96 and 110 to end the session), fall through to a full teardown so cleanup isn't left
-            // to the eventual socket close.
+            // with audio stopped. Removing the last video stream still ends mirroring. Audio-only
+            // transport teardown is a pause: keep its control session available for a new SETUP.
             if (streamTypes.contains(96)) {
                 onMirrorAudioStopSession?.invoke(sessionToken) ?: onMirrorAudioStop()
                 activeStreamTypes.remove(96)

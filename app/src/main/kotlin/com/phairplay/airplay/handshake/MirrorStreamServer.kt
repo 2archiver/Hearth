@@ -66,6 +66,8 @@ class MirrorStreamServer(
         cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, newStreamConnectionId)
         pendingConfig = null
         activeCodecConfig = null
+        lastGeometry = null
+        lastOrientation = null
         requireRecoveryPoint()
         publishQueueStats()
     }

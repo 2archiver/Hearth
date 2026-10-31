@@ -91,7 +91,7 @@ class StreamingScreen @JvmOverloads constructor(
         override fun run() {
             applyAspectFit()
             val now = android.os.SystemClock.uptimeMillis()
-            if (now - lastOverlayRefresh >= REFRESH_MS) {
+            if (lastOverlayRefresh == 0L || now - lastOverlayRefresh >= REFRESH_MS) {
                 lastOverlayRefresh = now
                 updateOverlay()
             }
@@ -179,17 +179,17 @@ class StreamingScreen @JvmOverloads constructor(
         val targetH = if (quarterTurn) fittedW else fittedH
         surfaceView.scaleX = if (orientation?.horizontalFlip == true) -1f else 1f
         surfaceView.scaleY = if (orientation?.verticalFlip == true) -1f else 1f
-        if (targetW == lastSurfaceW && targetH == lastSurfaceH && rotation == lastRotation) return
-        lastSurfaceW = targetW
-        lastSurfaceH = targetH
-        lastRotation = rotation
         // Keep the producer buffers at decoded size while transforming the compositor layer.
-        // This avoids reallocation/backpressure when only display orientation changes.
+        // Update even when a resolution change keeps the same fitted aspect ratio.
         if (vw > 0 && vh > 0 && (vw != lastBufferW || vh != lastBufferH)) {
             surfaceView.holder.setFixedSize(vw, vh)
             lastBufferW = vw
             lastBufferH = vh
         }
+        if (targetW == lastSurfaceW && targetH == lastSurfaceH && rotation == lastRotation) return
+        lastSurfaceW = targetW
+        lastSurfaceH = targetH
+        lastRotation = rotation
         surfaceView.rotation = rotation.toFloat()
         if (vw > 0 && vh > 0 && cw > 0 && ch > 0) {
             AirPlayTrace.record(
