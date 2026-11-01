@@ -255,39 +255,7 @@ class HearthUiTest {
         }
     }
 
-    @Test fun mirrorSurfaceFollowsPortraitLandscapeAndBack() {
-        val activity = host()
-        val screen = StreamingScreen(activity)
-        activity.setContentView(screen)
-        try {
-            screen.measure(
-                View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
-            )
-            screen.layout(0, 0, 1920, 1080)
-            val apply = StreamingScreen::class.java.getDeclaredMethod("applyAspectFit").apply { isAccessible = true }
-            for ((w, h) in listOf(888 to 1920, 1920 to 888, 888 to 1920)) {
-                StreamStats.videoWidth = w
-                StreamStats.videoHeight = h
-                apply.invoke(screen)
-                val params = screen.getChildAt(0).layoutParams as FrameLayout.LayoutParams
-                val ratio = w.toFloat() / h
-                if (w < h) {
-                    assertEquals(1080, params.height)
-                    assertEquals((1080 * ratio).toInt(), params.width)
-                } else {
-                    assertEquals(1920, params.width)
-                    assertEquals((1920 / ratio).toInt(), params.height)
-                }
-            }
-        } finally {
-            StreamStats.videoWidth = 0
-            StreamStats.videoHeight = 0
-            activity.finish()
-        }
-    }
-
-    @Test fun mirrorDisplayOnlyRotationDoesNotNeedNewDecodedDimensions() {
+    @Test fun mirrorTextureRotatesPixelsInsideFixedTelevisionViewport() {
         val activity = host()
         val screen = StreamingScreen(activity)
         activity.setContentView(screen)
@@ -295,30 +263,39 @@ class HearthUiTest {
             screen.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
             screen.layout(0, 0, 1920, 1080)
+            val texture = screen.getChildAt(0) as android.view.TextureView
+            val apply = StreamingScreen::class.java.getDeclaredMethod("applyAspectFit").apply { isAccessible = true }
+            val originalSurface = screen.getSurface()
+            fun check(w: Int, h: Int, rotation: Int, expected: FloatArray) {
+                StreamStats.videoWidth = w
+                StreamStats.videoHeight = h
+                StreamStats.mirrorOrientation = com.phairplay.airplay.handshake.MirrorOrientation(rotation)
+                apply.invoke(screen)
+                val points = floatArrayOf(0f, 0f, 1920f, 0f, 0f, 1080f)
+                texture.getTransform(android.graphics.Matrix()).mapPoints(points)
+                assertArrayEquals(expected, points, 0.1f)
+                assertEquals(0f, texture.rotation)
+                assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, texture.layoutParams.width)
+                assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, texture.layoutParams.height)
+                assertSame(originalSurface, screen.getSurface())
+            }
+            repeat(3) {
+                check(888, 1920, 0, floatArrayOf(710.25f, 0f, 1209.75f, 0f, 710.25f, 1080f))
+                check(888, 1920, 90, floatArrayOf(1920f, 96f, 1920f, 984f, 0f, 96f))
+                check(888, 1920, 270, floatArrayOf(0f, 984f, 0f, 96f, 1920f, 984f))
+                check(1920, 888, 0, floatArrayOf(0f, 96f, 1920f, 96f, 0f, 984f))
+            }
+            // The reported unchanged-raster Telegram geometry uses the same texture path.
             StreamStats.videoWidth = 888
             StreamStats.videoHeight = 1920
-            val apply = StreamingScreen::class.java.getDeclaredMethod("applyAspectFit").apply { isAccessible = true }
-            val surface = screen.getChildAt(0)
-            val originalSurface = screen.getSurface()
-            repeat(3) {
-                StreamStats.mirrorGeometry = com.phairplay.airplay.handshake.MirrorGeometry(888, 1920, 1920, 886)
-                apply.invoke(screen)
-                assertEquals(90f, surface.rotation)
-                val params = surface.layoutParams as FrameLayout.LayoutParams
-                assertEquals(1920, params.height)
-                assertEquals(888, params.width)
-                assertSame(originalSurface, screen.getSurface())
-                StreamStats.mirrorGeometry = com.phairplay.airplay.handshake.MirrorGeometry(888, 1920, 500, 1080)
-                apply.invoke(screen)
-                assertEquals(0f, surface.rotation)
-                assertEquals(1080, surface.layoutParams.height)
-            }
-            StreamStats.mirrorOrientation = com.phairplay.airplay.handshake.MirrorOrientation(270)
+            StreamStats.mirrorOrientation = null
+            StreamStats.mirrorGeometry = com.phairplay.airplay.handshake.MirrorGeometry(888, 1920, 1920, 886)
             apply.invoke(screen)
-            assertEquals(270f, surface.rotation)
-            StreamStats.mirrorOrientation = com.phairplay.airplay.handshake.MirrorOrientation(0)
-            apply.invoke(screen)
-            assertEquals(0f, surface.rotation)
+            val points = floatArrayOf(0f, 0f, 1920f, 0f, 0f, 1080f)
+            texture.getTransform(android.graphics.Matrix()).mapPoints(points)
+            assertArrayEquals(floatArrayOf(1920f, 96f, 1920f, 984f, 0f, 96f), points, 0.1f)
+            // Explicit cancellation must override reciprocal geometry.
+            check(888, 1920, 0, floatArrayOf(710.25f, 0f, 1209.75f, 0f, 710.25f, 1080f))
         } finally {
             StreamStats.resetStreams()
             activity.finish()
@@ -454,3 +431,4 @@ class HearthUiTest {
         assertNull(BoundedBitmap.decode(bytes, 0))
     }
 }
+

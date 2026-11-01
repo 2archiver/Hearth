@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.6] — rotate the mirrored pixels on Google TV
+
+- Replace the mirroring SurfaceView with a hardware-decoded TextureView. Apply rotation, source flips and aspect fit together in one texture matrix inside a fixed TV viewport, avoiding the separate video-layer transform that left 3.5 sideways and stretched on the reported TV.
+- Preserve the decoder Surface across portrait/landscape changes and keep the producer buffer at decoded dimensions. Geometry-only updates still work without waiting for another keyframe; explicit H.264 orientation overrides the geometry fallback.
+- Add corner-mapping regressions for both landscape directions, portrait return, already-landscape video, flips and aspect-ratio preservation. TV layout tests exercise the actual TextureView matrix instead of checking only View.rotation.
+- The exact iPhone 14 / Telegram / Google TV result still needs device confirmation; automated matrix tests do not establish hardware casting success.
+
 ## [3.5] — mirroring rotation, performance and Spotify pause
 
 - Keep audio-only control sessions alive when the sender pauses by removing its audio transport. Stream-level audio teardown no longer returns `Connection: close` or destroys session keys; full session teardown and last-video teardown still disconnect. Handle explicit audio PAUSE/RECORD and rate-anchor updates without losing Now Playing metadata or remote controls. Spotify pause/resume from the phone and TV remote still needs real-device confirmation.

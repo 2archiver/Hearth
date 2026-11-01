@@ -1,6 +1,8 @@
 package com.phairplay.ui
 
 import android.content.Context
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler
@@ -8,8 +10,7 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.TextureView
 import android.view.Surface
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -17,6 +18,8 @@ import androidx.appcompat.content.res.AppCompatResources
 import com.phairplay.R
 import com.phairplay.airplay.AirPlayTrace
 import com.phairplay.airplay.StreamStats
+import com.phairplay.airplay.handshake.MirrorDisplayTransform
+import com.phairplay.airplay.handshake.MirrorOrientation
 import com.phairplay.util.Logger
 import kotlin.math.max
 
@@ -24,9 +27,9 @@ import kotlin.math.max
  * StreamingScreen — Full-screen view that displays the AirPlay video stream.
  *
  * WHY: The decoded video from MediaCodec must be rendered to a [Surface].
- * A [SurfaceView] provides a dedicated, hardware-accelerated drawing surface
- * that can receive MediaCodec output directly — no intermediate bitmap copies.
- * This is the lowest-latency way to display video on Android.
+ * A [TextureView] receives hardware-decoded output through a SurfaceTexture. A single
+ * texture matrix applies orientation and aspect fit together, including on Android TV
+ * compositors that do not rotate a SurfaceView's separate video layer with its View.
  *
  * HOW: Add this view to the streaming_container in activity_main.xml.
  * Call [getSurface] to get the Surface to pass to [VideoDecoder.initialize].
@@ -49,10 +52,9 @@ class StreamingScreen @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : FrameLayout(context, attrs, defStyleAttr) {
 
-    // The SurfaceView that provides the hardware-accelerated rendering surface
-    private val surfaceView: SurfaceView = SurfaceView(context)
+    private val textureView = TextureView(context).apply { isOpaque = false }
 
-    // The Surface is created asynchronously by SurfaceView — stored here when ready
+    // One decoder Surface per texture lifetime; rotation never replaces it.
     private var surface: Surface? = null
 
     // Optional debug HUD (Settings → "Debug overlay"), drawn on top of the video.
@@ -70,15 +72,9 @@ class StreamingScreen @JvmOverloads constructor(
         isFocusableInTouchMode = false
         isClickable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-        // SurfaceView is composited in its own layer *below* the window, so a sibling normally
-        // draws above it — but on some TV stacks (and after a decoder re-configure) the video
-        // layer ends up in front. An explicit elevation wins in every case.
         elevation = 1000f
     }
-    // Last applied surface size, so we only re-layout on an actual change (rotation/resolution switch).
-    private var lastSurfaceW = Int.MIN_VALUE
-    private var lastSurfaceH = Int.MIN_VALUE
-    private var lastRotation = Int.MIN_VALUE
+    private var lastTransform: FloatArray? = null
     private var lastBufferW = 0
     private var lastBufferH = 0
     private var lastOverlayRefresh = 0L
@@ -100,16 +96,9 @@ class StreamingScreen @JvmOverloads constructor(
     }
 
     init {
-        // Black backing so the letterbox/pillarbox bars (when the video is sized to its aspect ratio
-        // and doesn't fill 16:9) are black — without this, those margins are transparent and the home
-        // menu shows through behind the streaming overlay. The SurfaceView punches its own hole on top.
+        // Non-opaque texture leaves aspect-fit bars showing the black backing.
         setBackgroundColor(Color.BLACK)
-
-        // SurfaceView is centred; its size is set to the video's aspect ratio by applyAspectFit().
-        addView(surfaceView, LayoutParams(
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.MATCH_PARENT
-        ).apply { gravity = Gravity.CENTER })
+        addView(textureView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         // Debug HUD overlay, top-left of the safe area, above the video surface.
         addView(debugView, LayoutParams(
@@ -117,26 +106,30 @@ class StreamingScreen @JvmOverloads constructor(
             LayoutParams.WRAP_CONTENT
         ).apply { gravity = Gravity.TOP or Gravity.START })
 
-        // Register a callback to track when the Surface is created/destroyed
-        surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                // Surface is now ready — store reference for VideoDecoder
-                surface = holder.surface
-                Logger.d("StreamingScreen: Surface created")
+        textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                surface = Surface(texture)
+                lastBufferW = 0
+                lastBufferH = 0
+                lastTransform = null
+                applyAspectFit()
+                Logger.d("StreamingScreen: texture surface created")
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                // Called when the surface size changes (e.g., resolution change)
-                // MediaCodec handles this automatically — no action needed here
-                Logger.d("StreamingScreen: Surface changed ${width}x${height}")
+            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+                applyAspectFit()
             }
 
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                // Surface is gone (e.g., screen turned off) — VideoDecoder must stop
+            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                surface?.release()
                 surface = null
-                Logger.d("StreamingScreen: Surface destroyed")
+                lastTransform = null
+                Logger.d("StreamingScreen: texture surface destroyed")
+                return true
             }
-        })
+
+            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+        }
     }
 
     /**
@@ -150,58 +143,33 @@ class StreamingScreen @JvmOverloads constructor(
      */
     fun getSurface(): Surface? = surface
 
-    /**
-     * Sizes the SurfaceView to the decoded video's aspect ratio (letterbox/pillarbox) instead of
-     * stretching it to fill 16:9. Without this, a portrait phone stream is squashed horizontally.
-     * Falls back to filling the container when the size isn't known yet.
-     */
+    /** Transform decoded pixels inside a fixed TV viewport; never rotate the TV view itself. */
     private fun applyAspectFit() {
         val vw = StreamStats.videoWidth
         val vh = StreamStats.videoHeight
         val geometry = StreamStats.mirrorGeometry
-        val orientation = StreamStats.mirrorOrientation
-        // Geometry-only updates must not wait for a new codec/IDR. A reciprocal rectangle requests
-        // a quarter-turn; SEI, when present, supplies its exact direction and overrides the fallback.
-        val rotation = orientation?.clockwiseDegrees ?: if (geometry?.quarterTurnFor(vw, vh) == true) 90 else 0
-        val quarterTurn = rotation == 90 || rotation == 270
-        val displayW = if (quarterTurn) vh else vw
-        val displayH = if (quarterTurn) vw else vh
+        val explicit = StreamStats.mirrorOrientation
+        val orientation = explicit ?: MirrorOrientation(if (geometry?.quarterTurnFor(vw, vh) == true) 90 else 0)
         val cw = width
         val ch = height
-        val (fittedW, fittedH) = if (displayW <= 0 || displayH <= 0 || cw <= 0 || ch <= 0) {
-            LayoutParams.MATCH_PARENT to LayoutParams.MATCH_PARENT
-        } else {
-            val videoRatio = displayW.toFloat() / displayH
-            if (videoRatio > cw.toFloat() / ch) cw to (cw / videoRatio).toInt()
-            else (ch * videoRatio).toInt() to ch
+        if (vw <= 0 || vh <= 0 || cw <= 0 || ch <= 0) return
+        textureView.surfaceTexture?.let { texture ->
+            if (vw != lastBufferW || vh != lastBufferH) {
+                texture.setDefaultBufferSize(vw, vh)
+                lastBufferW = vw
+                lastBufferH = vh
+            }
         }
-        val targetW = if (quarterTurn) fittedH else fittedW
-        val targetH = if (quarterTurn) fittedW else fittedH
-        surfaceView.scaleX = if (orientation?.horizontalFlip == true) -1f else 1f
-        surfaceView.scaleY = if (orientation?.verticalFlip == true) -1f else 1f
-        // Keep the producer buffers at decoded size while transforming the compositor layer.
-        // Update even when a resolution change keeps the same fitted aspect ratio.
-        if (vw > 0 && vh > 0 && (vw != lastBufferW || vh != lastBufferH)) {
-            surfaceView.holder.setFixedSize(vw, vh)
-            lastBufferW = vw
-            lastBufferH = vh
-        }
-        if (targetW == lastSurfaceW && targetH == lastSurfaceH && rotation == lastRotation) return
-        lastSurfaceW = targetW
-        lastSurfaceH = targetH
-        lastRotation = rotation
-        surfaceView.rotation = rotation.toFloat()
-        if (vw > 0 && vh > 0 && cw > 0 && ch > 0) {
-            AirPlayTrace.record(
-                "Mirroring: TV layout video=${vw}x$vh surface=${targetW}x$targetH " +
-                    "container=${cw}x$ch rotation=$rotation " +
-                    "orientation=${if (orientation != null) "SEI" else "geometry"}",
-                subsystem = "display",
-            )
-        }
-        surfaceView.layoutParams = (surfaceView.layoutParams as LayoutParams).apply {
-            width = targetW; height = targetH; gravity = Gravity.CENTER
-        }
+        val values = MirrorDisplayTransform.matrix(vw, vh, cw, ch, orientation)
+        if (lastTransform?.contentEquals(values) == true) return
+        textureView.setTransform(Matrix().apply { setValues(values) })
+        lastTransform = values
+        AirPlayTrace.record(
+            "Mirroring: TV texture video=${vw}x$vh viewport=${cw}x$ch " +
+                "rotation=${orientation.clockwiseDegrees} flipH=${orientation.horizontalFlip} " +
+                "flipV=${orientation.verticalFlip} orientation=${if (explicit != null) "SEI" else "geometry"}",
+            subsystem = "display",
+        )
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -245,8 +213,7 @@ class StreamingScreen @JvmOverloads constructor(
         }
         if (debugView.visibility != VISIBLE) {
             debugView.visibility = VISIBLE
-            // SurfaceView lives in its own layer; re-assert the HUD above it on every show so a
-            // decoder re-configure mid-session cannot bury the readout behind the video.
+            // Keep the HUD above the video texture.
             debugView.bringToFront()
         }
         val text = StreamStats.summary()
@@ -290,3 +257,4 @@ class StreamingScreen @JvmOverloads constructor(
         private const val SAFE_AREA_FRACTION = 0.05f
     }
 }
+
