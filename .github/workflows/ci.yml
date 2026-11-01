@@ -1,7 +1,8 @@
-# Pull requests are verified here; main runs the same gates once in Release.
+# Pull requests and manual build-only checks run here; publication stays in Release.
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ "main" ]
     paths-ignore:
@@ -77,6 +78,55 @@ jobs:
           set -euo pipefail
           ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --tests 'com.phairplay.airplay.VideoDecoderSpsTest' --tests 'com.phairplay.airplay.MediaHttpDataSourceTest' --stacktrace 2>&1 | tee -a build.log
 
+      - name: Build and verify a signed APK without publishing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_FINGERPRINT: ${{ vars.EXPECTED_APK_CERT_SHA256 || 'b9cb7e4b4d5179870e672e850f5d3661f02c248f943dbaf10cd78cd0c047eaae' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^phairplay\.versionName=//p' gradle.properties | tr -d ' \r')
+          code=$(( $(date -u +%s) / 60 - 28401120 ))
+          bodies=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].body // ""')
+          highest=$(printf '%s\n' "$bodies" | grep -oE 'versionCode[[:space:]]+`?[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1 || true)
+          if [[ -n "$highest" ]] && (( code <= highest )); then code=$((highest + 1)); fi
+          ./gradlew :app:assembleGoogletvRelease -Pphairplay.versionCode="$code" --stacktrace 2>&1 | tee -a build.log
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/googletv/release/*.apk)
+          [[ ${#apks[@]} == 1 ]] || { echo '::error::Expected exactly one APK'; exit 1; }
+          apk="${apks[0]}"
+          aapt=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt -type f | sort -V | tail -1)
+          signer=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -1)
+          metadata=$("$aapt" dump badging "$apk")
+          expected="package: name='com.hearth.tv' versionCode='$code' versionName='$version-googletv'"
+          grep -Fq "$expected" <<< "$metadata"
+          grep -Fxq "sdkVersion:'29'" <<< "$metadata"
+          grep -Fxq "targetSdkVersion:'35'" <<< "$metadata"
+          abis=$(unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u | xargs)
+          [[ "$abis" == armeabi-v7a ]] || { echo "::error::Unexpected ABIs: $abis"; exit 1; }
+          "$signer" verify --verbose "$apk"
+          fingerprint=$("$signer" verify --print-certs "$apk" | grep -m1 'SHA-256' | sed -E 's/.*SHA-256 digest: *//' | tr '[:upper:]' '[:lower:]' | tr -d ': ')
+          [[ "$fingerprint" == "$EXPECTED_FINGERPRINT" ]] || { echo '::error::Signing identity mismatch'; exit 1; }
+          mkdir -p dist
+          cp "$apk" "dist/hearth${version}.apk"
+          {
+            echo '### Verified APK — build only, no release published'
+            echo
+            echo "Version: $version-googletv · versionCode $code · ARMv7 · Android TV 10+"
+            sha256sum "dist/hearth${version}.apk"
+            echo "Signing certificate: $fingerprint"
+          } | tee dist/verification.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain the verified signed APK
+        if: success() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-apk-googletv
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
+
       # Lint aborts the build with nothing but "Lint found errors in the project", which is
       # useless in a PR comment. The text report names the file, the line and the check id,
       # so fold it into build.log before the failure reporter reads that log.
@@ -129,7 +179,7 @@ jobs:
             gh pr comment "$(jq -r .pull_request.number "$GITHUB_EVENT_PATH")" \
               --repo "$GITHUB_REPOSITORY" --body-file "$report" \
               || echo "::warning::could not comment on the pull request"
-          else
+          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
               -f body="$(cat "$report")" > /dev/null \
               || echo "::warning::could not comment on the commit"

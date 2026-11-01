@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed **Run session diagnostic** from Activity. The normal **Copy diagnostics** and **Clear** controls remain.
 - Copied logs now explain that history survives app updates. Every activity entry includes its date, so older sessions are easier to identify.
 - Fixed incomplete redaction of IPv6 network-interface names in copied logs.
+- Added a manual build-only CI option to test and retain a signed APK without creating a release.
 - Kept the playback engine and working casting routes from 3.7 unchanged. This is a small maintenance update, with no claimed speed or picture-quality increase.
 
 ### Before you install

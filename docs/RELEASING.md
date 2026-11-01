@@ -2,7 +2,7 @@
 
 ## Publication intent
 
-- Pull requests run CI without publication.
+- Pull requests run CI without publication. CI can also be run manually on main to verify and retain a signed APK as a workflow artifact, without tags, release publication, or Latest changes.
 - Main pushes run the full Release verification pipeline and create immutable **development prereleases** named `v3.8-main.<run>`. These are download-only; GitHub's stable `/releases/latest` updater does not offer them.
 - A preparation commit marked `[stable-dispatch]` skips the automatic development job; the subsequent manual stable dispatch runs every verification gate once.
 - A maintainer explicitly runs Release on `main` with the **stable** input enabled only after hardware acceptance. That creates `v3.8`, titled `Hearth 3.8`. A changelog heading alone never triggers stable publication.
