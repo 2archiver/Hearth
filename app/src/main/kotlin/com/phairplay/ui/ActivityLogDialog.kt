@@ -125,21 +125,8 @@ object ActivityLogDialog {
         }
         val copyButton = actionButton(context, R.string.activity_log_copy)
         val clearButton = actionButton(context, R.string.activity_log_clear)
-        val diagnosticButton = actionButton(context, R.string.run_session_diagnostic)
-        diagnosticButton.setOnClickListener {
-            val report = com.phairplay.airplay.SessionDiagnosticReport.create(
-                BuildConfig.VERSION_NAME, BuildConfig.MEDIA3_VERSION, Build.VERSION.SDK_INT)
-            ActivityLog.record(Severity.INFO, "diagnostic", "Local session diagnostic", details = report)
-            AlertDialog.Builder(context)
-                .setTitle(R.string.run_session_diagnostic)
-                .setMessage(report)
-                .setPositiveButton(android.R.string.ok, null)
-                .show()
-            render()
-        }
         actionRow.addView(copyButton)
         actionRow.addView(clearButton)
-        actionRow.addView(diagnosticButton)
         render = {
             val entries = ActivityLog.entries(minSeverity)
             status.text = if (entries.isEmpty()) if (minSeverity == null) "No activity yet. Start the receiver and try casting." else "No matching events. Choose All to see connection progress." else

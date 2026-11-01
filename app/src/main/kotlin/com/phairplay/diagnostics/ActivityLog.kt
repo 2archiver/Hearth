@@ -233,6 +233,7 @@ object ActivityLog {
         return buildString {
             appendLine("Hearth activity log (${snapshot.size}/$MAX_ENTRIES entries)")
             appendLine("Generated: $generated (local time)")
+            appendLine("History is retained across restarts and updates. Build details below describe the app exporting this log; older entries may come from an earlier build.")
             appendLine("Severity: DEBUG < INFO < WARN (recoverable degradation) < ERROR (failed " +
                 "operation) < CRIT (receiver crash, needs action)")
             metadata.toSortedMap().forEach { (key, value) ->
@@ -242,8 +243,9 @@ object ActivityLog {
             if (snapshot.isEmpty()) {
                 appendLine("(no activity recorded)")
             }
+            val entryDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
             snapshot.forEach { entry ->
-                append("${entry.timeLabel()}  ${entry.severity.label.padEnd(5)}  ")
+                append("${entryDate.format(Date(entry.atMillis))}  ${entry.severity.label.padEnd(5)}  ")
                 append(entry.subsystem.padEnd(8)).append("  ").append(redact(entry.message))
                 append('\n')
                 entry.details?.lineSequence()?.forEach { line ->

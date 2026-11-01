@@ -178,6 +178,7 @@ object AirPlayTrace {
         safe = MEDIA_URI.replace(safe, "$1://[media location redacted]")
         safe = BEARER_TOKEN.replace(safe, "Bearer [redacted]")
         safe = SENSITIVE_PAIR.replace(safe) { match -> "${match.groupValues[1]}=[redacted]" }
+        safe = SCOPED_IPV6_ADDRESS.replace(safe, "[address redacted]")
         safe = MAC_ADDRESS.replace(safe, "[device address redacted]")
         safe = IPV6_ADDRESS.replace(safe, "[address redacted]")
         safe = IPV4.replace(safe, "[address redacted]")
@@ -209,6 +210,11 @@ object AirPlayTrace {
         "(?i)(token|secret|credential|pairing|device.?id|session.?id|signed.?url|media.?url|ip.?address|mac.?address)"
     )
     private val IPV4 = Regex("(?<![0-9.])(?:[0-9]{1,3}\\.){3}[0-9]{1,3}(?![0-9.])")
+    // Consume the complete interface suffix before the generic address matcher. Otherwise its
+    // end guard can backtrack inside a zone such as %eth0 and leave "h0" in copied logs.
+    private val SCOPED_IPV6_ADDRESS = Regex(
+        "(?i)(?<![0-9a-f:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}%[a-z0-9_.-]+"
+    )
     private val IPV6_ADDRESS = Regex(
         "(?i)(?<![0-9a-f:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:%[a-z0-9_.-]+)?(?:\\.[0-9]{1,3}){0,4}(?![0-9a-f:])"
     )

@@ -53,6 +53,17 @@ class AirPlayTraceTest {
     }
 
     @Test
+    fun `scoped IPv6 endpoints leave no interface fragments and remain idempotent`() {
+        for (zone in listOf("eth0", "wlan0", "swlan0", "4")) {
+            val input = "Connection from fe80::1234:5678:abcd:ef01%$zone:52098"
+            val redacted = AirPlayTrace.redact(input)
+            assertEquals("Connection from [address redacted]:52098", redacted)
+            assertEquals(redacted, AirPlayTrace.redact(redacted))
+            assertEquals("[address redacted]", AirPlayTrace.redact("fe80::1%$zone"))
+        }
+    }
+
+    @Test
     fun `entries are bounded and long messages are truncated`() {
         val long = "word ".repeat(400) // over MAX_MESSAGE_CHARS, and no 40-char opaque run
         AirPlayTrace.record(long)

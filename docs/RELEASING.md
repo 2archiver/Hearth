@@ -1,11 +1,11 @@
-# Hearth release procedure (3.7)
+# Hearth release procedure (3.8)
 
 ## Publication intent
 
 - Pull requests run CI without publication.
-- Main pushes run the full Release verification pipeline and create immutable **development prereleases** named `v3.7-main.<run>`. These are download-only; GitHub's stable `/releases/latest` updater does not offer them.
+- Main pushes run the full Release verification pipeline and create immutable **development prereleases** named `v3.8-main.<run>`. These are download-only; GitHub's stable `/releases/latest` updater does not offer them.
 - A preparation commit marked `[stable-dispatch]` skips the automatic development job; the subsequent manual stable dispatch runs every verification gate once.
-- A maintainer explicitly runs Release on `main` with the **stable** input enabled only after hardware acceptance. That creates `v3.7`, titled `Hearth 3.7`. A changelog heading alone never triggers stable publication.
+- A maintainer explicitly runs Release on `main` with the **stable** input enabled only after hardware acceptance. That creates `v3.8`, titled `Hearth 3.8`. A changelog heading alone never triggers stable publication.
 - On 1 November 2026 the maintainer authorized pushing 3.7 to main and publishing a new release. Existing release titles, notes and tags remain immutable.
 
 One naming rule applies to both kinds: tag `v<version>`, title `Hearth <version>`, embedded version `<version>-googletv`, APK `hearth<version>.apk` (for example `hearth3.7.apk`). The installed updater recognizes this case-insensitive, version-bearing filename. The 3.7 APK contains **only armeabi-v7a**, as requested for the Chromecast's 32-bit userspace; it is not a dual-ABI build. Its package remains `com.hearth.tv`, minSdk29, targetSdk35, compileSdk36.
@@ -28,7 +28,7 @@ python3 tools/check-workflows.py .github/workflows/*.yml
 
 The workflow verifies one APK, package, embedded versions, exact ARMv7 ABI set and `apksigner` certificate before creating a tag. Use a monotonically increasing versionCode above every published build, including development builds. Report artifacts are retained separately from release assets. Never attach credentials or unredacted sender logs.
 
-See [3.7 validation](HEARTH-3.7-VALIDATION.md) for test evidence and remaining physical-device gates. CI is not evidence that rotation, Spotify, Rumble, long-session stability or latency passed on a Chromecast.
+See [3.8 validation](HEARTH-3.8-VALIDATION.md) and [3.7 baseline validation](HEARTH-3.7-VALIDATION.md) for test evidence and remaining physical-device gates. CI is not evidence that rotation, Spotify, Rumble, long-session stability or latency passed on a Chromecast.
 
 ## Immutable retries and Latest
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.8] — simpler Activity log and clearer release notes
+
+### What changed
+
+- Removed **Run session diagnostic** from Activity. The normal **Copy diagnostics** and **Clear** controls remain.
+- Copied logs now explain that history survives app updates. Every activity entry includes its date, so older sessions are easier to identify.
+- Fixed incomplete redaction of IPv6 network-interface names in copied logs.
+- Kept the playback engine and working casting routes from 3.7 unchanged. This is a small maintenance update, with no claimed speed or picture-quality increase.
+
+### Before you install
+
+- **Leftward landscape rotation can still appear upside down.** The supplied recording and log confirm this issue. Both directions currently report the same display dimensions, and Hearth falls back to the same 90° turn. Automatic correction needs a reliable direction signal; changing the fallback would break the other direction.
+- Install over your existing Hearth app to keep settings. This is an **ARMv7 (32-bit)** Google TV build for Android TV 10 or newer, using the same package and signing certificate.
+- Chromecast playback and both rotation directions still need physical-device checks for this build. Automated checks are listed in the validation document; they are not a claim of device testing.
+
 ## [3.7] — ARMv7 modernisation (hardware validation pending)
 
 - Coordinate Media3 1.11.1, Kotlin 2.2.21, AGP 8.10.1 and Gradle 8.11.1; remove the old forced Kotlin runtime. Keep JDK17, API29 minimum, targetSdk35 and compileSdk36 (required by Media3 AAR metadata) and the existing signing identity.

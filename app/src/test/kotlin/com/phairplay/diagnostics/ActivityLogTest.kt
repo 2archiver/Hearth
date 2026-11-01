@@ -139,6 +139,17 @@ class ActivityLogTest {
     }
 
     @Test
+    fun `export distinguishes retained history from the current app build`() {
+        ActivityLog.record(Severity.INFO, "app", "Hearth started", details = "version 3.7-googletv")
+        val report = ActivityLog.exportText(mapOf("Hearth version" to "3.8-googletv"))
+        assertTrue(report.contains("History is retained across restarts and updates"))
+        assertTrue(report.contains("older entries may come from an earlier build"))
+        assertTrue(report.contains("Hearth version: 3.8-googletv"))
+        assertTrue(report.contains("version 3.7-googletv"))
+        assertTrue(Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}  INFO").containsMatchIn(report))
+    }
+
+    @Test
     fun `history survives a restart`() {
         val store = MemoryStore()
         ActivityLog.init(store)

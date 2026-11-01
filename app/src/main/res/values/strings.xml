@@ -309,5 +309,4 @@ Hearth 2.6 independently implements bounded decoder draining and HLS root-playli
     <string name="profile_responsive">Responsive (experimental, 30 ms buffer)</string>
     <string name="profile_balanced">Balanced (experimental, 60 ms buffer)</string>
     <string name="profile_stable">Stable (experimental, 120 ms buffer)</string>
-    <string name="run_session_diagnostic">Run session diagnostic</string>
 </resources>
