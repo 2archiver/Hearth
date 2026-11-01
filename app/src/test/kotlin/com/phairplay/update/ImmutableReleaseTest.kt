@@ -270,4 +270,15 @@ class ImmutableReleaseTest {
         )
         assertEquals("2.0.0-main.23", info.versionName)
     }
+    @Test
+    fun `armv7-only 3_7 asset keeps installed updater naming compatibility`() {
+        val release = requireNotNull(ReleaseParser.parseRelease(immutableReleaseJson(
+            "v3.7", "hearth3.7.apk", 1_500_001, sha256, 14_000_000)))
+        val info = requireNotNull(ReleaseParser.buildUpdateInfo(release, descriptor = null))
+        assertEquals("3.7", info.versionName)
+        assertEquals("hearth3.7.apk", info.apkName)
+        assertEquals(sha256, info.sha256)
+        assertTrue(GitHubRepositoryPolicy.isReleaseAssetUrl(info.apkUrl, repo))
+    }
+
 }

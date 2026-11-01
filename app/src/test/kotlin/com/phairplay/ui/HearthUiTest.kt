@@ -86,7 +86,7 @@ class HearthUiTest {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         root.draw(Canvas(bitmap))
         val out = File("build/reports/hearth-ui/$name.png")
-        out.parentFile.mkdirs()
+        requireNotNull(out.parentFile).mkdirs()
         out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
     }
@@ -122,7 +122,7 @@ class HearthUiTest {
         assertTrue("History should create only visible rows", list.childCount < list.adapter.count)
         assertFalse(views.filterIsInstance<TextView>().any { it.text.toString() == "Newest" })
         assertFalse(views.filterIsInstance<TextView>().any { it.text.toString() == "Oldest" })
-        for (label in listOf("Copy diagnostics", "Clear")) {
+        for (label in listOf("Copy diagnostics", "Clear", "Run session diagnostic")) {
             val control = views.filterIsInstance<TextView>().first { it.text.toString() == label }
             assertTrue("Action must remain tall enough to show its label", control.height >= 40)
             assertTrue("Action must have visible label width", control.width > 50)
@@ -172,6 +172,10 @@ class HearthUiTest {
             R.id.header_updates to "Updates", R.id.header_about to "About")
         headers.forEach { (id, title) -> root.label(id, title) }
         root.label(R.id.text_display_name_value, "Living Room")
+        root.findViewById<View>(R.id.row_playback_profile).apply {
+            label(R.id.text_action_row_label, "Playback profile")
+            label(R.id.text_action_row_subtitle, "Applies to the next mirroring session. Experimental profiles need device testing.")
+        }
         val rows = mapOf(
             R.id.row_force_high_res to Pair("Higher resolution", "Use up to 4K when your TV and decoder support it."),
             R.id.row_airplay to Pair("AirPlay & Apple Casting", "Receive music, photos, videos and screen mirroring."),

@@ -135,6 +135,9 @@ class RtspServer(
                     }
                 }
 
+                // Control/pairing exchanges are small request/response messages. Do not hold
+                // them for Nagle coalescing; media framing/encryption remain unchanged.
+                runCatching { client.tcpNoDelay = true }
                 val connection = connectionFactory(client)
                 live.add(connection)
                 scope.launch(Dispatchers.IO) {

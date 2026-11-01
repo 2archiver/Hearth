@@ -4,8 +4,8 @@
 
 [versions]
 # Build tools
-agp = "8.6.1"                          # Android Gradle Plugin
-kotlin = "1.9.23"                      # Kotlin compiler
+agp = "8.10.1"                          # Android Gradle Plugin
+kotlin = "2.2.21"                      # Kotlin compiler
 desugar-jdk-libs = "2.0.4"            # Core library desugaring (backports Java 8+ APIs to API 25)
 
 # AndroidX
@@ -30,12 +30,8 @@ timber = "5.0.1"
 bouncycastle = "1.78.1"
 
 # Media3 (ExoPlayer) — the HLS-capable player for AirPlay *video*.
-# WHY THIS SPECIFIC VERSION: 1.4.1 declares minCompileSdk 34, so it builds against this
-# project's compileSdk 35 and needs no newer AGP than 8.6.1. It provides everything the
-# sender-mediated path uses (HlsMediaSource, DefaultMediaSourceFactory, a custom DataSource,
-# Player.Listener.onRenderedFirstFrame) in one release. Only 1.4.1 is pinned here: mixing
-# media3 modules across versions is the classic source of runtime ABI breakage.
-media3 = "1.4.1"
+# Keep every Media3 artifact aligned through this catalog entry.
+media3 = "1.11.1"
 
 # Binary property lists — Apple's bplist format used across the AirPlay 2 handshake
 # (GET /info, SETUP) for encoding/decoding NSDictionary-style payloads.

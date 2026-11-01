@@ -24,6 +24,8 @@ import re
 import os
 import subprocess
 import unittest
+import unittest.mock
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -151,7 +153,7 @@ class LatestDesignationTest(unittest.TestCase):
 
     def test_latest_pointer_uses_the_github_designation_api(self):
         self.assertIn("make_latest=true", self.text)
-        self.assertIn("make_latest=false", self.text)
+        self.assertIn("--latest=false", self.text)
         # The updater's endpoint, which resolves to the designated newest release.
         self.assertIn("repos/$REPO/releases/latest", self.text)
 
@@ -243,17 +245,17 @@ class StableMilestoneTest(unittest.TestCase):
     def setUpClass(cls):
         cls.text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_milestone_is_chosen_from_a_changelog_heading_and_a_missing_tag(self):
-        # A milestone needs BOTH: notes for this exact version, and no v<version> tag yet.
-        self.assertIn('grep -qF "## [${base}]" CHANGELOG.md', self.text)
-        self.assertIn('refs/tags/v${base}', self.text)
-        self.assertIn("milestone=true", self.text)
-        self.assertIn('echo "milestone=$milestone"', self.text)
+    def test_stable_requires_explicit_dispatch(self):
+        self.assertIn("STABLE_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.stable }}", self.text)
+        self.assertIn('if [[ "$STABLE_REQUESTED" == "true" ]]; then', self.text)
+        self.assertNotIn('grep -qF "## [${base}]" CHANGELOG.md', self.text)
+        self.assertIn('release_flags+=(--prerelease)', self.text)
+        self.assertNotIn('gh release edit', self.text)
 
     def test_stable_release_uses_the_predictable_asset_name(self):
-        self.assertIn('apk_name="Hearth${apk_version%-googletv}.apk"', self.text)
+        self.assertIn('apk_name="hearth${apk_version%-googletv}.apk"', self.text)
         # Development builds keep their embedded-version name.
-        self.assertIn('apk_name="Hearth${apk_version%-googletv}.apk"', self.text)
+        self.assertIn('apk_name="hearth${apk_version%-googletv}.apk"', self.text)
         # No duplicated extension and no "universal" label anywhere.
         self.assertNotIn(".apk.apk", self.text)
         self.assertNotIn("universal", self.text.lower())
@@ -279,15 +281,11 @@ class StableMilestoneTest(unittest.TestCase):
         self.assertLess(verify_signature, tag)
         self.assertLess(tag, publish)
 
-    def test_both_supported_abis_are_verified_inside_the_published_apk(self):
-        # A build that silently loses armeabi-v7a still installs on 64-bit TVs, so only an
-        # explicit gate catches it. Both ABIs must be asserted, and the failure must be fatal.
-        self.assertIn("unzip -Z1", self.text)
-        self.assertIn("for abi in armeabi-v7a arm64-v8a; do", self.text)
-        self.assertIn("The release APK is missing supported ABI(s)", self.text)
-        gate = self.text.index("The release APK is missing supported ABI(s)")
-        tag = self.text.index("Create the immutable version tag")
-        self.assertLess(gate, tag)
+    def test_only_armv7_is_verified_inside_the_published_apk(self):
+        self.assertIn('"$apk_abis" != "armeabi-v7a"', self.text)
+        self.assertIn("Expected ARMv7-only APK", self.text)
+        self.assertLess(self.text.index("Expected ARMv7-only APK"),
+                        self.text.index("Create the immutable version tag"))
 
     def test_version_code_must_exceed_the_currently_published_release(self):
         # The updater only installs a newer versionCode, so publishing a lower one would look
@@ -357,6 +355,7 @@ class PublicationFreshnessTest(unittest.TestCase):
 REPO=test/hearth
 GITHUB_SHA=building
 IS_CURRENT=true
+IS_STABLE=${TEST_STABLE:-true}
 existing_id=123
 TAG=v3.6
 # Simulate main changing after the early freshness check, while uploading the APK.
@@ -374,13 +373,69 @@ gh() {
 
     def test_main_advancing_during_upload_prevents_latest_promotion(self):
         output = self.promotion("newer-commit")
-        self.assertIn("make_latest=false", output)
+        self.assertIn("without taking the Latest designation", output)
         self.assertNotIn("make_latest=true", output)
 
     def test_current_build_is_promoted_after_the_final_check(self):
         output = self.promotion("building")
         self.assertIn("make_latest=true", output)
         self.assertNotIn("make_latest=false", output)
+
+
+class ImmutableRetrySafetyTest(unittest.TestCase):
+    def test_retry_reuses_binary_and_verifies_commit_and_hash(self):
+        text = RELEASE_WORKFLOW.read_text()
+        for required in ('expected_sha', 'sha256sum "$existing_apk"',
+                         'if: steps.meta.outputs.existing != \'true\'',
+                         'git rev-parse "$TAG^{commit}"',
+                         '"$actual_sha" != "$APK_SHA256"',
+                         '"$asset_count" == "1"'):
+            self.assertIn(required, text)
+        self.assertNotIn('existing_size', text)
+        self.assertNotIn('gh release edit', text)
+
+    def retry(self, contents, count="1"):
+        text = RELEASE_WORKFLOW.read_text()
+        start = text.index('          if [[ -n "$existing_id" ]]; then')
+        end = text.index('\n          else\n            release_flags=', start)
+        script = text[start:end] + "\nfi\n"
+        setup = """set -euo pipefail
+existing_id=1
+REPO=test/hearth
+TAG=v3.7
+APK_NAME=Hearth-3.7-googletv.apk
+APK_SHA256=$TEST_SHA
+trap '[[ -z "${retry_dir:-}" ]] || rm -r "$retry_dir"' EXIT
+gh() {
+  if [[ "$1" == "api" ]]; then printf '%s' "$TEST_COUNT";
+  else
+    while [[ "$1" != "--dir" ]]; do shift; done
+    printf '%s' "$TEST_CONTENT" > "$2/$APK_NAME"
+  fi
+}
+"""
+        return subprocess.run(["bash", "-c", setup + script], capture_output=True, text=True,
+            env={**os.environ, "TEST_SHA": hashlib.sha256(b"good").hexdigest(),
+                 "TEST_CONTENT": contents, "TEST_COUNT": count})
+
+    def test_exact_asset_bytes_skip_upload(self):
+        result = self.retry("good")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("skipping upload", result.stdout)
+
+    def test_same_size_tampered_asset_fails(self):
+        result = self.retry("evil")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("SHA-256 mismatch", result.stdout)
+
+    def test_multiple_assets_fail(self):
+        self.assertNotEqual(0, self.retry("good", "2").returncode)
+
+    def test_development_cannot_become_latest(self):
+        tester = PublicationFreshnessTest()
+        with unittest.mock.patch.dict(os.environ, {"TEST_STABLE": "false"}):
+            output = tester.promotion("building")
+        self.assertNotIn("make_latest=true", output)
 
 
 if __name__ == "__main__":

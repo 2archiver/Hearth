@@ -62,6 +62,8 @@ import kotlinx.coroutines.channels.Channel
  *   ACTION_RESTART — stops then starts all receivers (service keeps running)
  */
 class PhairPlayService : Service() {
+    @Volatile private var nextPlaybackProfile = com.phairplay.settings.PlaybackProfile.LEGACY
+
 
     // Binder for Activity binding (returns this service directly)
     private val binder = LocalBinder()
@@ -228,6 +230,7 @@ class PhairPlayService : Service() {
         updateSettingsJob = serviceScope.launch {
             var previous: Triple<Boolean, Boolean, Boolean>? = null
             settingsRepository.settingsFlow.collect { settings ->
+                nextPlaybackProfile = settings.playbackProfile
                 // Mirror the debug-overlay toggle into the shared stats bus as it changes.
                 //
                 // WHY HERE: Settings saves this one without restarting the receivers (it is a
@@ -561,6 +564,7 @@ class PhairPlayService : Service() {
         Logger.i("AirPlay mirror advertised at ${mirror.label} (${mirror.width}x${mirror.height}) — " +
                  "panel ${panel.first}x${panel.second}, H.264 ceiling ${decode.first}x${decode.second}")
 
+        nextPlaybackProfile = settings.playbackProfile
         val callbackTicket = receiverCallbackGate.next()
         lateinit var receiver: AirPlayReceiver
         receiver = AirPlayReceiver(
@@ -570,6 +574,7 @@ class PhairPlayService : Service() {
             mirrorHeight = mirror.height,
             mirrorResolutionForSession = mirrorResolutionForSession,
             audioEnabled = settings.mirrorAudioEnabled,
+            playbackProfileForSession = { nextPlaybackProfile },
             // Delegate to the current provider at call time — captures the field, not a fixed value.
             videoSurfaceProvider = { videoSurfaceProvider?.invoke() },
             onSenderNameChanged = { name ->

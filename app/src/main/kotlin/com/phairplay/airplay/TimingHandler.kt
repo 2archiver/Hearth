@@ -13,8 +13,8 @@ import java.net.DatagramSocket
  *
  * WHY: AirPlay senders periodically send timing probe packets (UDP) so that both
  * sides can calculate network latency and synchronize their clocks. The sender
- * uses the round-trip response to align its RTP presentation timestamps with
- * the receiver's wall clock, achieving A/V drift below 40 ms (NFR-15).
+ * can use the round-trip response to estimate clock alignment. This does not
+ * measure AudioTrack hardware presentation or establish a measured A/V drift.
  *
  * PROTOCOL: Apple uses a simplified NTP-over-UDP format (32-byte packets).
  *
@@ -41,9 +41,9 @@ import java.net.DatagramSocket
  *   The 64-bit value packs seconds (high 32 bits) + sub-second fraction (low 32 bits).
  *   Converting from Java millis: add NTP_EPOCH_OFFSET for the seconds, scale % 1000 for fraction.
  *
- * [rtpClockOffsetUs] is updated on every probe response. It represents the estimated
- * offset between our local clock and the sender's RTP clock, in microseconds.
- * [AudioPlayer] uses this to keep audio presentation in sync with video.
+ * [rtpClockOffsetUs] is a legacy-named estimated timing offset, not a hardware
+ * presentation clock or verified RTP/video anchor. Audio/video synchronization
+ * must remain unknown until a common presentation anchor is measured.
  *
  * Usage:
  *   val handler = TimingHandler()
@@ -59,8 +59,8 @@ class TimingHandler {
      * Estimated offset between our local clock and the sender's RTP timestamp clock,
      * in microseconds. Updated on every received timing probe.
      *
-     * AudioPlayer uses this to correct presentation timestamps from the RTP stream,
-     * reducing A/V drift. A value of 0 means no probes have been received yet.
+     * A value of 0 is also the initial sentinel; it must not be reported as
+     * measured zero drift or perfect A/V synchronization.
      */
     @Volatile
     var rtpClockOffsetUs: Long = 0L

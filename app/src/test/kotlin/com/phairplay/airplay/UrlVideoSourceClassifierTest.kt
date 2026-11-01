@@ -5,6 +5,15 @@ import org.junit.Test
 
 class UrlVideoSourceClassifierTest {
     @Test
+    fun progressiveHeadersAvoidWaitingForProbeBodyButAmbiguousTypesStillSniff() {
+        assertEquals(true, UrlVideoSourceClassifier.isKnownProgressiveMime("Video/MP4; codecs=avc1"))
+        for (mime in listOf(null, "application/octet-stream", "text/plain", "video/mp4-lookalike",
+                            "application/vnd.apple.mpegurl")) {
+            assertEquals(false, UrlVideoSourceClassifier.isKnownProgressiveMime(mime))
+        }
+    }
+
+    @Test
     fun recognizesHlsMimeTypesEvenWhenUrlHasNoExtension() {
         listOf(
             "application/vnd.apple.mpegurl",

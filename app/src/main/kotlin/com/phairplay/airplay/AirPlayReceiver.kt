@@ -9,6 +9,7 @@ import com.phairplay.airplay.handshake.AudioStreamServer
 import com.phairplay.airplay.handshake.BufferedAudioServer
 import com.phairplay.airplay.handshake.MirrorStreamServer
 import com.phairplay.service.ProtocolState
+import com.phairplay.settings.PlaybackProfile
 import com.phairplay.settings.MirrorResolution
 import com.phairplay.util.Logger
 import com.phairplay.util.MdnsNames
@@ -78,6 +79,7 @@ internal class AirPlayReceiver(
     },
     /** Whether to accept the mirroring audio stream (experimental — see AppSettings.mirrorAudioEnabled). */
     private val audioEnabled: Boolean = false,
+    private val playbackProfileForSession: () -> PlaybackProfile = { PlaybackProfile.LEGACY },
     /** Lazy Surface provider — called only for video streams when RECORD arrives. */
     private val videoSurfaceProvider: () -> Surface?,
     private val onStateChanged: (ProtocolState) -> Unit,
@@ -170,6 +172,7 @@ internal class AirPlayReceiver(
     private data class MirrorSessionPolicySnapshot(
         val token: SessionToken,
         val resolution: MirrorResolution,
+        val playbackProfile: PlaybackProfile,
     )
 
     /** Dimensions and pacing are latched for a session and survive stream-level video restarts. */
@@ -484,6 +487,7 @@ internal class AirPlayReceiver(
         return MirrorSessionPolicySnapshot(
             token = session.token,
             resolution = mirrorResolutionForSession(),
+            playbackProfile = playbackProfileForSession(),
         ).also { mirrorSessionPolicy = it }.resolution
     }
 
@@ -1202,6 +1206,7 @@ internal class AirPlayReceiver(
             MirrorSessionPolicySnapshot(
                 token = token!!,
                 resolution = mirrorResolutionForSession(),
+                playbackProfile = playbackProfileForSession(),
             ).also { mirrorSessionPolicy = it }
         }
         val mirrorResolution = policy.resolution
@@ -1212,6 +1217,7 @@ internal class AirPlayReceiver(
             surfaceProvider = videoSurfaceProvider,
             width = mirrorResolution.width,
             height = mirrorResolution.height,
+            playbackProfile = policy.playbackProfile,
         ).also { mirrorServer = it; it.start(scope); videoPlaying = true; emitNowPlaying() }
             .dataPort
             .also { port ->

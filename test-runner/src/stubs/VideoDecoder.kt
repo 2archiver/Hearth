@@ -18,6 +18,7 @@ import com.phairplay.util.Logger
 class VideoDecoder(
     outputSurface: Any?,
     stableMirrorPacing: Boolean = false,
+    playoutBufferNanos: Long = 60_000_000L,
     mirrorPresentationOriginNanos: Long? = null,
 ) {
 

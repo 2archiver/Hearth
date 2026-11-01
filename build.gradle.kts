@@ -7,12 +7,15 @@ plugins {
     alias(libs.plugins.kotlin.jvm) apply false
 }
 
+// MockK needs instrumentation. Preload its existing Byte Buddy agent rather than
+// relying on dynamic self-attach, which is unavailable on some CI/container JVMs.
 subprojects {
-    configurations.configureEach {
-        resolutionStrategy.force(
-            "org.jetbrains.kotlin:kotlin-stdlib:1.9.23",
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.23",
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.23"
-        )
+    tasks.withType<Test>().configureEach {
+        doFirst {
+            val agent = classpath.files.singleOrNull {
+                it.name.startsWith("byte-buddy-agent-") && it.extension == "jar"
+            }
+            if (agent != null) jvmArgs("-javaagent:${agent.absolutePath}")
+        }
     }
 }

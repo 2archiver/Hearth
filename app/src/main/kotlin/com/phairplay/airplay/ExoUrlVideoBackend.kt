@@ -125,9 +125,14 @@ internal class ExoUrlVideoBackend(
 
     /** True once this backend published a video size to [StreamStats], so release can clear it. */
     private var publishedVideoSize = false
+    private val metrics = UrlVideoMetrics()
+    private var sourceRequestedNanos = 0L
 
     private val listener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
+            if (released) return
+            metrics.firstFrame(System.nanoTime())
+            StreamStats.urlVideoSummary = metrics.summary(System.nanoTime())
             Logger.i("URL video: first frame rendered (ExoPlayer)")
             firstFrameListener?.invoke()
         }
@@ -200,6 +205,10 @@ internal class ExoUrlVideoBackend(
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (released) return
+            metrics.playbackState(playbackState == Player.STATE_BUFFERING,
+                playbackState == Player.STATE_READY, System.nanoTime())
+            StreamStats.urlVideoSummary = metrics.summary(System.nanoTime())
             when (playbackState) {
                 Player.STATE_READY -> {
                     if (!prepareReported) {
@@ -266,13 +275,15 @@ internal class ExoUrlVideoBackend(
     override fun setDataSource(url: String) = setDataSource(url, emptyMap())
 
     override fun setDataSource(url: String, requestHeaders: Map<String, String>) {
+        check(!released) { "URL video backend has been released" }
+        sourceRequestedNanos = System.nanoTime()
+        StreamStats.urlVideoSummary = "URL source=classifying; first frame=N/A"
         prepareReported = false
         videoTrackPresent = true
         audioTrackPresent = null
         unknownTracksLogged = false
         val uri = Uri.parse(url)
         requestGeneration++
-        released = false
         activeRequestUri = uri
         activeRequestHeaders = requestHeaders.toMap()
         pendingUri = uri
@@ -323,6 +334,9 @@ internal class ExoUrlVideoBackend(
             AirPlayTrace.Kind.LIFECYCLE,
         )
         try {
+            metrics.begin(if (isBridgeUri(uri)) "sender HLS" else if (hls) "direct HLS" else "progressive",
+                sourceRequestedNanos)
+            StreamStats.urlVideoSummary = metrics.summary(System.nanoTime())
             player.setMediaSource(mediaSourceFor(mediaItem, hls))
             player.prepare()
         } catch (error: Exception) {
@@ -353,6 +367,8 @@ internal class ExoUrlVideoBackend(
             val mimeResult = UrlVideoSourceClassifier.classify(mimeType)
             if (mimeResult.isHls) {
                 HlsProbeResult(true, mimeResult.evidence)
+            } else if (UrlVideoSourceClassifier.isKnownProgressiveMime(mimeType)) {
+                HlsProbeResult(false, "progressive Content-Type")
             } else {
                 val prefix = ByteArray(HLS_PROBE_BYTES)
                 var read = 0
@@ -434,6 +450,8 @@ internal class ExoUrlVideoBackend(
     }
 
     override fun release() {
+        if (released) return
+        trace(metrics.summary(System.nanoTime()), AirPlayTrace.Kind.LIFECYCLE)
         released = true
         requestGeneration++
         activeRequestHeaders = emptyMap()

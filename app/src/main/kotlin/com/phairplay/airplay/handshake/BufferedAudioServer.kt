@@ -15,10 +15,10 @@ import java.net.Socket
  * connection: the sender streams ahead and the receiver plays from a buffer, scheduled against an
  * anchor time provided by SETRATEANCHORTIME.
  *
- * STATUS: accept-only. It accepts the TCP connection (so macOS doesn't abort) and logs the framing
- * of the first packets. Playback isn't wired: macOS Apple Music never takes this path (it uses legacy
- * RAOP), and the AirPlay 2 buffered stream is FairPlay-2-encrypted, which no FOSS receiver can
- * decrypt. Kept for senders that do reach it and for protocol reference (AudioStreamServer/AudioPlayer).
+ * STATUS: transport inspection only: no buffered-audio decryption, anchors, or playback.
+ * Shairport Sync demonstrates open-source AirPlay 2 audio on supported Linux hosts;
+ * that does not establish Android compatibility. Never report this socket as audible playback.
+
  */
 class BufferedAudioServer {
 
@@ -45,7 +45,12 @@ class BufferedAudioServer {
         try {
             Logger.i("BufferedAudioServer (audio-only) listening on TCP $dataPort")
             val socket = serverSocket.accept().also { client = it }
-            Logger.i("Buffered audio connection from ${socket.inetAddress.hostAddress}")
+            Logger.w("Buffered audio transport connected; type 103 playback is unsupported")
+            com.phairplay.diagnostics.ActivityLog.record(
+                com.phairplay.diagnostics.Severity.WARNING, "audio",
+                "Buffered AirPlay audio is not supported",
+                details = "Type 103 transport connected; no audio decoder or presentation clock is active.",
+            )
             val input = socket.getInputStream()
             val buf = ByteArray(16384)
             var reads = 0
@@ -54,11 +59,7 @@ class BufferedAudioServer {
                 val n = input.read(buf)
                 if (n < 0) break
                 totalBytes += n
-                // Log the framing of the first few reads (length prefix / RTP header / payload).
-                if (reads < 12) {
-                    Logger.d("Buffered audio read[$reads] ${n}B head=${hex(buf, minOf(28, n))}")
-                    reads++
-                }
+                reads++
             }
             Logger.i("Buffered audio connection ended (total ${totalBytes}B over ${reads}+ reads)")
         } catch (e: Exception) {
@@ -66,8 +67,4 @@ class BufferedAudioServer {
         }
     }
 
-    private companion object {
-        fun hex(b: ByteArray, len: Int): String =
-            (0 until minOf(len, b.size)).joinToString(" ") { "%02x".format(b[it]) }
-    }
 }

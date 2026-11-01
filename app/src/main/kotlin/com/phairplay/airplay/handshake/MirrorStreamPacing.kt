@@ -353,7 +353,14 @@ internal object MirrorPresentationPolicy {
  * Preserve sender cadence through packet bursts; rebuffer only after a stall/clock discontinuity.
  * The decoder waits before releasing outputs with excessive lead; a burst is not a clock reset.
  */
-internal class MirrorPlayoutClock {
+internal class MirrorPlayoutClock(
+    private val bufferNanos: Long = BUFFER_NANOS,
+    private val maximumLeadNanos: Long = DISCONTINUITY_LEAD_NANOS,
+) {
+    init {
+        require(bufferNanos in 0L..150_000_000L)
+        require(maximumLeadNanos >= bufferNanos)
+    }
     private var anchorPtsUs: Long? = null
     private var anchorNanos = 0L
     private var lastPtsUs = 0L
@@ -366,9 +373,9 @@ internal class MirrorPlayoutClock {
             null
         }
         if (target == null || ptsUs < lastPtsUs ||
-            target - nowNanos > DISCONTINUITY_LEAD_NANOS || nowNanos - target > REBUFFER_LATENESS_NANOS) {
+            target - nowNanos > maximumLeadNanos || nowNanos - target > REBUFFER_LATENESS_NANOS) {
             anchorPtsUs = ptsUs
-            anchorNanos = nowNanos + BUFFER_NANOS
+            anchorNanos = nowNanos + bufferNanos
             lastPtsUs = ptsUs
             return anchorNanos
         }

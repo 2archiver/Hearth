@@ -85,7 +85,7 @@ dependencies {
     runtimeOnly("org.robolectric:android-all:14-robolectric-10818077")
 
     // ── Kotlin ─────────────────────────────────────────────────────────────────
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.23")
+    implementation(kotlin("stdlib"))
 
     // ── Coroutines ─────────────────────────────────────────────────────────────
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
@@ -116,8 +116,8 @@ tasks.test {
     testClassesDirs = sourceSets.main.get().output.classesDirs
     classpath = sourceSets.main.get().runtimeClasspath
     useJUnit()
-    // Allow dynamic agent loading required by MockK's bytecode instrumentation
-    jvmArgs("-XX:+EnableDynamicAgentLoading", "-Xshare:off")
+    // Byte Buddy is preloaded by the root Test configuration; no self-attach needed.
+    jvmArgs("-Xshare:off")
     testLogging {
         events("passed", "failed", "skipped")
         showStandardStreams = false

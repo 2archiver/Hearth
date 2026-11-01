@@ -71,6 +71,7 @@ object StreamStats {
     @Volatile var displayRefreshHz: Float = 0f
 
     // ─── Video: receive side (labelled RX in the overlay) ───────────────────
+    @Volatile var urlVideoSummary = "URL video: N/A"
     @Volatile var videoRes = ""          // e.g. "1920x1080"
     @Volatile var rxPayloadsPerSec = 0   // RTP payloads/sec — NOT frames, NOT fps
     @Volatile var rxBitrateKbps = 0      // payload bytes/sec over the last window, in kbit/s
@@ -117,6 +118,11 @@ object StreamStats {
     @Volatile internal var mirrorOrientation: com.phairplay.airplay.handshake.MirrorOrientation? = null
 
     // ─── Audio ──────────────────────────────────────────────────────────────
+    @Volatile var audioClockState = "unavailable"
+    @Volatile var audioUnderruns: Int? = null
+    @Volatile var audioOutputBufferFrames: Int? = null
+    @Volatile var audioOutputSampleRate: Int? = null
+    @Volatile var audioQueuedOutputFrames: Long? = null
     @Volatile var audioActive = false  // true while an audio stream is running
     @Volatile var audioQueue = 0       // current playback-queue depth
     @Volatile var audioDupPct = 0      // % of RTP packets that were redundant duplicates
@@ -169,6 +175,7 @@ object StreamStats {
         source = ""
         sessionStartedAtMillis = 0L
 
+        urlVideoSummary = "URL video: N/A"
         videoRes = ""
         rxPayloadsPerSec = 0
         rxBitrateKbps = 0
@@ -200,6 +207,11 @@ object StreamStats {
         mirrorGeometry = null
         mirrorOrientation = null
 
+        audioClockState = "unavailable"
+        audioUnderruns = null
+        audioOutputBufferFrames = null
+        audioOutputSampleRate = null
+        audioQueuedOutputFrames = null
         audioActive = false
         audioQueue = 0
         audioDupPct = 0
@@ -469,6 +481,12 @@ object StreamStats {
         val sync = avSyncOffsetMs
         text.append(" · sync ").append(if (sync != null) "${sync} ms" else "N/A (not measurable)")
         text.append('\n')
+        text.append(urlVideoSummary).append('\n')
+        text.append("CLOCK   ").append(audioClockState)
+            .append(" · underruns ").append(audioUnderruns ?: "N/A")
+            .append(" · output ").append(audioOutputSampleRate ?: "N/A").append(" Hz")
+            .append(" · buffer ").append(audioOutputBufferFrames ?: "N/A").append(" frames")
+            .append(" · queued estimate ").append(audioQueuedOutputFrames ?: "N/A").append(" frames\n")
         text.append("KEYS    D-pad stays on the app; this overlay never takes focus")
         return text.toString().trimEnd()
     }

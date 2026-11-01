@@ -78,6 +78,9 @@ data class AppSettings(
      */
     val forceHighResolution: Boolean = true,
 
+    /** Experimental pacing is opt-in until Chromecast hardware validation. */
+    val playbackProfile: PlaybackProfile = PlaybackProfile.LEGACY,
+
     /**
      * When true, accept the mirroring audio stream (type 96, AAC-ELD). EXPERIMENTAL: macOS uses
      * realtime audio clock-sync (RTCP) that isn't fully implemented yet, which can make macOS tear

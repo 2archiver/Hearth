@@ -113,6 +113,8 @@ class SettingsFragment : Fragment() {
     }
 
     private fun setRowLabels() {
+        configureToggleRow(requireView().findViewById(R.id.row_playback_profile),
+            R.string.setting_playback_profile, R.string.setting_playback_profile_subtitle)
         configureToggleRow(rowAirPlay,      R.string.setting_airplay_enabled,    R.string.setting_airplay_subtitle)
         configureToggleRow(rowMirrorAudio,  R.string.setting_mirror_audio,       R.string.setting_mirror_audio_subtitle)
         configureToggleRow(rowStartOnBoot,  R.string.setting_start_on_boot,      0)
@@ -179,6 +181,22 @@ class SettingsFragment : Fragment() {
 
     private fun setupListeners() {
         rowDisplayName.setOnClickListener { showDisplayNameDialog() }
+        requireView().findViewById<View>(R.id.row_playback_profile).setOnClickListener {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val current = settingsRepository.settingsFlow.first().playbackProfile
+                val profiles = com.phairplay.settings.PlaybackProfile.entries
+                val labels = intArrayOf(R.string.profile_legacy, R.string.profile_responsive,
+                    R.string.profile_balanced, R.string.profile_stable).map { getString(it) }.toTypedArray()
+                AlertDialog.Builder(requireContext())
+                    .setTitle(R.string.setting_playback_profile)
+                    .setSingleChoiceItems(labels, profiles.indexOf(current)) { dialog, index ->
+                        save { it.copy(playbackProfile = profiles[index]) }
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
         // Diagnostics live here, not on the playback screen: the overlay stays a compact readout
         // and the full history stays one D-pad press away from Settings.
         rowActivityLog.setOnClickListener { ActivityLogDialog.show(requireContext()) }

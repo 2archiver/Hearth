@@ -7,6 +7,7 @@ import com.phairplay.airplay.VideoDecoder
 import com.phairplay.diagnostics.ActivityLog
 import com.phairplay.diagnostics.Severity
 import com.phairplay.util.Logger
+import com.phairplay.settings.PlaybackProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ class MirrorStreamServer(
     private val surfaceProvider: () -> Surface?,
     private val width: Int = 1920,
     private val height: Int = 1080,
+    private val playbackProfile: PlaybackProfile = PlaybackProfile.LEGACY,
 ) {
     @Volatile private var cipher = MirrorCrypto.streamCipher(aesKey, ecdhSecret, streamConnectionId)
     private val serverSocket = ServerSocket(0) // OS-assigned free port
@@ -74,7 +76,7 @@ class MirrorStreamServer(
 
     fun start(scope: CoroutineScope) {
         running = true
-        StreamStats.configureMirrorPacing(false, width, height)
+        StreamStats.configureMirrorPacing(playbackProfile.bufferMillis != null, width, height)
         publishQueueStats()
         scope.launch(Dispatchers.IO) { runReader() }
         scope.launch(Dispatchers.IO) { runDecoder() }
@@ -405,10 +407,12 @@ class MirrorStreamServer(
         decoder = VideoDecoder(
             outputSurface = surface,
             mirrorPresentationOriginNanos = origin,
+            stableMirrorPacing = playbackProfile.bufferMillis != null,
+            playoutBufferNanos = (playbackProfile.bufferMillis ?: 60L) * 1_000_000L,
         ).also {
             it.initialize(startCode + config.sps, startCode + config.pps, width, height)
         }
-        StreamStats.configureMirrorPacing(false, width, height)
+        StreamStats.configureMirrorPacing(playbackProfile.bufferMillis != null, width, height)
         StreamStats.videoDecoderReady = true
         Logger.i("Mirror decoder rebuilt for surface (SPS=${config.sps.size}B PPS=${config.pps.size}B)")
         // Initial setup and planned orientation changes are normal lifecycle events.

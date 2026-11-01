@@ -33,6 +33,7 @@ class AudioPlayer {
 
     // Android's audio output — writes decoded PCM audio to hardware
     private var audioTrack: AudioTrack? = null
+    private var audioDiagnostics: AudioTrackDiagnostics? = null
 
     // RAOP audio is AES-128-CBC: whole 16-byte blocks per packet (fresh IV each packet), trailing
     // partial block in cleartext. Cipher reused; key/IV null for unencrypted streams.
@@ -181,7 +182,10 @@ class AudioPlayer {
 
             // Step 4: Write to AudioTrack for playback
             // WRITE_NON_BLOCKING returns immediately if the buffer is full (prevents stalls)
-            audioTrack?.write(pcm, 0, pcm.size, AudioTrack.WRITE_NON_BLOCKING)
+            audioTrack?.let { track ->
+                val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_NON_BLOCKING)
+                audioDiagnostics?.noteWrite(track, written)
+            }
 
         } catch (e: Exception) {
             Logger.e("Error playing audio packet", e)
@@ -207,6 +211,7 @@ class AudioPlayer {
             runCatching { alac?.close() }
             alac = null
             audioTrack = null
+            audioDiagnostics = null
             aesKeySpec = null
             aesIvSpec = null
             isInitialized = false
@@ -244,6 +249,7 @@ class AudioPlayer {
      * @param channels   Number of channels (1 = mono, 2 = stereo)
      */
     private fun initializeAudioTrack(sampleRate: Int, channels: Int) {
+        audioDiagnostics = AudioTrackDiagnostics(sampleRate, channels)
         // Map channel count to Android's AudioFormat constant
         val channelConfig = when (channels) {
             1 -> AudioFormat.CHANNEL_OUT_MONO

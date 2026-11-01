@@ -8,10 +8,11 @@ Three ways, easiest first.
 
 The updater requests `https://api.github.com/repos/2archiver/Hearth/releases/latest`, compares
 numeric Android `versionCode` values, and downloads only the actual compatible Google TV APK
-asset returned by that release. It does not construct a guessed fixed-name APK URL. Since the 2.0
-release hotfix, each build is an immutable release under its own `v<version>-main.<run number>`
-tag; GitHub's **Latest release** designation decides which one `/releases/latest` returns, so no
-git tag is ever moved and older releases remain downloadable.
+asset returned by that release. It does not construct a guessed fixed-name APK URL. Stable releases are immutable and GitHub's **Latest release** designation selects the update.
+Starting with 3.7, main builds are explicitly marked development prereleases and are download-only;
+only an explicit maintainer stable dispatch can enter this updater channel. Old tags, titles and
+notes are not rewritten. The single 3.7 APK is ARMv7-only; the familiar `-googletv.apk` filename
+is retained for installed-updater compatibility.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
@@ -36,7 +37,7 @@ ambiguous. Before it stages an APK, it checks:
 2. The streamed download has the reported exact size and SHA-256. Missing or malformed checksum
    metadata is a **blocking error**; Hearth does not proceed on size-only verification.
 3. Android can read the downloaded package. Its `applicationId` must remain
-   `com.phairplay.googletv`; its embedded `versionCode` must match the release metadata and be
+   `com.hearth.tv`; its embedded `versionCode` must match the release metadata and be
    strictly newer than the installed build. For version-named releases, its `versionName` must
    also agree with the APK filename.
 4. The APK signing certificate must match the installed Hearth signing identity. A mismatch or an

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.7] — ARMv7 modernisation (hardware validation pending)
+
+- Coordinate Media3 1.11.1, Kotlin 2.2.21, AGP 8.10.1 and Gradle 8.11.1; remove the old forced Kotlin runtime. Keep JDK17, API29 minimum, targetSdk35 and compileSdk36 (required by Media3 AAR metadata) and the existing signing identity.
+- Build one ARMv7-only Google TV APK, as requested for the Chromecast's 32-bit userspace.
+- Preserve the 3.6 immediate mirror presentation and TextureView transform by default. Add opt-in fixed 30/60/120ms receiver-buffer profiles for future sessions; bounded Surface timestamp scheduling avoids parking the decoder owner. These are experimental buffering targets, not measured latency improvements.
+- Disable Nagle coalescing for small RTSP pairing/control responses. Explicit progressive MIME types finish source probing at the response headers; generic/extensionless HLS still uses bounded body sniffing. No measured startup speedup is claimed.
+- Add read-only hardware audio timestamp validation, underrun/output-buffer counters, URL source/first-frame/rebuffer diagnostics, and an on-demand local session report.
+- Type-103 transport inspection explicitly warns that playback is unsupported and no longer dumps received bytes.
+- Require explicit manual stable publication. Main builds are development prereleases outside the stable updater. Never rename or rewrite an existing release; retry with its original verified APK, SHA-256 and tag commit.
+- HEVC, true buffered AirPlay 2 audio, adaptive jitter, track-selection UI and allocation pooling remain deferred pending profiling and hardware evidence. No new codec/DRM capability is advertised.
+- Chromecast rotation, Rumble/Safari/YouTube/Spotify and performance acceptance remain unverified. See docs/HEARTH-3.7-VALIDATION.md before shipping.
+
 ## [3.6] — rotate the mirrored pixels on Google TV
 
 - Replace the mirroring SurfaceView with a hardware-decoded TextureView. Apply rotation, source flips and aspect fit together in one texture matrix inside a fixed TV viewport, avoiding the separate video-layer transform that left 3.5 sideways and stretched on the reported TV.

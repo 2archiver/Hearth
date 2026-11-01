@@ -143,36 +143,27 @@ val signingKeySpec: SigningKeySpec? = run {
 
 android {
     namespace = "com.phairplay"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         // applicationId is overridden per flavor below
         minSdk = 29           // Google TV / Android TV OS 10+
         targetSdk = 35
-        // Version source of truth: phairplay.versionName in gradle.properties. CI publishes one
-        // immutable release per run and reads the final APK metadata back before releasing.
-        //  * stable milestone: when CHANGELOG.md has a section for this exact version and no
-        //    v<versionName> tag exists, the tag is v<versionName> and the asset is the predictable
-        //    Hearth-v<versionName>-android-tv.apk;
-        //  * otherwise: tag v<versionName>-main.<run number> and asset
-        //    Hearth-<versionName>-main.<run number>-googletv.apk.
-        // The versionCode fallback increases with each local build.
+        // Explicit stable dispatch or per-run development version, both immutable.
         versionCode = providers.gradleProperty("phairplay.versionCode").orNull?.toIntOrNull()
             ?: monotonicVersionCode()
         versionName = providers.gradleProperty("phairplay.versionName").getOrElse("2.1.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "MEDIA3_VERSION", "\"${libs.versions.media3.get()}\"")
         buildConfigField("String", "UPDATE_REPO", "\"${updateRepo.escapedForBuildConfig()}\"")
 
-        // Native code (libplayfair.so, libalac) — Google TV hardware is ARM only
-        // (Chromecast with Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs),
-        // so x86/x86_64 are dropped to keep the APK small. arm64-v8a is the main target;
-        // armeabi-v7a stays because many Google TV devices (incl. Chromecast with Google TV)
-        // run a 32-bit userspace.
+        // ARMv7-only distribution requested for the 32-bit Chromecast userspace.
         ndk {
-            abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+            abiFilters += setOf("armeabi-v7a")
         }
+
     }
 
     // Native build: RPiPlay's FairPlay (playfair) compiled via CMake → libplayfair.so.
@@ -247,13 +238,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        // Enable strict coroutine checks in debug builds
-        freeCompilerArgs += listOf(
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-        )
-    }
 
     // Source sets: shared code in main, flavor-specific overrides in flavor directories
     sourceSets {
@@ -290,6 +274,9 @@ android {
             "MissingTranslation",
             // Cleanup/style issues that should not block debug APK CI.
             "ButtonStyle",
+            // Style-only KTX replacements would make framework-only protocol sources depend
+            // on AndroidX, which the standalone JVM runner deliberately does not resolve.
+            "UseKtx",
             "DataExtractionRules",
             "DiscouragedApi",
             "MonochromeLauncherIcon",
@@ -304,8 +291,8 @@ android {
             "OldTargetApi",
             // Hearth ships for Google TV only, where every device is ARM (Chromecast with
             // Google TV, Google TV Streamer, Sony/TCL/Hisense/Philips TVs). The native
-            // FairPlay/ALAC libraries are built for armeabi-v7a and arm64-v8a to keep the APK
-            // small; x86/x86_64 would only serve ChromeOS, which this app does not target.
+            // FairPlay/ALAC libraries target the requested armeabi-v7a userspace.
+            // This sideloaded build does not target ChromeOS or the Play Store.
             "ChromeOsAbiSupport"
         )
     }
@@ -335,6 +322,13 @@ android {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        optIn.add("kotlinx.coroutines.ExperimentalCoroutinesApi")
     }
 }
 

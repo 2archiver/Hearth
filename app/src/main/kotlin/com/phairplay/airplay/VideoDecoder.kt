@@ -39,6 +39,7 @@ class VideoDecoder(
     private val outputSurface: Surface,
     /** Enabled only for AirPlay mirroring; legacy media and ExoPlayer are never paced here. */
     private val stableMirrorPacing: Boolean = false,
+    playoutBufferNanos: Long = MirrorPlayoutClock.BUFFER_NANOS,
     /** Monotonic origin produced by MirrorTimestampMapper, or null before the first frame. */
     private val mirrorPresentationOriginNanos: Long? = null,
 ) {
@@ -46,7 +47,10 @@ class VideoDecoder(
     // The underlying hardware decoder — null until initialize() is called
     @Volatile private var mediaCodec: MediaCodec? = null
     private var frameCallbackThread: HandlerThread? = null
-    private val playoutClock = MirrorPlayoutClock()
+    private val playoutClock = MirrorPlayoutClock(
+        bufferNanos = playoutBufferNanos,
+        maximumLeadNanos = 150_000_000L,
+    )
     private val outputBufferInfo = MediaCodec.BufferInfo()
     private var inputLossReported = false
 
@@ -276,28 +280,15 @@ class VideoDecoder(
                     // latched at this mirror session's start.
                     codec.releaseOutputBuffer(outputBufferIndex, true)
                 } else {
-                    var nowNanos = System.nanoTime()
+                    val nowNanos = System.nanoTime()
                     val targetNanos = playoutClock.targetTimeNanos(bufferInfo.presentationTimeUs, nowNanos)
-                    // A packet burst can legitimately run ahead of the Surface scheduling window.
-                    // Apply backpressure on this decoder worker instead of resetting the timeline
-                    // backwards or dumping those frames onto the display at once. The encoded
-                    // queue remains bounded and the socket reader continues independently.
-                    while (targetNanos - nowNanos > MirrorPlayoutClock.MAX_LEAD_NANOS &&
-                        !Thread.currentThread().isInterrupted) {
-                        java.util.concurrent.locks.LockSupport.parkNanos(
-                            minOf(targetNanos - nowNanos - MirrorPlayoutClock.MAX_LEAD_NANOS, 10_000_000L),
-                        )
-                        nowNanos = System.nanoTime()
-                    }
-                    if (Thread.currentThread().isInterrupted) {
-                        codec.releaseOutputBuffer(outputBufferIndex, false)
-                        return
-                    }
+                    // Opt-in pacing bounds future timestamps in the clock, then lets the Surface
+                    // schedule output. Never park the codec's sole input/output owner.
                     val decision = MirrorPresentationPolicy.decide(
                         enabled = true,
                         targetTimeNanos = targetNanos,
                         nowNanos = nowNanos,
-                        maxLeadNanos = MirrorPlayoutClock.MAX_LEAD_NANOS,
+                        maxLeadNanos = 150_000_000L,
                         maxLatenessNanos = 45_000_000L,
                     )
                     when (decision.action) {

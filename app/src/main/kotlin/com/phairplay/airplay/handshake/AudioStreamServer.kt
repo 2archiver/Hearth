@@ -8,6 +8,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import com.phairplay.airplay.StreamStats
+import com.phairplay.airplay.AudioTrackDiagnostics
 import com.phairplay.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +78,7 @@ class AudioStreamServer(
     private var codec: MediaCodec? = null
     private var alac: AlacDecoder? = null      // software ALAC decoder (ct=2 system-audio path)
     private var audioTrack: AudioTrack? = null
+    private val audioDiagnostics = AudioTrackDiagnostics(sampleRate, channels)
     private var firstPcm = true
 
     // Decoded-audio jitter buffer: raw (post-dedup) RTP payloads handed from the receive thread to
@@ -353,7 +355,10 @@ class AudioStreamServer(
     private fun playAlacFrame(frame: ByteArray) {
         val pcm = alac?.decode(frame) ?: return
         if (firstPcm) { Logger.i("Audio: first decoded ALAC PCM (${pcm.size}B) → AudioTrack"); firstPcm = false }
-        audioTrack?.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+        audioTrack?.let { track ->
+            val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+            audioDiagnostics.noteWrite(track, written)
+        }
     }
 
     /** True if this RTP sequence was already processed (a redundant retransmission). */
@@ -390,7 +395,10 @@ class AudioStreamServer(
             if (firstPcm) { Logger.i("Audio: first decoded PCM (${pcm.size}B) → AudioTrack"); firstPcm = false }
             // Blocking write paces playback to the audio clock and drops no PCM. Safe here because
             // this runs on the dedicated playback thread, not the socket-receive thread.
-            audioTrack?.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+            audioTrack?.let { track ->
+                val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                audioDiagnostics.noteWrite(track, written)
+            }
             mc.releaseOutputBuffer(outIdx, false)
             outIdx = mc.dequeueOutputBuffer(info, 0)
         }

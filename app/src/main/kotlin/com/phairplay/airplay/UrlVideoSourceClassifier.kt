@@ -15,6 +15,15 @@ internal object UrlVideoSourceClassifier {
         "audio/x-mpegurl",
     )
 
+    /** Explicit progressive MIME can select the player without waiting for a 1 KiB body.
+     * Unknown/generic types still require bounded sniffing for extensionless HLS.
+     */
+    fun isKnownProgressiveMime(contentType: String?): Boolean =
+        contentType.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT) in setOf(
+            "video/mp4", "application/mp4", "video/webm", "video/quicktime",
+            "audio/mp4", "audio/mpeg", "audio/aac", "audio/flac", "audio/wav",
+        )
+
     fun classify(contentType: String?, prefix: ByteArray = ByteArray(0)): Result {
         val mimeType = contentType.orEmpty()
             .substringBefore(';')

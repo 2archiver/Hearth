@@ -114,6 +114,7 @@ class SettingsRepository(private val context: Context) {
         startOnBoot        = this[Keys.START_ON_BOOT]           ?: false,
         showDebugOverlay   = this[Keys.SHOW_DEBUG_OVERLAY]      ?: false,
         forceHighResolution = this[Keys.FORCE_HIGH_RESOLUTION]  ?: true,
+        playbackProfile = PlaybackProfile.fromStored(this[Keys.PLAYBACK_PROFILE]),
         mirrorAudioEnabled = this[Keys.MIRROR_AUDIO_ENABLED]    ?: true,
         autoCheckForUpdates  = this[Keys.AUTO_CHECK_UPDATES]    ?: true,
         autoDownloadUpdates  = this[Keys.AUTO_DOWNLOAD_UPDATES] ?: true,
@@ -130,6 +131,7 @@ class SettingsRepository(private val context: Context) {
         this[Keys.START_ON_BOOT]        = settings.startOnBoot
         this[Keys.SHOW_DEBUG_OVERLAY]   = settings.showDebugOverlay
         this[Keys.FORCE_HIGH_RESOLUTION] = settings.forceHighResolution
+        this[Keys.PLAYBACK_PROFILE] = settings.playbackProfile.name
         this[Keys.MIRROR_AUDIO_ENABLED] = settings.mirrorAudioEnabled
         this[Keys.AUTO_CHECK_UPDATES]   = settings.autoCheckForUpdates
         this[Keys.AUTO_DOWNLOAD_UPDATES] = settings.autoDownloadUpdates
@@ -147,6 +149,7 @@ class SettingsRepository(private val context: Context) {
         val AIRPLAY_ENABLED     = booleanPreferencesKey("airplay_enabled")
         val START_ON_BOOT       = booleanPreferencesKey("start_on_boot")
         val SHOW_DEBUG_OVERLAY  = booleanPreferencesKey("show_debug_overlay")
+        val PLAYBACK_PROFILE = stringPreferencesKey("playback_profile")
         val FORCE_HIGH_RESOLUTION = booleanPreferencesKey("force_high_resolution")
         val MIRROR_AUDIO_ENABLED = booleanPreferencesKey("mirror_audio_enabled")
         val AUTO_CHECK_UPDATES   = booleanPreferencesKey("auto_check_updates")
