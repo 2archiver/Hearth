@@ -50,6 +50,7 @@ jobs:
   release:
     name: Build & publish an immutable Google TV APK release
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     env:
       REPO: ${{ github.repository }}
@@ -191,14 +192,24 @@ jobs:
             echo "Signing: **community key** — later builds from this repository update in place." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Validate release automation, protocol logic and TV interface
+      - name: Validate release automation
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/test_extract_release_notes.py
           python3 tools/test_release_workflow.py
           python3 tools/check-workflows.py .github/workflows/*.yml
+
+      - name: Protocol tests and Android lint
+        shell: bash
+        run: |
+          set -euo pipefail
           ./gradlew :test-runner:test :app:lintGoogletvDebug --stacktrace 2>&1 | tee build.log
+
+      - name: TV interface and media regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
           ./gradlew :app:testGoogletvDebugUnitTest --tests 'com.phairplay.ui.HearthUiTest' --tests 'com.phairplay.airplay.VideoDecoderSpsTest' --tests 'com.phairplay.airplay.MediaHttpDataSourceTest' --stacktrace 2>&1 | tee -a build.log
 
       - name: Build release APK
@@ -231,7 +242,6 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           CODE: ${{ steps.meta.outputs.code }}
-          IS_MILESTONE: ${{ steps.meta.outputs.milestone }}
         shell: bash
         run: |
           set -euo pipefail
@@ -283,9 +293,7 @@ jobs:
           # One immutable release, one asset: the ONLY thing published is the version-named APK.
           # Its SHA-256 and versionCode are written into the release body below, which is where
           # a person reads them and where update/ReleaseParser scrapes them.
-          # Stable releases use the predictable Android TV name from the release brief; per-run
-          # development builds keep the embedded-version name (this one APK serves both ARM ABIs,
-          # but it is never advertised as a catch-all build).
+          # Use the embedded version without the platform suffix for both publication kinds.
           apk_name="Hearth${apk_version%-googletv}.apk"
           mkdir -p dist
           cp "$src" "dist/$apk_name"
@@ -389,6 +397,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            test-runner/build/reports/
+            test-runner/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload the signed APK as a workflow artifact
         if: always() && steps.assets.conclusion == 'success'
         uses: actions/upload-artifact@v4
@@ -397,21 +418,6 @@ jobs:
           path: dist/*.apk
           if-no-files-found: ignore
           retention-days: 30
-
-      - name: Rename the previous 2.5 release title
-        if: steps.meta.outputs.tag == 'v2.6.0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # User-requested transition only: preserve the old tag, APK and update metadata.
-          prior_json=$(gh api "repos/$REPO/releases/tags/v2.5.0-main.34")
-          prior_id=$(printf '%s' "$prior_json" | jq -r '.id')
-          prior_name=$(printf '%s' "$prior_json" | jq -r '.name')
-          if [[ "$prior_name" != "2.5 nightly" ]]; then
-            gh api -X PATCH "repos/$REPO/releases/$prior_id" -f name="2.5 nightly" >/dev/null
-          fi
 
       - name: Create the immutable version tag
         env:
@@ -447,7 +453,6 @@ jobs:
           set -euo pipefail
 
           python3 tools/extract_release_notes.py CHANGELOG.md "$VERSION" > dist/changelog-notes.md
-          short_sha="${GITHUB_SHA:0:7}"
           title="Hearth ${VERSION%-googletv}"
           apk_url="https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}"
           {
@@ -500,12 +505,15 @@ jobs:
             gh release create "$TAG" \
               "dist/$APK_NAME" \
               --repo "$REPO" --title "$title" --notes-file dist/release-notes.md \
-              --target "$GITHUB_SHA" --verify-tag
+              --target "$GITHUB_SHA" --verify-tag --latest=false
             existing_id=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id')
           fi
 
+          # Recheck immediately before promotion: main may have advanced while uploading assets.
+          # Create with --latest=false above so a stale release cannot become Latest implicitly.
           # GitHub's Latest designation is the only rolling pointer. No git tag is moved.
-          if [[ "$IS_CURRENT" == "true" ]]; then
+          publish_main_sha=$(gh api "repos/$REPO/commits/main" --jq '.sha')
+          if [[ "$IS_CURRENT" == "true" && "$publish_main_sha" == "$GITHUB_SHA" ]]; then
             gh api -X PATCH "repos/$REPO/releases/$existing_id" -f make_latest=true >/dev/null
             echo "Marked $TAG as GitHub's Latest release."
           else
@@ -553,3 +561,4 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -f body="$(cat "$report")" > /dev/null \
             || echo "::warning::Could not comment on the commit."
+

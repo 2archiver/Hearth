@@ -267,7 +267,7 @@ class StableMilestoneTest(unittest.TestCase):
         self.assertIn(f"## [{base}]", changelog)
 
     def test_validation_gates_run_before_the_tag_and_the_release(self):
-        validate = self.text.index("Validate release automation, protocol logic and TV interface")
+        validate = self.text.index("Validate release automation")
         build = self.text.index("Build release APK")
         verify_metadata = self.text.index("Verify APK metadata and collect release asset")
         verify_signature = self.text.index("Verify the APK signature")
@@ -327,12 +327,62 @@ class EfficientVerificationTest(unittest.TestCase):
         self.assertNotIn("dist/changes-since-last-build.md", release)
         self.assertIn("<details><summary>Build details</summary>", release)
 
-    def test_previous_release_rename_is_scoped_to_the_transition(self):
+    def test_historical_release_migration_is_removed(self):
         release = RELEASE_WORKFLOW.read_text()
-        self.assertIn("if: steps.meta.outputs.tag == 'v2.6.0'", release)
-        self.assertIn("releases/tags/v2.5.0-main.34", release)
-        self.assertIn('-f name="2.5 nightly"', release)
+        self.assertNotIn("Rename the previous", release)
+        self.assertNotIn("2.5 nightly", release)
+        self.assertNotIn("releases/tags/v2.5.0-main.34", release)
+
+    def test_validation_has_visible_stages_and_retained_failure_reports(self):
+        release = RELEASE_WORKFLOW.read_text()
+        for stage in ("Validate release automation", "Protocol tests and Android lint",
+                      "TV interface and media regression tests", "Build release APK"):
+            self.assertIn("- name: " + stage, release)
+        self.assertIn("timeout-minutes: 45", release)
+        start = release.index("      - name: Upload test and lint reports")
+        end = release.index("      - name:", start + 1)
+        upload = release[start:end]
+        self.assertIn("if: always()", upload)
+        for path in ("app/build/reports/", "app/build/test-results/", "test-runner/build/reports/"):
+            self.assertIn(path, upload)
+
+
+class PublicationFreshnessTest(unittest.TestCase):
+    def promotion(self, main_sha):
+        text = RELEASE_WORKFLOW.read_text()
+        start = text.index("          publish_main_sha=")
+        end = text.index("\n          {", start)
+        script = text[start:end]
+        setup = """set -euo pipefail
+REPO=test/hearth
+GITHUB_SHA=building
+IS_CURRENT=true
+existing_id=123
+TAG=v3.6
+# Simulate main changing after the early freshness check, while uploading the APK.
+gh() {
+  if [[ "$*" == *commits/main* ]]; then printf '%s' "$TEST_MAIN_SHA";
+  else printf '%s\\n' "$*" >&2; fi
+}
+"""
+        return subprocess.check_output(["bash", "-c", setup + script], text=True, stderr=subprocess.STDOUT,
+            env={**os.environ, "TEST_MAIN_SHA": main_sha})
+
+    def test_new_release_creation_does_not_implicitly_take_latest(self):
+        text = RELEASE_WORKFLOW.read_text()
+        self.assertIn('--target "$GITHUB_SHA" --verify-tag --latest=false', text)
+
+    def test_main_advancing_during_upload_prevents_latest_promotion(self):
+        output = self.promotion("newer-commit")
+        self.assertIn("make_latest=false", output)
+        self.assertNotIn("make_latest=true", output)
+
+    def test_current_build_is_promoted_after_the_final_check(self):
+        output = self.promotion("building")
+        self.assertIn("make_latest=true", output)
+        self.assertNotIn("make_latest=false", output)
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
