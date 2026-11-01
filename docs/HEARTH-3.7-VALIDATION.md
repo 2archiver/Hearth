@@ -60,6 +60,10 @@ CI uses the full standalone protocol suite plus app-only Media3 HTTP, decoder SP
 
 A supplementary unfiltered `:app:testGoogletvDebugUnitTest` attempt ran 638 tests with 26 failures: MdnsServiceTest (6), RaopRsaTest (1), ImmutableReleaseTest (6), UpdateInfoTest (12), NetworkUtilsTest (1). This is not recorded as a pass. The plain-JUnit duplicates in that task use AGP's default-return Android stubs (including JSON/Base64 behavior); the designated standalone JVM runner supplies real android-all classes instead. NetworkUtilsTest also expects `Hearth` where the current source intentionally defaults to `Apple TV`. These are outside the repository's configured Android subset. The original CI split is retained; no assertions or failed tests were deleted or suppressed. Do not describe this work as every repository test passing. Real mDNS/device lifecycle acceptance remains pending.
 
+## Baseline rotation confirmation
+
+On 1 November 2026, the maintainer confirmed that Hearth 3.6 rotation works well on the Chromecast. Treat that as the working baseline to preserve. The 3.7 TextureView rotation/flip transform is unchanged; 3.7 physical-device regression acceptance is still pending.
+
 ## Hardware performance comparison
 
 | Measurement | 3.6 baseline | 3.7 candidate |
@@ -78,10 +82,10 @@ A supplementary unfiltered `:app:testGoogletvDebugUnitTest` attempt ran 638 test
 
 APK size is a measured file-size comparison; both ABI filtering and dependency/shrinker changes contribute. It is not an isolated Media3 size benchmark. No device measurements or runtime percentage improvements are claimed. A receiver's render callback is not evidence of physical panel presentation. Local AudioTrack timestamps do not establish RTP/video synchronization; A/V offset remains N/A without a real common anchor.
 
-## Required real-device acceptance (all pending)
+## Required 3.7 real-device acceptance (all pending)
 
 - Chromecast Google TV 4K, Android14/API34 and ARMv7; record sender iPhone14/iOS27.2 and actual network.
-- Portrait → landscape right/left → portrait; fixed viewport, flips, fit and Surface recreation. The 3.6 transform remains unverified on this device.
+- Portrait → landscape right/left → portrait; fixed viewport, flips, fit and Surface recreation. The maintainer reports 3.6 rotation working well; verify that 3.7 preserves that behavior.
 - Rumble1080p, Safari MP4/HLS/extensionless HLS, native/Safari YouTube; controls, seeks, 30-minute sessions and reconnects.
 - Spotify phone/TV pause/resume, next track, volume, metadata, stable art and audio-only lifetime for 30 minutes.
 - Photos/slideshow transitions, stop/start, app backgrounding, sleep/wake, network interruption and second sender.
